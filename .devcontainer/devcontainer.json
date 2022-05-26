@@ -1,6 +1,6 @@
 // See https://aka.ms/vscode-remote/devcontainer.json for format details.
 {
-	"name": "HACS Rivian integration development",
+	"name": "Home Assistant Rivian integration development",
 	"image": "ghcr.io/ludeeus/devcontainer/integration:stable",
 	"context": "..",
 	"appPort": [
