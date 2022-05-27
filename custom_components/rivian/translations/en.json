@@ -1,0 +1,25 @@
+{
+    "config": {
+        "abort": {
+            "already_configured": "Device is already configured"
+        },
+        "error": {
+            "cannot_connect": "Failed to connect",
+            "invalid_auth": "Invalid authentication",
+            "unknown": "Unexpected error"
+        },
+        "step": {
+            "user": {
+                "data": {
+                    "password": "Password",
+                    "username": "Username",
+                    "client_id": "Client ID",
+                    "client_secret": "Client Secret",
+                    "otp": "Verification Code",
+                    "vin": "Vehicle Identification Number"
+                },
+                "title": "Setup your Rivian Integration"
+            }
+        }
+    }
+}

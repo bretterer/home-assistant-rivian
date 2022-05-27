@@ -1,0 +1,17 @@
+{
+    "domain": "rivian",
+    "name": "Rivian (Unofficial)",
+    "config_flow": true,
+    "documentation": "https://github.com/bretterer/home-assistant-rivian",
+    "requirements": [
+        "rivian-python-client>=0.0.1a0"
+    ],
+    "codeowners": [
+        "@bretterer"
+    ],
+    "iot_class": "cloud_polling",
+    "loggers": [
+        "rivian"
+    ],
+    "version": "0.0.1"
+}
