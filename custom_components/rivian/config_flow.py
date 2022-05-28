@@ -2,7 +2,7 @@
 import logging
 from typing import Any
 
-# import homeassistant.helpers.config_validation as cv
+from rivian import Rivian
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.data_entry_flow import FlowResult
@@ -13,15 +13,11 @@ from homeassistant.const import (
     CONF_CLIENT_SECRET,
 )
 
-# from homeassistant.core import callback
-
 from .const import (
     DOMAIN,
     CONF_OTP,
     CONF_VIN,
 )
-
-from rivian import Rivian
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -43,6 +39,7 @@ class RivianFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         self._client_id = None
         self._client_secret = None
         self._otp = None
+        self._vin = None
         self._access_token = None
         self._refresh_token = None
         self._session_token = None
