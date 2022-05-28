@@ -87,6 +87,9 @@ class RivianFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         config_data = {
             "access_token": self._access_token,
             "refresh_token": self._refresh_token,
+            "client_id": self._client_id,
+            "client_secret": self._client_secret,
+            "vin": self._vin,
         }
 
         return await self.async_create_entry(
@@ -98,6 +101,8 @@ class RivianFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         config_data = {
             "access_token": self._access_token,
             "refresh_token": self._refresh_token,
+            "client_id": self._client_id,
+            "client_secret": self._client_secret,
             "vin": self._vin,
         }
 
