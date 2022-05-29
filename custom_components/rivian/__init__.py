@@ -4,6 +4,8 @@ import asyncio
 import logging
 from typing import Any
 
+from rivian.exceptions import RivianExpiredTokenError
+
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.loader import async_get_integration
@@ -102,7 +104,7 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):  # type: ignore[misc]
                 vin=self._vin, access_token=self._access_token, properties=[]
             )
             return data
-        except Exception as ex:
+        except RivianExpiredTokenError as ex:
             _LOGGER.info(ex)
             _LOGGER.warning("Rivian token expired, refreshing")
             token = await self._api.refresh_access_token(
@@ -118,6 +120,8 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):  # type: ignore[misc]
             )
 
             return await self._async_update_data()
+        except Exception as ex:
+            _LOGGER.warning("Unknown Exception", ex)
 
 
 class RivianEntity(Entity):
