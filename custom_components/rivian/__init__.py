@@ -113,7 +113,6 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):  # type: ignore[misc]
             new_tokens = await token.json()
             data = {**self._entry.data}
             data[CONF_ACCESS_TOKEN] = new_tokens[CONF_ACCESS_TOKEN]
-            data[CONF_REFRESH_TOKEN] = new_tokens[CONF_REFRESH_TOKEN]
             self._hass.config_entries.async_update_entry(
                 self._entry, data=data, title="Rivian (Unofficial)"
             )
