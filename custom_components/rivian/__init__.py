@@ -1,15 +1,15 @@
 """Rivian (Unofficial)"""
 from __future__ import annotations
+from datetime import timedelta
 import asyncio
 import logging
 from typing import Any
-
-from rivian.exceptions import RivianExpiredTokenError
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.loader import async_get_integration
 from homeassistant.helpers.entity import Entity
+from homeassistant.util import slugify
 
 from homeassistant.const import Platform
 from homeassistant.const import (
@@ -27,6 +27,7 @@ from homeassistant.helpers.update_coordinator import (
 )
 
 from rivian import Rivian
+from rivian.exceptions import RivianExpiredTokenError
 
 from .const import (
     DOMAIN,
@@ -63,6 +64,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
 
     coordinator = RivianDataUpdateCoordinator(hass, client=client, entry=config_entry)
     await coordinator.async_config_entry_first_refresh()
+    config_entry.async_on_unload(config_entry.add_update_listener(update_listener))
 
     model = f"{(await async_get_integration(hass, DOMAIN)).version}"
 
@@ -74,6 +76,26 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
     hass.config_entries.async_setup_platforms(config_entry, PLATFORMS)
 
     return True
+
+
+async def update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Update listener."""
+    await hass.config_entries.async_reload(entry.entry_id)
+
+
+def get_entity_unique_id(config_entry_id: str, name: str) -> str:
+    """Get the unique_id for a Rivian entity."""
+    return f"{config_entry_id}:{DOMAIN}_{name}"
+
+
+def get_device_identifier(
+    entry: ConfigEntry, name: str | None = None
+) -> tuple[str, str]:
+    """Get a device identifier."""
+    if name:
+        return (DOMAIN, f"{entry.entry_id}:{DOMAIN}:{slugify(name)}")
+    else:
+        return (DOMAIN, f"{DOMAIN}:{entry.entry_id}")
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -95,33 +117,46 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):  # type: ignore[misc]
         self._refresh_token = entry.data.get(CONF_REFRESH_TOKEN)
         self._client_id = entry.data.get(CONF_CLIENT_ID)
         self._client_secret = entry.data.get(CONF_CLIENT_SECRET)
-        super().__init__(hass, _LOGGER, name=DOMAIN, update_interval=UPDATE_INTERVAL)
+        super().__init__(
+            hass,
+            _LOGGER,
+            name=DOMAIN,
+            update_interval=timedelta(seconds=UPDATE_INTERVAL),
+        )
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Update data via library."""
         try:
-            data = await self._api.get_vehicle_info(
-                vin=self._vin, access_token=self._access_token, properties=[]
+            vehicle_info = await self._api.get_vehicle_info(
+                vin=self._vin,
+                access_token=self._access_token,
+                properties=[
+                    "body/closures/door_FL_state",
+                    "body/closures/door_FL_locked_state",
+                    "dynamics/odometer/value",
+                ],
             )
-            return data
-        except RivianExpiredTokenError as ex:
-            _LOGGER.info(ex)
-            _LOGGER.warning("Rivian token expired, refreshing")
+            vijson = await vehicle_info.json()
+            _LOGGER.info("=== Vehicle Info ===\n\n%s\n\n=== Vehicle Info ===", vijson)
+
+            self.data = vehicle_info
+            return vehicle_info
+        except RivianExpiredTokenError:
+            _LOGGER.info("Rivian token expired, refreshing")
             token = await self._api.refresh_access_token(
                 self._refresh_token, self._client_id, self._client_secret
             )
-            _LOGGER.info("=== Rivian Refresh Token ===")
-            _LOGGER.info(token)
             new_tokens = await token.json()
             data = {**self._entry.data}
             data[CONF_ACCESS_TOKEN] = new_tokens[CONF_ACCESS_TOKEN]
             self._hass.config_entries.async_update_entry(
                 self._entry, data=data, title="Rivian (Unofficial)"
             )
+            self._access_token = new_tokens[CONF_ACCESS_TOKEN]
 
             return await self._async_update_data()
-        except Exception as ex:
-            _LOGGER.warning("Unknown Exception", ex)
+        except Exception:
+            _LOGGER.error("Unknown Exception while updating Rivian data")
 
 
 class RivianEntity(Entity):
