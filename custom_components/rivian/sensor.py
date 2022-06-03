@@ -2,20 +2,15 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
-import random
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.util import slugify
-from homeassistant.const import LENGTH_MILES
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 
 from homeassistant.components.sensor import (
     SensorEntity,
-    SensorStateClass,
 )
 
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -24,10 +19,12 @@ from .const import (
     ATTR_COORDINATOR,
     DOMAIN,
     NAME,
+    SENSORS,
 )
 
+from .data_classes import RivianSensorEntity
+
 from . import (
-    get_entity_unique_id,
     get_device_identifier,
     RivianEntity,
 )
@@ -42,14 +39,14 @@ async def async_setup_entry(
     coordinator = hass.data[DOMAIN][entry.entry_id][ATTR_COORDINATOR]
 
     _LOGGER.info("==== coordinator data ====")
-    coordData = await coordinator.data.json()
-    _LOGGER.info(coordData["data"]["dynamics/odometer/value"])
+    coord_data = coordinator.data
+    _LOGGER.info(coord_data["dynamics/odometer/value"])
     entities = []
-    for key, value in enumerate(coordData["data"]):
-
-        entities.append(
-            RivianSensor(coordinator, entry, value, coordData["data"][value])
-        )
+    for _, value in enumerate(coord_data):
+        if value in SENSORS:
+            entities.append(RivianSensor(coordinator, entry, SENSORS[value], value))
+        else:
+            _LOGGER.warning("Could not find a defined sensor for %s", value)
 
     async_add_entities(entities)
 
@@ -62,55 +59,44 @@ class RivianSensor(RivianEntity, CoordinatorEntity, SensorEntity):
     # _attr_state_class = SensorStateClass.MEASUREMENT
     # _attr_unique_id = "rivian:odometer"
 
-    def __init__(self, coordinator, config_entry, property_id, data):
+    def __init__(
+        self,
+        coordinator,
+        config_entry,
+        sensor: RivianSensorEntity,
+        prop_key: str,
+    ):
         """"""
-        RivianEntity.__init__(self, config_entry)
         CoordinatorEntity.__init__(self, coordinator)
-        self._coordinator = coordinator
-        self._data = data
-        self._name = slugify(property_id)
-        self._property_id = property_id
+        SensorEntity.__init__(self)
+        super().__init__(coordinator)
+        self._sensor = sensor
+        self.entity_description = sensor.entity_description
+        self.coordinator = coordinator
         self._config_entry = config_entry
+        self._name = self.entity_description.key  # sensor_description.name
+        self._prop_key = prop_key
+        self.entity_id = f"sensor.{self.entity_description.key}"
 
     @property
     def unique_id(self) -> str:
         """Return a unique ID to use for this entity."""
-        return get_entity_unique_id(self._config_entry.entry_id, self._name)
+        # return f"{DOMAIN}_{self._name}_{self._config_entry.entry_id}_123"
+        return f"{self._config_entry.entry_id}:{DOMAIN}_{self.name}"
 
     @property
     def device_info(self) -> DeviceInfo:
         """Get device information."""
         return {
-            "identifiers": {get_device_identifier(self._config_entry)},
+            "identifiers": {get_device_identifier(self._config_entry, self.name)},
             "name": NAME,
-            "model": self._get_model(),
             "manufacturer": NAME,
         }
 
     @property
-    def name(self) -> str:
-        """Return the name of the sensor."""
-        return slugify(self._name)
-
-    @property
     def native_value(self) -> str:
-        return self._get_native_value()
-
-    @property
-    def unit_of_measurement(self) -> str:
-        """Return the unit of measurement of the sensor."""
-        return LENGTH_MILES
-
-    @property
-    def icon(self) -> str:
-        """Return the icon of the sensor."""
-        return "mdi:speedometer"
-
-    def _get_native_value(self) -> str:
-        if self._property_id == "dynamics/odometer/value":
-            return round(self._data[1] / 1609.344, 2)
-        elif self._property_id == "body/closures/door_FL_locked_state":
-            return self._data[1]
-            # return random.randrange(1, 100000)
+        entity = self.coordinator.data[self._prop_key]
+        if self._sensor.value_lambda is None:
+            return entity[1]
         else:
-            return self._data[1]
+            return self._sensor.value_lambda(entity[1])

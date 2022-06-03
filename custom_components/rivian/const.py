@@ -3,11 +3,9 @@ from __future__ import annotations
 
 from typing import Final
 
-# from homeassistant.components.sensor import SensorDeviceClass, SensorEntityDescription
-# from homeassistant.helpers.entity import EntityCategory
-from homeassistant.const import (
-    LENGTH_MILES,
-)
+from homeassistant.const import LENGTH_MILES
+
+from .data_classes import RivianSensorEntity, RivianSensorEntityDescription
 
 NAME = "Rivian (Unofficial)"
 DOMAIN = "rivian"
@@ -27,27 +25,30 @@ CONF_ACCESS_TOKEN = "access_token"
 CONF_REFRESH_TOKEN = "refresh_token"
 
 
-# Sensors
-# SENSORS: Final[dict[str, SensorEntityDescription]] = {
-#     "dynamics/odometer/value": SensorEntityDescription(
-#         name="Odometer",
-#         icon="mdi:speedometer",
-#         key="dynamics/odometer/value",
-#         entity_category=EntityCategory.DIAGNOSTIC,
-#         device_class=SensorDeviceClass.TIMESTAMP,
-#         unit_of_measurement=LENGTH_MILES,
-#     ),
-# }
-
-# SENSORS: Final[dict[str, RivianEntity]] = {
-#     "dynamics/odometer/value": RivianEntity(
-#         entity_id=f"{DOMAIN}_dynamics_odometer_value",
-#         entity_description=RivianSensorEntityDescription(
-#             name="Odometer",
-#             icon="mdi:speedometer",
-#             key=f"{DOMAIN}_dynamics_odometer_value",
-#             native_unit_of_measurement=LENGTH_MILES,
-#         ),
-
-#     )
-# }
+SENSORS: Final[dict[str, RivianSensorEntity]] = {
+    "dynamics/odometer/value": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="Odometer",
+            icon="mdi:speedometer",
+            key=f"{DOMAIN}_dynamics_odometer_value",
+            native_unit_of_measurement=LENGTH_MILES,
+        ),
+        value_lambda=lambda v: round(v / 1609.344, 2),
+    ),
+    "body/closures/global_closure_state": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="Global Closure State",
+            icon="mdi:door",
+            key=f"{DOMAIN}_body_closure_global_closure_state",
+            native_unit_of_measurement=None,
+        )
+    ),
+    "body/closures/global_closure_locked_state": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="Global Closure Locked State",
+            icon="mdi:lock",
+            key=f"{DOMAIN}_body_closure_global_closure_locked_state",
+            native_unit_of_measurement=None,
+        )
+    ),
+}

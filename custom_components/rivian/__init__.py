@@ -1,9 +1,13 @@
 """Rivian (Unofficial)"""
 from __future__ import annotations
 from datetime import timedelta
-import asyncio
 import logging
 from typing import Any
+from ast import Expression
+
+from typing import Final
+
+from dataclasses import dataclass
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -11,17 +15,17 @@ from homeassistant.loader import async_get_integration
 from homeassistant.helpers.entity import Entity
 from homeassistant.util import slugify
 
+from homeassistant.components.sensor import (
+    SensorEntity,
+    SensorEntityDescription,
+)
 from homeassistant.const import Platform
 from homeassistant.const import (
-    CONF_PASSWORD,
-    CONF_USERNAME,
     CONF_CLIENT_ID,
     CONF_CLIENT_SECRET,
     ATTR_MODEL,
 )
 
-from homeassistant.data_entry_flow import FlowResult
-from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
 )
@@ -34,10 +38,10 @@ from .const import (
     VERSION,
     ISSUE_URL,
     UPDATE_INTERVAL,
-    CONF_VIN,
     CONF_ACCESS_TOKEN,
     CONF_REFRESH_TOKEN,
     ATTR_COORDINATOR,
+    SENSORS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -64,6 +68,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
 
     coordinator = RivianDataUpdateCoordinator(hass, client=client, entry=config_entry)
     await coordinator.async_config_entry_first_refresh()
+
     config_entry.async_on_unload(config_entry.add_update_listener(update_listener))
 
     model = f"{(await async_get_integration(hass, DOMAIN)).version}"
@@ -124,23 +129,23 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):  # type: ignore[misc]
             update_interval=timedelta(seconds=UPDATE_INTERVAL),
         )
 
-    async def _async_update_data(self) -> dict[str, Any]:
+    async def _async_update_data(self):
         """Update data via library."""
         try:
+            sensors = []
+            for _, val in enumerate(SENSORS):
+                sensors.append(val)
+
             vehicle_info = await self._api.get_vehicle_info(
                 vin=self._vin,
                 access_token=self._access_token,
-                properties=[
-                    "body/closures/door_FL_state",
-                    "body/closures/door_FL_locked_state",
-                    "dynamics/odometer/value",
-                ],
+                properties=sensors,
             )
             vijson = await vehicle_info.json()
-            _LOGGER.info("=== Vehicle Info ===\n\n%s\n\n=== Vehicle Info ===", vijson)
 
-            self.data = vehicle_info
-            return vehicle_info
+            vehicle_info_items = self.build_vehicle_info_dict(vijson)
+            return vehicle_info_items
+
         except RivianExpiredTokenError:
             _LOGGER.info("Rivian token expired, refreshing")
             token = await self._api.refresh_access_token(
@@ -157,6 +162,10 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):  # type: ignore[misc]
             return await self._async_update_data()
         except Exception:
             _LOGGER.error("Unknown Exception while updating Rivian data")
+
+    def build_vehicle_info_dict(self, vijson) -> dict[str, dict[str, Any]]:
+        """take the json output of vehicle_info and build a dictionary"""
+        return vijson["data"]
 
 
 class RivianEntity(Entity):
