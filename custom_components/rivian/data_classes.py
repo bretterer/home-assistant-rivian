@@ -15,7 +15,7 @@ class RivianSensorEntity(SensorEntity):
     """Rivian Specific Sensor Entity"""
 
     entity_description: SensorEntityDescription
-    value_lambda: Expression | None = None
+    value_lambda: Expression | None
 
 
 @dataclass

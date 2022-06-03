@@ -1,47 +1,33 @@
 """Rivian (Unofficial)"""
 from __future__ import annotations
-from datetime import timedelta
+
 import logging
-from typing import Any
 from ast import Expression
-
-from typing import Final
-
 from dataclasses import dataclass
+from datetime import timedelta
+from typing import Any, Final
 
+from homeassistant.components.sensor import SensorEntity, SensorEntityDescription
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import ATTR_MODEL, CONF_CLIENT_ID, CONF_CLIENT_SECRET, Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.loader import async_get_integration
 from homeassistant.helpers.entity import Entity
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.loader import async_get_integration
 from homeassistant.util import slugify
-
-from homeassistant.components.sensor import (
-    SensorEntity,
-    SensorEntityDescription,
-)
-from homeassistant.const import Platform
-from homeassistant.const import (
-    CONF_CLIENT_ID,
-    CONF_CLIENT_SECRET,
-    ATTR_MODEL,
-)
-
-from homeassistant.helpers.update_coordinator import (
-    DataUpdateCoordinator,
-)
 
 from rivian import Rivian
 from rivian.exceptions import RivianExpiredTokenError
 
 from .const import (
-    DOMAIN,
-    VERSION,
-    ISSUE_URL,
-    UPDATE_INTERVAL,
+    ATTR_COORDINATOR,
     CONF_ACCESS_TOKEN,
     CONF_REFRESH_TOKEN,
-    ATTR_COORDINATOR,
+    DOMAIN,
+    ISSUE_URL,
     SENSORS,
+    UPDATE_INTERVAL,
+    VERSION,
 )
 
 _LOGGER = logging.getLogger(__name__)
