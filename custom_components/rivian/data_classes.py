@@ -1,5 +1,5 @@
 """Rivian Specific Data Classes"""
-
+from __future__ import annotations
 from ast import Expression
 
 from dataclasses import dataclass
@@ -15,7 +15,7 @@ class RivianSensorEntity(SensorEntity):
     """Rivian Specific Sensor Entity"""
 
     entity_description: SensorEntityDescription
-    value_lambda: Expression | None
+    value_lambda: Expression | None = None
 
 
 @dataclass

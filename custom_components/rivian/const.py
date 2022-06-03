@@ -41,8 +41,7 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             icon="mdi:door",
             key=f"{DOMAIN}_body_closure_global_closure_state",
             native_unit_of_measurement=None,
-        ),
-        value_lambda=lambda v: v,
+        )
     ),
     "body/closures/global_closure_locked_state": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
@@ -50,7 +49,6 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             icon="mdi:lock",
             key=f"{DOMAIN}_body_closure_global_closure_locked_state",
             native_unit_of_measurement=None,
-        ),
-        value_lambda=lambda v: v,
+        )
     ),
 }
