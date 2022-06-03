@@ -81,14 +81,13 @@ class RivianSensor(RivianEntity, CoordinatorEntity, SensorEntity):
     @property
     def unique_id(self) -> str:
         """Return a unique ID to use for this entity."""
-        # return f"{DOMAIN}_{self._name}_{self._config_entry.entry_id}_123"
-        return f"{self._config_entry.entry_id}:{DOMAIN}_{self.name}"
+        return f"{DOMAIN}_{self._name}_{self._config_entry.entry_id}"
 
     @property
     def device_info(self) -> DeviceInfo:
         """Get device information."""
         return {
-            "identifiers": {get_device_identifier(self._config_entry, self.name)},
+            "identifiers": {get_device_identifier(self._config_entry)},
             "name": NAME,
             "manufacturer": NAME,
         }
