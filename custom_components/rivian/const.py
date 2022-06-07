@@ -3,7 +3,11 @@ from __future__ import annotations
 
 from typing import Final
 
-from homeassistant.const import LENGTH_MILES, LENGTH_KILOMETERS
+from homeassistant.const import (
+    LENGTH_MILES,
+    PRESSURE_PSI,
+    PERCENTAGE,
+)
 
 from .data_classes import RivianSensorEntity, RivianSensorEntityDescription
 
@@ -66,5 +70,56 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             icon="mdi:ev-station",
             key=f"{DOMAIN}_energy_storage_charger_vehicle_charger_state",
         )
+    ),
+    "dynamics/tires/tire_FL_pressure": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="Front Left Tire Pressure",
+            icon="mdi:tire",
+            key=f"{DOMAIN}_dynamics_tires_tire_fl_pressure",
+            native_unit_of_measurement=PRESSURE_PSI,
+        ),
+        value_lambda=lambda v: round(v * 14.503773773, None) if v < 4 else "--",
+    ),
+    "dynamics/tires/tire_FR_pressure": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="Front Right Tire Pressure",
+            icon="mdi:tire",
+            key=f"{DOMAIN}_dynamics_tires_tire_fr_pressure",
+            native_unit_of_measurement=PRESSURE_PSI,
+        ),
+        value_lambda=lambda v: round(v * 14.503773773, None) if v < 4 else "--",
+    ),
+    "dynamics/tires/tire_RL_pressure": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="Rear Left Tire Pressure",
+            icon="mdi:tire",
+            key=f"{DOMAIN}_dynamics_tires_tire_rl_pressure",
+            native_unit_of_measurement=PRESSURE_PSI,
+        ),
+        value_lambda=lambda v: round(v * 14.503773773, None) if v < 4 else "--",
+    ),
+    "dynamics/tires/tire_RR_pressure": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="Rear Right Tire Pressure",
+            icon="mdi:tire",
+            key=f"{DOMAIN}_dynamics_tires_tire_rr_pressure",
+            native_unit_of_measurement=PRESSURE_PSI,
+        ),
+        value_lambda=lambda v: round(v * 14.503773773, None) if v < 4 else "--",
+    ),
+    "energy_storage/charger/stored_user_range_select": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="Max Charge Setting",
+            icon="mdi:battery-charging-100",
+            key=f"{DOMAIN}_energy_storage_charger_stored_user_range_select",
+        )
+    ),
+    "energy_storage/charger/adjusted_soc": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="Current Charge",
+            icon="mdi:battery-charging",
+            key=f"{DOMAIN}_energy_storage_charger_adjusted_soc",
+            native_unit_of_measurement=PERCENTAGE,
+        ),
     ),
 }

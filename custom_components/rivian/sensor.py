@@ -54,11 +54,6 @@ async def async_setup_entry(
 class RivianSensor(RivianEntity, CoordinatorEntity, SensorEntity):
     """Representation of a Sensor."""
 
-    # _attr_name = "Odometer (Miles)"
-    # _attr_native_unit_of_measurement = LENGTH_MILES
-    # _attr_state_class = SensorStateClass.MEASUREMENT
-    # _attr_unique_id = "rivian:odometer"
-
     def __init__(
         self,
         coordinator,

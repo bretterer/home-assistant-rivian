@@ -34,7 +34,9 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS: list[Platform] = [Platform.SENSOR]
 
 
-async def async_setup(hass: HomeAssistant, config_entry: ConfigEntry):
+async def async_setup(
+    hass: HomeAssistant, config_entry: ConfigEntry
+):  # pylint: disable=unused-argument
     """Disallow configuration via YAML."""
     return True
 
@@ -146,7 +148,7 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):  # type: ignore[misc]
             self._access_token = new_tokens[CONF_ACCESS_TOKEN]
 
             return await self._async_update_data()
-        except Exception:
+        except Exception:  # pylint: disable=broad-except
             _LOGGER.error("Unknown Exception while updating Rivian data")
 
     def build_vehicle_info_dict(self, vijson) -> dict[str, dict[str, Any]]:
