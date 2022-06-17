@@ -76,25 +76,15 @@ class RivianFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         self._rivian = Rivian(self._client_id, self._client_secret)
         auth = await self._rivian.authenticate(self._username, self._password)
 
+        json_data = await auth.json()
         if auth.status == 401:
-            json_data = await auth.json()
             self._session_token = json_data["session_token"]
             return await self._show_otp_field()
 
         self._access_token = json_data["access_token"]
         self._refresh_token = json_data["refresh_token"]
 
-        config_data = {
-            "access_token": self._access_token,
-            "refresh_token": self._refresh_token,
-            "client_id": self._client_id,
-            "client_secret": self._client_secret,
-            "vin": self._vin,
-        }
-
-        return await self.async_create_entry(
-            title="Rivian (Unofficial)", data=config_data
-        )
+        return await self._show_vin_field()
 
     async def _async_create_entry(self) -> FlowResult:
         """Create the config entry."""
