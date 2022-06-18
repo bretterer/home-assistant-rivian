@@ -31,7 +31,7 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
-PLATFORMS: list[Platform] = [Platform.SENSOR]
+PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.DEVICE_TRACKER]
 
 
 async def async_setup(
@@ -124,6 +124,7 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):  # type: ignore[misc]
             for _, val in enumerate(SENSORS):
                 sensors.append(val)
 
+            sensors.append("$gnss")
             vehicle_info = await self._api.get_vehicle_info(
                 vin=self._vin,
                 access_token=self._access_token,

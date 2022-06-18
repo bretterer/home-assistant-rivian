@@ -38,9 +38,7 @@ async def async_setup_entry(
     """Set up the sensor entities"""
     coordinator = hass.data[DOMAIN][entry.entry_id][ATTR_COORDINATOR]
 
-    _LOGGER.info("==== coordinator data ====")
     coord_data = coordinator.data
-    _LOGGER.info(coord_data["dynamics/odometer/value"])
     entities = []
     for _, value in enumerate(coord_data):
         if value in SENSORS:
