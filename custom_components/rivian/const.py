@@ -121,5 +121,6 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             key=f"{DOMAIN}_energy_storage_charger_adjusted_soc",
             native_unit_of_measurement=PERCENTAGE,
         ),
+        value_lambda=lambda v: round(v, None),
     ),
 }
