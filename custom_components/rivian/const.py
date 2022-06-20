@@ -31,14 +31,13 @@ CONF_REFRESH_TOKEN = "refresh_token"
 
 
 SENSORS: Final[dict[str, RivianSensorEntity]] = {
-    "dynamics/odometer/value": RivianSensorEntity(
+    "body/closures/global_closure_locked_state": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
-            name="Odometer",
-            icon="mdi:speedometer",
-            key=f"{DOMAIN}_dynamics_odometer_value",
-            native_unit_of_measurement=LENGTH_MILES,
-        ),
-        value_lambda=lambda v: round(v / 1609.344, 2),
+            name="Global Closure Locked State",
+            icon="mdi:lock",
+            key=f"{DOMAIN}_body_closure_global_closure_locked_state",
+            native_unit_of_measurement=None,
+        )
     ),
     "body/closures/global_closure_state": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
@@ -48,29 +47,26 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             native_unit_of_measurement=None,
         )
     ),
-    "body/closures/global_closure_locked_state": RivianSensorEntity(
+    "core/power_modes/power_state": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
-            name="Global Closure Locked State",
-            icon="mdi:lock",
-            key=f"{DOMAIN}_body_closure_global_closure_locked_state",
-            native_unit_of_measurement=None,
-        )
+            name="Power State",
+            key=f"{DOMAIN}_core_power_modes_power_state",
+        ),
     ),
-    "energy_storage/vehicle_energy/vehicle_range": RivianSensorEntity(
+    "dynamics/odometer/value": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
-            name="Estimated Vehicle Range",
-            icon="mdi:map-marker-distance",
-            key=f"{DOMAIN}_energy_storage_vehicle_energy_vehicle_range",
+            name="Odometer",
+            icon="mdi:speedometer",
+            key=f"{DOMAIN}_dynamics_odometer_value",
             native_unit_of_measurement=LENGTH_MILES,
         ),
-        value_lambda=lambda v: round(v * 0.6213711922, None),
+        value_lambda=lambda v: round(v / 1609.344, 2),
     ),
-    "energy_storage/charger/vehicle_charger_state": RivianSensorEntity(
+    "dynamics/propulsion_status/PRNDL": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
-            name="Charging Status",
-            icon="mdi:ev-station",
-            key=f"{DOMAIN}_energy_storage_charger_vehicle_charger_state",
-        )
+            name="Gear Selector",
+            key=f"{DOMAIN}_dynamics_propulsion_status_prndl",
+        ),
     ),
     "dynamics/tires/tire_FL_pressure": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
@@ -108,13 +104,6 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
         ),
         value_lambda=lambda v: round(v * 14.503773773, None) if v < 4 else "--",
     ),
-    "energy_storage/charger/stored_user_range_select": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="Max Charge Setting",
-            icon="mdi:battery-charging-100",
-            key=f"{DOMAIN}_energy_storage_charger_stored_user_range_select",
-        )
-    ),
     "energy_storage/charger/adjusted_soc": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Current Charge",
@@ -123,24 +112,35 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             native_unit_of_measurement=PERCENTAGE,
         ),
     ),
-   "thermal/hvac_cabin_control/cabin_temperature": RivianSensorEntity(
+    "energy_storage/charger/stored_user_range_select": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="Max Charge Setting",
+            icon="mdi:battery-charging-100",
+            key=f"{DOMAIN}_energy_storage_charger_stored_user_range_select",
+        )
+    ),
+    "energy_storage/charger/vehicle_charger_state": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="Charging Status",
+            icon="mdi:ev-station",
+            key=f"{DOMAIN}_energy_storage_charger_vehicle_charger_state",
+        )
+    ),
+    "energy_storage/vehicle_energy/vehicle_range": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="Estimated Vehicle Range",
+            icon="mdi:map-marker-distance",
+            key=f"{DOMAIN}_energy_storage_vehicle_energy_vehicle_range",
+            native_unit_of_measurement=LENGTH_MILES,
+        ),
+        value_lambda=lambda v: round(v * 0.6213711922, None),
+    ),
+    "thermal/hvac_cabin_control/cabin_temperature": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Cabin Temperature",
             icon="mdi:thermometer",
             key=f"{DOMAIN}_thermal_hvac_cabin_control_cabin_temperature",
             native_unit_of_measurement=TEMP_CELSIUS,
-        ),
-    ),
-   "dynamics/propulsion_status/PRNDL": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="Gear Selector",
-            key=f"{DOMAIN}_dynamics_propulsion_status_prndl",
-        ),
-    ),
-   "core/power_modes/power_state": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="Power State",
-            key=f"{DOMAIN}_core_power_modes_power_state",
         ),
     ),
 }
