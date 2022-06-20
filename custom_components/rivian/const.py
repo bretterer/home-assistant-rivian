@@ -7,6 +7,7 @@ from homeassistant.const import (
     LENGTH_MILES,
     PRESSURE_PSI,
     PERCENTAGE,
+    TEMP_CELCIUS,
 )
 
 from .data_classes import RivianSensorEntity, RivianSensorEntityDescription
@@ -120,6 +121,26 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             icon="mdi:battery-charging",
             key=f"{DOMAIN}_energy_storage_charger_adjusted_soc",
             native_unit_of_measurement=PERCENTAGE,
+        ),
+    ),
+   "thermal/hvac_cabin_control/cabin_temperature": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="Cabin Temperature",
+            icon="mdi:thermometer",
+            key=f"{DOMAIN}_thermal_hvac_cabin_control_cabin_temperature",
+            native_unit_of_measurement=TEMP_CELSIUS,
+        ),
+    ),
+   "dynamics/propulsion_status/PRNDL": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="Gear Selector",
+            key=f"{DOMAIN}_dynamics_propulsion_status_prndl",
+        ),
+    ),
+   "core/power_modes/power_state": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="Power State",
+            key=f"{DOMAIN}_core_power_modes_power_state",
         ),
     ),
 }
