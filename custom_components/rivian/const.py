@@ -142,5 +142,6 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             key=f"{DOMAIN}_thermal_hvac_cabin_control_cabin_temperature",
             native_unit_of_measurement=TEMP_CELSIUS,
         ),
+        value_lambda=lambda v: round(v, None),
     ),
 }
