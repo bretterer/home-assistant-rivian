@@ -7,7 +7,7 @@ from homeassistant.const import (
     LENGTH_MILES,
     PRESSURE_PSI,
     PERCENTAGE,
-    TEMP_CELCIUS,
+    TEMP_FAHRENHEIT,
 )
 
 from .data_classes import RivianSensorEntity, RivianSensorEntityDescription
@@ -140,8 +140,8 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             name="Cabin Temperature",
             icon="mdi:thermometer",
             key=f"{DOMAIN}_thermal_hvac_cabin_control_cabin_temperature",
-            native_unit_of_measurement=TEMP_CELSIUS,
+            native_unit_of_measurement=TEMP_FAHRENHEIT,
         ),
-        value_lambda=lambda v: round(v, None),
+        value_lambda=lambda v: round((v * (9 / 5)) + 32, None),
     ),
 }
