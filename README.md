@@ -47,6 +47,10 @@ Your vehicle must be in delivered status and in your posession for this integrat
 | Estimated Vehicle Range     | sensor.rivian_energy_storage_vehicle_energy_vehicle_range     | Estimated range based on current drive mode                      |
 | Cabin Temperature           | sensor.rivian_thermal_hvac_cabin_control_cabin_temperature    | Current temperature of cabin in `TEMP_FAHRENHEIT`                |
 
+
+## Location tracking
+This integration uses the Rivian's GNSS sensors for device tracking. View the location on the map in Home Assistant.
+
 ---
 
 [commits-shield]: https://img.shields.io/github/commit-activity/w/bretterer/home-assistant-rivian?style=flat-square
