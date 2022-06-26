@@ -8,6 +8,8 @@ from homeassistant.const import (
     PRESSURE_PSI,
     PERCENTAGE,
     TEMP_FAHRENHEIT,
+    ELECTRIC_CURRENT_AMPERE,
+    ELECTRIC_POTENTIAL_VOLT,
 )
 
 from .data_classes import RivianSensorEntity, RivianSensorEntityDescription
@@ -143,5 +145,22 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             native_unit_of_measurement=TEMP_FAHRENHEIT,
         ),
         value_lambda=lambda v: round((v * (9 / 5)) + 32, None),
+    ),
+    "energy_storage/main/current": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="Battery Pack Current",
+            icon="mdi:current-dc",
+            key=f"{DOMAIN}_energy_storage_main_current",
+            native_unit_of_measurement=ELECTRIC_CURRENT_AMPERE,
+        ),
+        value_lambda=lambda v: v * -1,
+    ),
+    "energy_storage/main/voltage": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="Battery Pack Voltage",
+            icon="mdi:lightning-bolt",
+            key=f"{DOMAIN}_energy_storage_main_voltage",
+            native_unit_of_measurement=ELECTRIC_POTENTIAL_VOLT,
+        ),
     ),
 }

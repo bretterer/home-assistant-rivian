@@ -1,0 +1,56 @@
+utc [s]: Current UTC timestamp (epoch) in seconds (note, not milliseconds!)
+
+soc [SoC %]: State of Charge of the vehicle (what's displayed on the dashboard of the vehicle is preferred)
+    "energy_storage/charger/adjusted_soc"
+
+power [kW]: Instantaneous power output/input to the vehicle. Power output is positive, power input is negative (charging)
+    kW = "energy_storage/main/current" * "energy_storage/main/voltage" / -1000
+
+speed [km/h]: Vehicle speed
+    "dynamics/propulsion_status/vehicle_speed_VDM"
+
+lat [°]: Current vehicle latitude
+    "telematics/gnss/position"->"lat"
+
+lon [°]: Current vehicle longitude
+    "telematics/gnss/position"->"lon"
+
+is_charging [bool or 1/0]: Determines vehicle state. 0 is not charging, 1 is charging
+    "energy_storage/charger/vehicle_charger_state" ? "charging_ready" : "charging_active"
+
+is_dcfc [bool or 1/0]: If is_charging, indicate if this is DC fast charging
+    ???
+
+is_parked [bool or 1/0]: If the vehicle gear is in P (or the driver has left the car)
+    "dynamics/propulsion_status/PRNDL" == "park"
+
+capacity [kWh]: Estimated usable battery capacity (can be given together with soh, but usually not)
+    ???
+
+kwh_charged [kWh]: Measured energy input while charging. Typically a cumulative total, but also supports individual sessions.
+soh [%]: State of Health of the battery. 100 = no degradation
+    "energy_storage/SOH/rp_SOH_Q_pack"
+
+heading [°]: Current heading of the vehicle. This will take priority over phone heading, so don't include if not accurate.
+    "telematics/gnss/bearing"
+
+elevation [m]: Vehicle's current elevation. If not given, will be looked up from location (but may miss 3D structures)
+    "telematics/gnss/altitude"
+
+ext_temp [°C]: Outside temperature measured by the vehicle
+    ???
+
+batt_temp [°C]: Battery temperature
+    ???
+
+voltage [V]: Battery pack voltage
+    "energy_storage/main/voltage"
+
+current [A]: Battery pack current (similar to power: output is positive, input (charging) is negative.)
+    "energy_storage/main/current"
+
+odometer [km]: Current odometer reading in km.
+    "dynamics/odometer/value" / 1000
+
+est_battery_range [km]: Estimated remaining range of the vehicle (according to the vehicle)
+    "energy_storage/vehicle_energy/vehicle_range"
