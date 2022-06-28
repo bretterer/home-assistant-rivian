@@ -69,7 +69,7 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
     "dynamics/odometer/value": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Odometer",
-            icon="mdi:speedometer",
+            icon="mdi:counter",
             key=f"{DOMAIN}_dynamics_odometer_value",
             native_unit_of_measurement=LENGTH_MILES,
         ),
@@ -84,7 +84,7 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
     "dynamics/propulsion_status/vehicle_speed_VDM": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Vehicle Speed",
-            icon="mdi:battery-heart",
+            icon="mdi:speedometer",
             key=f"{DOMAIN}_dynamics_propulsion_status_vehicle_speed_VDM",
             native_unit_of_measurement=SPEED_MILES_PER_HOUR,
         ),
@@ -199,6 +199,14 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             native_unit_of_measurement=PERCENTAGE,
         ),
     ),
+    "energy_storage/temperature_cell/T_cell_measured_avg": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="Battery Temperature",
+            icon="mdi:thermometer",
+            key=f"{DOMAIN}_energy_storage_temperature_cell_T_cell_measured_avg",
+            native_unit_of_measurement=TEMP_CELSIUS,
+        ),
+    ),
     "energy_storage/charger/wall_power_into_vehicle_actual": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Charging Speed",
@@ -207,11 +215,11 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             native_unit_of_measurement=POWER_KILO_WATT,
         ),
     ),
-    "energy_storage/charger/EMS_charger_evse_type": RivianSensorEntity(
+    "energy_storage/charger/charger_type_detected": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Charging Station Type",
             icon="mdi:ev-plug-ccs1",
-            key=f"{DOMAIN}_energy_storage_charger_EMS_charger_evse_type",
+            key=f"{DOMAIN}_energy_storage_charger_charger_type_detected",
         ),
     ),
     "thermal/hvac_cabin_control/cabin_temperature": RivianSensorEntity(
