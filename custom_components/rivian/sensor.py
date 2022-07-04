@@ -32,20 +32,13 @@ from . import (
 _LOGGER: logging.Logger = logging.getLogger(__name__)
 
 
-async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
-):
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback):
     """Set up the sensor entities"""
     coordinator = hass.data[DOMAIN][entry.entry_id][ATTR_COORDINATOR]
 
-    coord_data = coordinator.data
     entities = []
-    for _, value in enumerate(coord_data):
-        if value in SENSORS:
-            entities.append(RivianSensor(coordinator, entry, SENSORS[value], value))
-        else:
-            _LOGGER.warning("Could not find a defined sensor for %s", value)
-
+    for _, value in enumerate(SENSORS):
+        entities.append(RivianSensor(coordinator, entry, SENSORS[value], value))
     async_add_entities(entities)
 
 
