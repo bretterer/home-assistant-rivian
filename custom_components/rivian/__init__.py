@@ -2,11 +2,10 @@
 from __future__ import annotations
 
 import logging
-from ast import Expression
-from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any, Final
+from typing import Any
 
+import async_timeout
 from homeassistant.components.sensor import SensorEntity, SensorEntityDescription
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_MODEL, CONF_CLIENT_ID, CONF_CLIENT_SECRET, Platform
@@ -55,7 +54,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
     )
 
     coordinator = RivianDataUpdateCoordinator(hass, client=client, entry=config_entry)
-    await coordinator.async_config_entry_first_refresh()
+    await coordinator.async_refresh()
 
     config_entry.async_on_unload(config_entry.add_update_listener(update_listener))
 
@@ -81,9 +80,7 @@ def get_entity_unique_id(config_entry_id: str, name: str) -> str:
     return f"{config_entry_id}:{DOMAIN}_{name}"
 
 
-def get_device_identifier(
-    entry: ConfigEntry, name: str | None = None
-) -> tuple[str, str]:
+def get_device_identifier(entry: ConfigEntry, name: str | None = None) -> tuple[str, str]:
     """Get a device identifier."""
     if name:
         return (DOMAIN, f"{entry.entry_id}:{DOMAIN}:{slugify(name)}")
@@ -150,7 +147,7 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):  # type: ignore[misc]
 
             return await self._async_update_data()
         except Exception:  # pylint: disable=broad-except
-            _LOGGER.error("Unknown Exception while updating Rivian data")
+            _LOGGER.error("Unknown Exception while updating Rivian data", exc_info=1)
 
     def build_vehicle_info_dict(self, vijson) -> dict[str, dict[str, Any]]:
         """take the json output of vehicle_info and build a dictionary"""
