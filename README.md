@@ -51,6 +51,9 @@ Your vehicle must be in delivered status and in your posession for this integrat
 ## Location tracking
 This integration uses the Rivian's GNSS sensors for device tracking. View the location on the map in Home Assistant.
 
+## Special Thanks
+- [jrgutier](https://github.com/jrgutier) - Helped with getting information on the Rivian API
+
 ---
 
 [commits-shield]: https://img.shields.io/github/commit-activity/w/bretterer/home-assistant-rivian?style=flat-square
