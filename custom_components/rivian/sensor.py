@@ -32,14 +32,16 @@ from . import (
 _LOGGER: logging.Logger = logging.getLogger(__name__)
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback):
+async def async_setup_entry(
+    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+):
     """Set up the sensor entities"""
     coordinator = hass.data[DOMAIN][entry.entry_id][ATTR_COORDINATOR]
 
     entities = []
     for _, value in enumerate(SENSORS):
         entities.append(RivianSensor(coordinator, entry, SENSORS[value], value))
-    async_add_entities(entities)
+    async_add_entities(entities, True)
 
 
 class RivianSensor(RivianEntity, CoordinatorEntity, SensorEntity):
@@ -80,8 +82,11 @@ class RivianSensor(RivianEntity, CoordinatorEntity, SensorEntity):
 
     @property
     def native_value(self) -> str:
-        entity = self.coordinator.data[self._prop_key]
-        if self._sensor.value_lambda is None:
-            return entity[1]
-        else:
-            return self._sensor.value_lambda(entity[1])
+        try:
+            entity = self.coordinator.data[self._prop_key]
+            if self._sensor.value_lambda is None:
+                return entity[1]
+            else:
+                return self._sensor.value_lambda(entity[1])
+        except KeyError:
+            return None
