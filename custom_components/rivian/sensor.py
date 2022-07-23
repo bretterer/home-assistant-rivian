@@ -7,6 +7,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.const import STATE_UNAVAILABLE
 
 
 from homeassistant.components.sensor import (
@@ -82,8 +83,11 @@ class RivianSensor(RivianEntity, CoordinatorEntity, SensorEntity):
 
     @property
     def native_value(self) -> str:
-        entity = self.coordinator.data[self._prop_key]
-        if self._sensor.value_lambda is None:
-            return entity[1]
-        else:
-            return self._sensor.value_lambda(entity[1])
+        try:
+            entity = self.coordinator.data[self._prop_key]
+            if self._sensor.value_lambda is None:
+                return entity[1]
+            else:
+                return self._sensor.value_lambda(entity[1])
+        except KeyError:
+            return STATE_UNAVAILABLE
