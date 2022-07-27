@@ -34,6 +34,7 @@ class RivianBinarySensorEntityDescription(BinarySensorEntityDescription):
 
     # Value to consider binary sensor to be "on"
     on_value: bool | float | int | str = True
+    negate: bool = False
 
 
 @dataclass

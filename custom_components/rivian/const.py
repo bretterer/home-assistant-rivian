@@ -595,7 +595,8 @@ BINARY_SENSORS: Final[dict[str, RivianBinarySensorEntity]] = {
         entity_description=RivianBinarySensorEntityDescription(
             name="Cabin Climate Preconditioning",
             key=f"{DOMAIN}_thermal_tmm_status_cabin_precondition_state",
-            on_value="active",
+            on_value=["undefined", "unavailable"],
+            negate=True,
         )
     ),
 }

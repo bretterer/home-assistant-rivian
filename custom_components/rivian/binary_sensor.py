@@ -92,6 +92,9 @@ class RivianBinarySensor(RivianEntity, CoordinatorEntity, BinarySensorEntity):
 
         try:
             entity = self.coordinator.data[self._prop_key]
-            return entity[1] == self.entity_description.on_value
+            values = self.entity_description.on_value
+            values = [values] if isinstance(values, str) else values
+            result = entity[1] in values
+            return result if not self.entity_description.negate else not result
         except KeyError:
             return None
