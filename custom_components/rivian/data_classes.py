@@ -9,6 +9,11 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
 )
 
+from homeassistant.components.binary_sensor import (
+    BinarySensorEntity,
+    BinarySensorEntityDescription,
+)
+
 
 @dataclass
 class RivianSensorEntity(SensorEntity):
@@ -21,3 +26,18 @@ class RivianSensorEntity(SensorEntity):
 @dataclass
 class RivianSensorEntityDescription(SensorEntityDescription):
     """Rivian Sensor Entity Description"""
+
+
+@dataclass
+class RivianBinarySensorEntityDescription(BinarySensorEntityDescription):
+    """Describes a Rivian binary sensor."""
+
+    # Value to consider binary sensor to be "on"
+    on_value: bool | float | int | str = True
+
+
+@dataclass
+class RivianBinarySensorEntity(BinarySensorEntity):
+    """Rivian Specific Sensor Entity"""
+
+    entity_description: RivianBinarySensorEntityDescription

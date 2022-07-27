@@ -5,8 +5,6 @@ import logging
 from datetime import timedelta
 from typing import Any
 
-import async_timeout
-from homeassistant.components.sensor import SensorEntity, SensorEntityDescription
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_MODEL, CONF_CLIENT_ID, CONF_CLIENT_SECRET, Platform
 from homeassistant.core import HomeAssistant
@@ -25,12 +23,13 @@ from .const import (
     DOMAIN,
     ISSUE_URL,
     SENSORS,
+    BINARY_SENSORS,
     UPDATE_INTERVAL,
     VERSION,
 )
 
 _LOGGER = logging.getLogger(__name__)
-PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.DEVICE_TRACKER]
+PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BINARY_SENSOR, Platform.DEVICE_TRACKER]
 
 
 async def async_setup(
@@ -114,38 +113,41 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):  # type: ignore[misc]
             update_interval=timedelta(seconds=UPDATE_INTERVAL),
         )
 
+    async def _update_api_data(self):
+        """Update data via api."""
+        sensors = []
+        for _, val in enumerate(SENSORS):
+            sensors.append(val)
+
+        for _, val in enumerate(BINARY_SENSORS):
+            sensors.append(val)
+
+        sensors.append("$gnss")
+        vehicle_info = await self._api.get_vehicle_info(
+            vin=self._vin,
+            access_token=self._access_token,
+            properties=sensors,
+        )
+        vijson = await vehicle_info.json()
+
+        vehicle_info_items = self.build_vehicle_info_dict(vijson)
+        return vehicle_info_items
+
     async def _async_update_data(self):
-        """Update data via library."""
-        for i in range(3):
-            try:
-                sensors = []
-                for _, val in enumerate(SENSORS):
-                    sensors.append(val)
-
-                sensors.append("$gnss")
-                vehicle_info = await self._api.get_vehicle_info(
-                    vin=self._vin,
-                    access_token=self._access_token,
-                    properties=sensors,
-                )
-                vijson = await vehicle_info.json()
-
-                vehicle_info_items = self.build_vehicle_info_dict(vijson)
-                return vehicle_info_items
-
-            except RivianExpiredTokenError:
-                _LOGGER.info("Rivian token expired, refreshing")
-                token = await self._api.refresh_access_token(
-                    self._refresh_token, self._client_id, self._client_secret
-                )
-                new_tokens = await token.json()
-                self._access_token = new_tokens[CONF_ACCESS_TOKEN]
-                continue
-            except Exception as err:  # pylint: disable=broad-except
-                _LOGGER.error("Unknown Exception while updating Rivian data", exc_info=1)
-                raise Exception(f"Error communicating with API: {err}")
-            else:
-                break
+        """Update data via library, refresh token if necessary."""
+        try:
+            return await self._update_api_data()
+        except RivianExpiredTokenError:
+            _LOGGER.info("Rivian token expired, refreshing")
+            token = await self._api.refresh_access_token(
+                self._refresh_token, self._client_id, self._client_secret
+            )
+            new_tokens = await token.json()
+            self._access_token = new_tokens[CONF_ACCESS_TOKEN]
+            return await self._update_api_data()
+        except Exception as err:  # pylint: disable=broad-except
+            _LOGGER.error("Unknown Exception while updating Rivian data", exc_info=1)
+            raise Exception("Error communicating with API") from err
 
     def build_vehicle_info_dict(self, vijson) -> dict[str, dict[str, Any]]:
         """take the json output of vehicle_info and build a dictionary"""

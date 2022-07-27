@@ -8,9 +8,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-
-from homeassistant.components.sensor import (
-    SensorEntity,
+from homeassistant.components.binary_sensor import (
+    BinarySensorEntity,
 )
 
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -19,10 +18,10 @@ from .const import (
     ATTR_COORDINATOR,
     DOMAIN,
     NAME,
-    SENSORS,
+    BINARY_SENSORS,
 )
 
-from .data_classes import RivianSensorEntity
+from .data_classes import RivianBinarySensorEntity
 
 from . import (
     get_device_identifier,
@@ -39,31 +38,31 @@ async def async_setup_entry(
     coordinator = hass.data[DOMAIN][entry.entry_id][ATTR_COORDINATOR]
 
     entities = []
-    for _, value in enumerate(SENSORS):
+    for _, value in enumerate(BINARY_SENSORS):
         entities.append(
-            RivianSensor(
+            RivianBinarySensor(
                 coordinator=coordinator,
                 config_entry=entry,
-                sensor=SENSORS[value],
+                sensor=BINARY_SENSORS[value],
                 prop_key=value,
             )
         )
     async_add_entities(entities, True)
 
 
-class RivianSensor(RivianEntity, CoordinatorEntity, SensorEntity):
-    """Representation of a Sensor."""
+class RivianBinarySensor(RivianEntity, CoordinatorEntity, BinarySensorEntity):
+    """Rivian Binary Sensor Entity."""
 
     def __init__(
         self,
         coordinator,
         config_entry,
-        sensor: RivianSensorEntity,
+        sensor: RivianBinarySensorEntity,
         prop_key: str,
     ):
         """"""
         CoordinatorEntity.__init__(self, coordinator)
-        SensorEntity.__init__(self)
+        BinarySensorEntity.__init__(self)
         super().__init__(coordinator)
         self._sensor = sensor
         self.entity_description = sensor.entity_description
@@ -71,7 +70,7 @@ class RivianSensor(RivianEntity, CoordinatorEntity, SensorEntity):
         self._config_entry = config_entry
         self._name = self.entity_description.key
         self._prop_key = prop_key
-        self.entity_id = f"sensor.{self.entity_description.key}"
+        self.entity_id = f"binary_sensor.{self.entity_description.key}"
 
     @property
     def unique_id(self) -> str:
@@ -88,12 +87,11 @@ class RivianSensor(RivianEntity, CoordinatorEntity, SensorEntity):
         }
 
     @property
-    def native_value(self) -> str:
+    def is_on(self) -> bool:
+        """Return true if sensor is on."""
+
         try:
             entity = self.coordinator.data[self._prop_key]
-            if self._sensor.value_lambda is None:
-                return entity[1]
-            else:
-                return self._sensor.value_lambda(entity[1])
+            return entity[1] == self.entity_description.on_value
         except KeyError:
             return None
