@@ -88,6 +88,7 @@ class RivianDeviceEntity(CoordinatorEntity, TrackerEntity):
             "altitude": self._tracker_data[3],
             "heading": self._tracker_data[4],
             "speed": self._tracker_data[5],
+            "last_update": self._tracker_data[0],
         }
 
     @callback

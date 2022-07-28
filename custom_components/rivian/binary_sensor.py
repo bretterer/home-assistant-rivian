@@ -98,3 +98,14 @@ class RivianBinarySensor(RivianEntity, CoordinatorEntity, BinarySensorEntity):
             return result if not self.entity_description.negate else not result
         except KeyError:
             return None
+
+    @property
+    def extra_state_attributes(self):
+        """Return the state attributes of the device."""
+        try:
+            entity = self.coordinator.data[self._prop_key]
+            return {
+                "last_update": entity[0],
+            }
+        except KeyError:
+            return None

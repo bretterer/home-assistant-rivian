@@ -97,3 +97,14 @@ class RivianSensor(RivianEntity, CoordinatorEntity, SensorEntity):
                 return self._sensor.value_lambda(entity[1])
         except KeyError:
             return None
+
+    @property
+    def extra_state_attributes(self):
+        """Return the state attributes of the device."""
+        try:
+            entity = self.coordinator.data[self._prop_key]
+            return {
+                "last_update": entity[0],
+            }
+        except KeyError:
+            return None
