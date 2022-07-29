@@ -6,8 +6,8 @@ import logging
 from homeassistant.components.device_tracker import SOURCE_TYPE_GPS
 from homeassistant.components.device_tracker.config_entry import TrackerEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.update_coordinator import CoordinatorEntity, DataUpdateCoordinator
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import EntityDescription
 
@@ -26,26 +26,24 @@ async def async_setup_entry(
 
     coordinator = hass.data[DOMAIN][entry.entry_id][ATTR_COORDINATOR]
 
-    coord_data = coordinator.data
-
     entities = []
-    for _, value in enumerate(coord_data):
-        if value == "$gnss":
-            entities.append(RivianDeviceEntity(coordinator, entry, value))
+    value = "$gnss"
+    entities.append(RivianDeviceEntity(coordinator, entry, value))
 
-    async_add_entities(entities)
+    async_add_entities(entities, True)
 
 
-class RivianDeviceEntity(TrackerEntity):
+class RivianDeviceEntity(CoordinatorEntity, TrackerEntity):
     """A class representing a Rivian device."""
 
     def __init__(
         self,
-        coordinator,
-        config_entry,
+        coordinator: DataUpdateCoordinator,
+        config_entry: ConfigEntry,
         attribute,
     ):
         """"""
+        super().__init__(coordinator)
         self._attribute = attribute
         self._tracker_data = coordinator.data[self._attribute]
         self._config_entry = config_entry
@@ -87,32 +85,17 @@ class RivianDeviceEntity(TrackerEntity):
         """Return the state attributes of the device."""
         return {
             "trackr_id": self.unique_id,
+            "altitude": self._tracker_data[3],
             "heading": self._tracker_data[4],
             "speed": self._tracker_data[5],
         }
 
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Respond to a DataUpdateCoordinator update."""
+        self._tracker_data = self.coordinator.data[self._attribute]
+        self.async_write_ha_state()
 
-class RivianDevice(CoordinatorEntity):
-    """Representation of a Device"""
-
-    def __init__(self, gnss, coordinator):
-        """Initialize the Rivian device."""
-        super().__init__(coordinator)
-        self.tracker = gnss
-        self._name: str = "Tracker"
-        self._unique_id: str = "rivian_gnss"
-
-    @property
-    def name(self):
-        """Return the name of the device."""
-        return self._name
-
-    @property
-    def unique_id(self) -> str:
-        """Return a unique ID."""
-        return self._unique_id
-
-    @property
-    def icon(self):
-        """Return the icon of the sensor."""
-        return "mdi:crosshairs-gps"
+    async def async_added_to_hass(self) -> None:
+        """Handle entity which will be added."""
+        await super().async_added_to_hass()
