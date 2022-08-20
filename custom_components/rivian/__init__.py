@@ -20,11 +20,13 @@ from .const import (
     ATTR_COORDINATOR,
     CONF_ACCESS_TOKEN,
     CONF_REFRESH_TOKEN,
+    CONF_POLLING_INTERVAL,
+    CONF_VIN,
+    DEFAULT_POLLING_INTERVAL,
     DOMAIN,
     ISSUE_URL,
     SENSORS,
     BINARY_SENSORS,
-    UPDATE_INTERVAL,
     VERSION,
 )
 
@@ -101,16 +103,21 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):  # type: ignore[misc]
         self._hass = hass
         self._api = client
         self._entry = entry
-        self._vin = entry.data.get("vin")
+        self._vin = entry.data.get(CONF_VIN)
         self._access_token = entry.data.get(CONF_ACCESS_TOKEN)
         self._refresh_token = entry.data.get(CONF_REFRESH_TOKEN)
         self._client_id = entry.data.get(CONF_CLIENT_ID)
         self._client_secret = entry.data.get(CONF_CLIENT_SECRET)
+
+        _LOGGER.info(
+            "Rivian API starting with polling interval %s",
+            entry.options.get(CONF_POLLING_INTERVAL, DEFAULT_POLLING_INTERVAL)
+        )
         super().__init__(
             hass,
             _LOGGER,
             name=DOMAIN,
-            update_interval=timedelta(seconds=UPDATE_INTERVAL),
+            update_interval=timedelta(seconds=entry.options.get(CONF_POLLING_INTERVAL, DEFAULT_POLLING_INTERVAL)),
         )
 
     async def _update_api_data(self):

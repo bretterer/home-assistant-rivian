@@ -30,16 +30,18 @@ DOMAIN = "rivian"
 VERSION = "0.0.1-alpha.2"
 ISSUE_URL = "https://github.com/bretterer/home-assistant-rivian/issues"
 COORDINATOR = "rivian_coordinator"
-UPDATE_INTERVAL = 5
+MIN_POLLING_INTERVAL = 5 # seconds, this may be too low
+DEFAULT_POLLING_INTERVAL = 660 # seconds
 
 # Attributes
 ATTR_COORDINATOR = "rivian_coordinator"
 
 # Config properties
 CONF_OTP = "otp"
-CONF_VIN = "vehicle_id"
+CONF_VIN = "vin"
 CONF_ACCESS_TOKEN = "access_token"
 CONF_REFRESH_TOKEN = "refresh_token"
+CONF_POLLING_INTERVAL = "polling_interval"
 
 SENSORS: Final[dict[str, RivianSensorEntity]] = {
     "core/ota_status/cgm_ota_install_fast_charging": RivianSensorEntity(

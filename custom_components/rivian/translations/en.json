@@ -1,5 +1,6 @@
 {
     "config": {
+        "title": "Rivian (Unofficial)",
         "abort": {
             "already_configured": "Device is already configured"
         },
@@ -16,9 +17,20 @@
                     "client_id": "Client ID",
                     "client_secret": "Client Secret",
                     "otp": "Verification Code",
-                    "vehicle_id": "Vehicle Identification Number"
+                    "polling_interval": "API Polling Interval (seconds)",
+                    "vin": "Vehicle Identification"
                 },
                 "title": "Setup your Rivian Integration"
+            }
+        }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "title": "Rivian API Options",
+                "data": {
+                    "polling_interval": "API Polling Interval (seconds)"
+                }
             }
         }
     }

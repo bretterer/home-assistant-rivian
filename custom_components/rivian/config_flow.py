@@ -6,18 +6,25 @@ from typing import Any
 from rivian import Rivian
 import voluptuous as vol
 from homeassistant import config_entries
+from homeassistant.helpers import config_validation as cv
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.const import (
     CONF_PASSWORD,
     CONF_USERNAME,
     CONF_CLIENT_ID,
-    CONF_CLIENT_SECRET,
+    CONF_CLIENT_SECRET
 )
+from homeassistant.core import callback
 
 from .const import (
     DOMAIN,
     CONF_OTP,
     CONF_VIN,
+    CONF_ACCESS_TOKEN,
+    CONF_REFRESH_TOKEN,
+    CONF_POLLING_INTERVAL,
+    MIN_POLLING_INTERVAL,
+    DEFAULT_POLLING_INTERVAL
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -89,11 +96,11 @@ class RivianFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     async def _async_create_entry(self) -> FlowResult:
         """Create the config entry."""
         config_data = {
-            "access_token": self._access_token,
-            "refresh_token": self._refresh_token,
-            "client_id": self._client_id,
-            "client_secret": self._client_secret,
-            "vin": self._vin,
+            CONF_ACCESS_TOKEN: self._access_token,
+            CONF_REFRESH_TOKEN: self._refresh_token,
+            CONF_CLIENT_ID: self._client_id,
+            CONF_CLIENT_SECRET: self._client_secret,
+            CONF_VIN: self._vin,
         }
 
         return self.async_create_entry(title="Rivian (Unofficial)", data=config_data)
@@ -137,3 +144,33 @@ class RivianFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             ),
             errors=self._errors,
         )
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry):
+        """Get the options flow for this handler."""
+        return OptionsFlowHandler(config_entry)
+
+class OptionsFlowHandler(config_entries.OptionsFlow):
+    """Handle a option flow for Rivian."""
+
+    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
+        """Initialize options flow."""
+        self.config_entry = config_entry
+
+    async def async_step_init(self, user_input=None):
+        """Handle options flow."""
+        if user_input is not None:
+            return self.async_create_entry(title="Rivian (Unofficial)", data=user_input)
+
+        data_schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_POLLING_INTERVAL,
+                    default=self.config_entry.options.get(
+                        CONF_POLLING_INTERVAL, DEFAULT_POLLING_INTERVAL
+                    ),
+                ): vol.All(cv.positive_int, vol.Clamp(min=MIN_POLLING_INTERVAL)),
+            }
+        )
+        return self.async_show_form(step_id="init", data_schema=data_schema)
