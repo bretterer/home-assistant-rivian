@@ -105,6 +105,7 @@ class RivianBinarySensor(RivianEntity, CoordinatorEntity, BinarySensorEntity):
         try:
             entity = self.coordinator.data[self._prop_key]
             return {
+                "value": entity[1],
                 "last_update": entity[0],
             }
         except KeyError:

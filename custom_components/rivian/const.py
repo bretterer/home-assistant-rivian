@@ -78,6 +78,12 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             key=f"{DOMAIN}_dynamics_hv_battery_notifications_BMS_thermal_event",
         )
     ),
+    "dynamics/modes/drive_mode": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="Drive Mode",
+            key=f"{DOMAIN}_dynamics_modes_drive_mode",
+        )
+    ),
     "dynamics/odometer/value": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Odometer",
@@ -130,6 +136,7 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             native_unit_of_measurement=PERCENTAGE,
             device_class=SensorDeviceClass.BATTERY,
         ),
+        value_lambda=lambda v: round(v, 1),
     ),
     "energy_storage/charger/EMS_charger_remainingtime_min_1": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
@@ -150,6 +157,13 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             name="Range Threshold",
             key=f"{DOMAIN}_energy_storage_icd_cid_notifications_range_threshold",
         )
+    ),
+    "energy_storage/vehicle_efficiency/lifetime_wh_per_km": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="Lifetime Efficiency (Wh/mi)",
+            key=f"{DOMAIN}_energy_storage_vehicle_efficiency_lifetime_wh_per_km",
+        ),
+        value_lambda=lambda v: round(convert_distance(v, LENGTH_MILES, LENGTH_KILOMETERS), 1),
     ),
     "energy_storage/vehicle_energy/vehicle_range": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
