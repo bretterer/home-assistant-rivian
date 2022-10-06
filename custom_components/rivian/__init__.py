@@ -30,7 +30,11 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
-PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BINARY_SENSOR, Platform.DEVICE_TRACKER]
+PLATFORMS: list[Platform] = [
+    Platform.SENSOR,
+    Platform.BINARY_SENSOR,
+    Platform.DEVICE_TRACKER,
+]
 
 
 async def async_setup(
@@ -51,11 +55,6 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
     hass.data.setdefault(DOMAIN, {})
     updated_config = config_entry.data.copy()
 
-<<<<<<< Updated upstream
-    client = Rivian(
-        config_entry.data.get(CONF_CLIENT_ID), config_entry.data.get(CONF_CLIENT_SECRET)
-    )
-=======
     _LOGGER.debug("========= config_entry =========\n\n%s", config_entry.data)
 
     try:
@@ -66,7 +65,6 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
     except Exception as err:  # pylint: disable=broad-except
         _LOGGER.error("Could not update Rivian Data: %s", err, exc_info=1)
         raise Exception("Error communicating with API") from err
->>>>>>> Stashed changes
 
     coordinator = RivianDataUpdateCoordinator(hass, client=client, entry=config_entry)
     await coordinator.async_config_entry_first_refresh()
@@ -110,7 +108,9 @@ def get_entity_unique_id(config_entry_id: str, name: str) -> str:
     return f"{config_entry_id}:{DOMAIN}_{name}"
 
 
-def get_device_identifier(entry: ConfigEntry, name: str | None = None) -> tuple[str, str]:
+def get_device_identifier(
+    entry: ConfigEntry, name: str | None = None
+) -> tuple[str, str]:
     """Get a device identifier."""
     if name:
         return (DOMAIN, f"{entry.entry_id}:{DOMAIN}:{slugify(name)}")
