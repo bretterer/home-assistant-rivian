@@ -16,9 +16,34 @@
                     "client_id": "Client ID",
                     "client_secret": "Client Secret",
                     "otp": "Verification Code",
-                    "vehicle_id": "Vehicle Identification Number"
+                    "vehicle_id": "Vehicle Identification Number",
+                    "vin": "Vehicle Identification Number"
                 },
                 "title": "Setup your Rivian Integration"
+            }
+        }
+    },
+    "options": {
+        "abort": {
+            "already_configured": "Device is already configured"
+        },
+        "error": {
+            "cannot_connect": "Failed to connect",
+            "invalid_auth": "Invalid authentication",
+            "unknown": "Unexpected error"
+        },
+        "step": {
+            "init": {
+                "data": {
+                    "password": "Password",
+                    "username": "Username",
+                    "client_id": "Client ID",
+                    "client_secret": "Client Secret",
+                    "otp": "Verification Code",
+                    "vehicle_id": "Vehicle Identification Number",
+                    "vin": "Vehicle Identification Number"
+                },
+                "title": "Configure your Rivian Integration"
             }
         }
     }

@@ -17,7 +17,8 @@
                     "client_id": "Client ID",
                     "client_secret": "Client Secret",
                     "otp": "Verification Code",
-                    "vehicle_id": "Vehicle Identification"
+                    "vehicle_id": "Vehicle Identification",
+                    "vin": "Vehicle Identification"
                 },
                 "title": "Setup your Rivian Integration"
             }

@@ -37,7 +37,7 @@ ATTR_COORDINATOR = "rivian_coordinator"
 
 # Config properties
 CONF_OTP = "otp"
-CONF_VIN = "vehicle_id"
+CONF_VIN = "vin"
 CONF_ACCESS_TOKEN = "access_token"
 CONF_REFRESH_TOKEN = "refresh_token"
 
@@ -91,7 +91,9 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             key=f"{DOMAIN}_dynamics_odometer_value",
             native_unit_of_measurement=LENGTH_MILES,
         ),
-        value_lambda=lambda v: round(convert_distance(v, LENGTH_METERS, LENGTH_MILES), 1),
+        value_lambda=lambda v: round(
+            convert_distance(v, LENGTH_METERS, LENGTH_MILES), 1
+        ),
     ),
     "dynamics/powertrain_status/brake_fluid_level_low": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
@@ -163,7 +165,9 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             name="Lifetime Efficiency (Wh/mi)",
             key=f"{DOMAIN}_energy_storage_vehicle_efficiency_lifetime_wh_per_km",
         ),
-        value_lambda=lambda v: round(convert_distance(v, LENGTH_MILES, LENGTH_KILOMETERS), 1),
+        value_lambda=lambda v: round(
+            convert_distance(v, LENGTH_MILES, LENGTH_KILOMETERS), 1
+        ),
     ),
     "energy_storage/vehicle_energy/vehicle_range": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
@@ -172,7 +176,9 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             key=f"{DOMAIN}_energy_storage_vehicle_energy_vehicle_range",
             native_unit_of_measurement=LENGTH_MILES,
         ),
-        value_lambda=lambda v: round(convert_distance(v, LENGTH_KILOMETERS, LENGTH_MILES), 1),
+        value_lambda=lambda v: round(
+            convert_distance(v, LENGTH_KILOMETERS, LENGTH_MILES), 1
+        ),
     ),
     "telematics/ota_status/available_version_number": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
@@ -289,7 +295,9 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             key=f"{DOMAIN}_thermal_hvac_cabin_control_cabin_temperature",
             native_unit_of_measurement=TEMP_FAHRENHEIT,
         ),
-        value_lambda=lambda v: round(convert_temperature(v, TEMP_CELSIUS, TEMP_FAHRENHEIT)),
+        value_lambda=lambda v: round(
+            convert_temperature(v, TEMP_CELSIUS, TEMP_FAHRENHEIT)
+        ),
     ),
     "thermal/hvac_cabin_control/driver_temperature": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
@@ -298,7 +306,9 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             key=f"{DOMAIN}_thermal_hvac_cabin_control_driver_temperature",
             native_unit_of_measurement=TEMP_FAHRENHEIT,
         ),
-        value_lambda=lambda v: round(convert_temperature(v, TEMP_CELSIUS, TEMP_FAHRENHEIT)),
+        value_lambda=lambda v: round(
+            convert_temperature(v, TEMP_CELSIUS, TEMP_FAHRENHEIT)
+        ),
     ),
     "thermal/hvac_settings/pet_mode_temperature_status": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(

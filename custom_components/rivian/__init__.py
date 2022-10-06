@@ -20,6 +20,7 @@ from .const import (
     ATTR_COORDINATOR,
     CONF_ACCESS_TOKEN,
     CONF_REFRESH_TOKEN,
+    CONF_VIN,
     DOMAIN,
     ISSUE_URL,
     SENSORS,
@@ -46,14 +47,32 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
         VERSION,
         ISSUE_URL,
     )
-    hass.data.setdefault(DOMAIN, {})
 
+    hass.data.setdefault(DOMAIN, {})
+    updated_config = config_entry.data.copy()
+
+<<<<<<< Updated upstream
     client = Rivian(
         config_entry.data.get(CONF_CLIENT_ID), config_entry.data.get(CONF_CLIENT_SECRET)
     )
+=======
+    _LOGGER.debug("========= config_entry =========\n\n%s", config_entry.data)
+
+    try:
+        client = Rivian(
+            config_entry.data.get(CONF_CLIENT_ID),
+            config_entry.data.get(CONF_CLIENT_SECRET),
+        )
+    except Exception as err:  # pylint: disable=broad-except
+        _LOGGER.error("Could not update Rivian Data: %s", err, exc_info=1)
+        raise Exception("Error communicating with API") from err
+>>>>>>> Stashed changes
 
     coordinator = RivianDataUpdateCoordinator(hass, client=client, entry=config_entry)
     await coordinator.async_config_entry_first_refresh()
+
+    if updated_config != config_entry.data:
+        hass.config_entries.async_update_entry(config_entry, data=updated_config)
 
     config_entry.async_on_unload(config_entry.add_update_listener(update_listener))
 
@@ -71,6 +90,18 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
 
 async def update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Update listener."""
+    _LOGGER.debug("Attempting to reload sensors from the %s integration", DOMAIN)
+    if entry.data == entry.options:
+        _LOGGER.debug("No changes detected not reloading sensors.")
+        return
+
+    new_data = entry.options.copy()
+
+    hass.config_entries.async_update_entry(
+        entry=entry,
+        data=new_data,
+    )
+
     await hass.config_entries.async_reload(entry.entry_id)
 
 
@@ -101,7 +132,7 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):  # type: ignore[misc]
         self._hass = hass
         self._api = client
         self._entry = entry
-        self._vin = entry.data.get("vin")
+        self._vin = entry.data.get(CONF_VIN)
         self._access_token = entry.data.get(CONF_ACCESS_TOKEN)
         self._refresh_token = entry.data.get(CONF_REFRESH_TOKEN)
         self._client_id = entry.data.get(CONF_CLIENT_ID)
@@ -146,7 +177,9 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):  # type: ignore[misc]
             self._access_token = new_tokens[CONF_ACCESS_TOKEN]
             return await self._update_api_data()
         except Exception as err:  # pylint: disable=broad-except
-            _LOGGER.error("Unknown Exception while updating Rivian data", exc_info=1)
+            _LOGGER.error(
+                "Unknown Exception while updating Rivian data: %s", err, exc_info=1
+            )
             raise Exception("Error communicating with API") from err
 
     def build_vehicle_info_dict(self, vijson) -> dict[str, dict[str, Any]]:
