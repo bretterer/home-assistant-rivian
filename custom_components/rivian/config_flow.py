@@ -228,9 +228,8 @@ class RivianOptionsFlow(config_entries.OptionsFlow):
         if user_input.get(CONF_VIN) is not None:
             self._data.update(user_input)
 
-            _LOGGER.debug("+++++ UPDATE ++++++++")
-            _LOGGER.debug(self._data)
             return self.async_create_entry(title="", data=self._data)
+
         self._data.update(user_input)
 
         self._rivian = Rivian(

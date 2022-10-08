@@ -72,7 +72,9 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
     if updated_config != config_entry.data:
         hass.config_entries.async_update_entry(config_entry, data=updated_config)
 
-    config_entry.async_on_unload(config_entry.add_update_listener(update_listener))
+    _LOGGER.debug("======== update listener =========")
+    _LOGGER.debug(config_entry)
+    config_entry.add_update_listener(update_listener)
 
     model = f"{(await async_get_integration(hass, DOMAIN)).version}"
 
@@ -154,15 +156,37 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):  # type: ignore[misc]
             sensors.append(val)
 
         sensors.append("$gnss")
-        vehicle_info = await self._api.get_vehicle_info(
-            vin=self._vin,
-            access_token=self._access_token,
-            properties=sensors,
-        )
-        vijson = await vehicle_info.json()
+        try:
+            vehicle_info = await self._api.get_vehicle_info(
+                vin=self._vin,
+                access_token=self._access_token,
+                properties=sensors,
+            )
+            vijson = await vehicle_info.json()
 
-        vehicle_info_items = self.build_vehicle_info_dict(vijson)
-        return vehicle_info_items
+            vehicle_info_items = self.build_vehicle_info_dict(vijson)
+            return vehicle_info_items
+        except RivianExpiredTokenError:
+            _LOGGER.info("Rivian token expired, refreshing")
+            token = await self._api.refresh_access_token(
+                self._refresh_token, self._client_id, self._client_secret
+            )
+            new_tokens = await token.json()
+            self._access_token = new_tokens[CONF_ACCESS_TOKEN]
+            return await self._update_api_data()
+        except Exception as err:  # pylint: disable=broad-except
+            if err.args[0] == 401:
+                token = await self._api.refresh_access_token(
+                    self._refresh_token, self._client_id, self._client_secret
+                )
+                new_tokens = await token.json()
+                self._access_token = new_tokens[CONF_ACCESS_TOKEN]
+                return await self._update_api_data()
+
+            _LOGGER.error(
+                "Unknown Exception while updating Rivian data: %s", err, exc_info=1
+            )
+            raise Exception("Error communicating with API") from err
 
     async def _async_update_data(self):
         """Update data via library, refresh token if necessary."""
