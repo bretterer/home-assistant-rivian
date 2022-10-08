@@ -103,8 +103,6 @@ class RivianFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         """Handle the flow"""
         if user_input is not None:
             self._data.update(user_input)
-            _LOGGER.debug("======== updated _data =========")
-            _LOGGER.debug(self._data)
 
         if user_input is None:
             return await self._show_credential_fields(user_input)
