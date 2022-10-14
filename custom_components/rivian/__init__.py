@@ -20,6 +20,7 @@ from .const import (
     ATTR_COORDINATOR,
     CONF_ACCESS_TOKEN,
     CONF_REFRESH_TOKEN,
+    CONF_VIN,
     DOMAIN,
     ISSUE_URL,
     SENSORS,
@@ -29,7 +30,11 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
-PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BINARY_SENSOR, Platform.DEVICE_TRACKER]
+PLATFORMS: list[Platform] = [
+    Platform.SENSOR,
+    Platform.BINARY_SENSOR,
+    Platform.DEVICE_TRACKER,
+]
 
 
 async def async_setup(
@@ -46,16 +51,26 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
         VERSION,
         ISSUE_URL,
     )
-    hass.data.setdefault(DOMAIN, {})
 
-    client = Rivian(
-        config_entry.data.get(CONF_CLIENT_ID), config_entry.data.get(CONF_CLIENT_SECRET)
-    )
+    hass.data.setdefault(DOMAIN, {})
+    updated_config = config_entry.data.copy()
+
+    try:
+        client = Rivian(
+            config_entry.data.get(CONF_CLIENT_ID),
+            config_entry.data.get(CONF_CLIENT_SECRET),
+        )
+    except Exception as err:  # pylint: disable=broad-except
+        _LOGGER.error("Could not update Rivian Data: %s", err, exc_info=1)
+        raise Exception("Error communicating with API") from err
 
     coordinator = RivianDataUpdateCoordinator(hass, client=client, entry=config_entry)
     await coordinator.async_config_entry_first_refresh()
 
-    config_entry.async_on_unload(config_entry.add_update_listener(update_listener))
+    if updated_config != config_entry.data:
+        hass.config_entries.async_update_entry(config_entry, data=updated_config)
+
+    config_entry.add_update_listener(update_listener)
 
     model = f"{(await async_get_integration(hass, DOMAIN)).version}"
 
@@ -71,6 +86,18 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
 
 async def update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Update listener."""
+    _LOGGER.debug("Attempting to reload sensors from the %s integration", DOMAIN)
+    if entry.data == entry.options:
+        _LOGGER.debug("No changes detected not reloading sensors.")
+        return
+
+    new_data = entry.options.copy()
+
+    hass.config_entries.async_update_entry(
+        entry=entry,
+        data=new_data,
+    )
+
     await hass.config_entries.async_reload(entry.entry_id)
 
 
@@ -79,7 +106,9 @@ def get_entity_unique_id(config_entry_id: str, name: str) -> str:
     return f"{config_entry_id}:{DOMAIN}_{name}"
 
 
-def get_device_identifier(entry: ConfigEntry, name: str | None = None) -> tuple[str, str]:
+def get_device_identifier(
+    entry: ConfigEntry, name: str | None = None
+) -> tuple[str, str]:
     """Get a device identifier."""
     if name:
         return (DOMAIN, f"{entry.entry_id}:{DOMAIN}:{slugify(name)}")
@@ -101,7 +130,7 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):  # type: ignore[misc]
         self._hass = hass
         self._api = client
         self._entry = entry
-        self._vin = entry.data.get("vin")
+        self._vin = entry.data.get(CONF_VIN)
         self._access_token = entry.data.get(CONF_ACCESS_TOKEN)
         self._refresh_token = entry.data.get(CONF_REFRESH_TOKEN)
         self._client_id = entry.data.get(CONF_CLIENT_ID)
@@ -122,16 +151,38 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):  # type: ignore[misc]
         for _, val in enumerate(BINARY_SENSORS):
             sensors.append(val)
 
-        sensors.append("$gnss")
-        vehicle_info = await self._api.get_vehicle_info(
-            vin=self._vin,
-            access_token=self._access_token,
-            properties=sensors,
-        )
-        vijson = await vehicle_info.json()
+        sensors.append("telematics/gnss/position")
+        try:
+            vehicle_info = await self._api.get_vehicle_info(
+                vin=self._vin,
+                access_token=self._access_token,
+                properties=sensors,
+            )
+            vijson = await vehicle_info.json()
 
-        vehicle_info_items = self.build_vehicle_info_dict(vijson)
-        return vehicle_info_items
+            vehicle_info_items = self.build_vehicle_info_dict(vijson)
+            return vehicle_info_items
+        except RivianExpiredTokenError:
+            _LOGGER.info("Rivian token expired, refreshing")
+            token = await self._api.refresh_access_token(
+                self._refresh_token, self._client_id, self._client_secret
+            )
+            new_tokens = await token.json()
+            self._access_token = new_tokens[CONF_ACCESS_TOKEN]
+            return await self._update_api_data()
+        except Exception as err:  # pylint: disable=broad-except
+            if err.args[0] == 401:
+                token = await self._api.refresh_access_token(
+                    self._refresh_token, self._client_id, self._client_secret
+                )
+                new_tokens = await token.json()
+                self._access_token = new_tokens[CONF_ACCESS_TOKEN]
+                return await self._update_api_data()
+
+            _LOGGER.error(
+                "Unknown Exception while updating Rivian data: %s", err, exc_info=1
+            )
+            raise Exception("Error communicating with API") from err
 
     async def _async_update_data(self):
         """Update data via library, refresh token if necessary."""
@@ -146,7 +197,9 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):  # type: ignore[misc]
             self._access_token = new_tokens[CONF_ACCESS_TOKEN]
             return await self._update_api_data()
         except Exception as err:  # pylint: disable=broad-except
-            _LOGGER.error("Unknown Exception while updating Rivian data", exc_info=1)
+            _LOGGER.error(
+                "Unknown Exception while updating Rivian data: %s", err, exc_info=1
+            )
             raise Exception("Error communicating with API") from err
 
     def build_vehicle_info_dict(self, vijson) -> dict[str, dict[str, Any]]:
