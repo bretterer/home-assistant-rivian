@@ -55,8 +55,6 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
     hass.data.setdefault(DOMAIN, {})
     updated_config = config_entry.data.copy()
 
-    _LOGGER.debug("========= config_entry =========\n\n%s", config_entry.data)
-
     try:
         client = Rivian(
             config_entry.data.get(CONF_CLIENT_ID),
@@ -72,8 +70,6 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
     if updated_config != config_entry.data:
         hass.config_entries.async_update_entry(config_entry, data=updated_config)
 
-    _LOGGER.debug("======== update listener =========")
-    _LOGGER.debug(config_entry)
     config_entry.add_update_listener(update_listener)
 
     model = f"{(await async_get_integration(hass, DOMAIN)).version}"
@@ -155,7 +151,7 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):  # type: ignore[misc]
         for _, val in enumerate(BINARY_SENSORS):
             sensors.append(val)
 
-        sensors.append("$gnss")
+        sensors.append("telematics/gnss/position")
         try:
             vehicle_info = await self._api.get_vehicle_info(
                 vin=self._vin,
