@@ -7,6 +7,7 @@ from homeassistant.components.device_tracker import SOURCE_TYPE_GPS
 from homeassistant.components.device_tracker.config_entry import TrackerEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.update_coordinator import (
     CoordinatorEntity,
     DataUpdateCoordinator,
@@ -17,6 +18,11 @@ from homeassistant.helpers.entity import EntityDescription
 from .const import (
     ATTR_COORDINATOR,
     DOMAIN,
+    NAME,
+)
+
+from . import (
+    get_device_identifier,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -60,6 +66,15 @@ class RivianDeviceEntity(CoordinatorEntity, TrackerEntity):
     def unique_id(self) -> str:
         """Return a unique ID to use for this entity."""
         return f"{DOMAIN}_{self._attr_name}_{self._config_entry.entry_id}"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Get device information."""
+        return {
+            "identifiers": {get_device_identifier(self._config_entry)},
+            "name": NAME,
+            "manufacturer": NAME,
+        }
 
     @property
     def force_update(self):
