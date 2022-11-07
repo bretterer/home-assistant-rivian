@@ -4,7 +4,7 @@
     "config_flow": true,
     "documentation": "https://github.com/bretterer/home-assistant-rivian",
     "requirements": [
-        "rivian-python-client>=0.0.1a5"
+        "rivian-python-client>=0.1.0"
     ],
     "codeowners": [
         "@bretterer"
@@ -13,5 +13,5 @@
     "loggers": [
         "rivian"
     ],
-    "version": "0.0.1-beta.1"
+    "version": "0.5.1"
 }
