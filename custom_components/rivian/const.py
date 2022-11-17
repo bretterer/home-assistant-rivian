@@ -91,9 +91,7 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             key=f"{DOMAIN}_dynamics_odometer_value",
             native_unit_of_measurement=LENGTH_MILES,
         ),
-        value_lambda=lambda v: round(
-            convert_distance(v, LENGTH_METERS, LENGTH_MILES), 1
-        ),
+        value_lambda=lambda v: round(convert_distance(v, LENGTH_METERS, LENGTH_MILES), 1),
     ),
     "dynamics/powertrain_status/brake_fluid_level_low": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
@@ -165,9 +163,7 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             name="Lifetime Efficiency (Wh/mi)",
             key=f"{DOMAIN}_energy_storage_vehicle_efficiency_lifetime_wh_per_km",
         ),
-        value_lambda=lambda v: round(
-            convert_distance(v, LENGTH_MILES, LENGTH_KILOMETERS), 1
-        ),
+        value_lambda=lambda v: round(convert_distance(v, LENGTH_MILES, LENGTH_KILOMETERS), 1),
     ),
     "energy_storage/vehicle_energy/vehicle_range": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
@@ -176,9 +172,7 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             key=f"{DOMAIN}_energy_storage_vehicle_energy_vehicle_range",
             native_unit_of_measurement=LENGTH_MILES,
         ),
-        value_lambda=lambda v: round(
-            convert_distance(v, LENGTH_KILOMETERS, LENGTH_MILES), 1
-        ),
+        value_lambda=lambda v: round(convert_distance(v, LENGTH_KILOMETERS, LENGTH_MILES), 1),
     ),
     "telematics/ota_status/available_version_number": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
@@ -295,9 +289,7 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             key=f"{DOMAIN}_thermal_hvac_cabin_control_cabin_temperature",
             native_unit_of_measurement=TEMP_FAHRENHEIT,
         ),
-        value_lambda=lambda v: round(
-            convert_temperature(v, TEMP_CELSIUS, TEMP_FAHRENHEIT)
-        ),
+        value_lambda=lambda v: round(convert_temperature(v, TEMP_CELSIUS, TEMP_FAHRENHEIT)),
     ),
     "thermal/hvac_cabin_control/driver_temperature": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
@@ -306,14 +298,138 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             key=f"{DOMAIN}_thermal_hvac_cabin_control_driver_temperature",
             native_unit_of_measurement=TEMP_FAHRENHEIT,
         ),
-        value_lambda=lambda v: round(
-            convert_temperature(v, TEMP_CELSIUS, TEMP_FAHRENHEIT)
-        ),
+        value_lambda=lambda v: round(convert_temperature(v, TEMP_CELSIUS, TEMP_FAHRENHEIT)),
     ),
     "thermal/hvac_settings/pet_mode_temperature_status": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Pet Mode Temperature Status",
             key=f"{DOMAIN}_thermal_hvac_settings_pet_mode_temperature_status",
+        )
+    ),
+    "body/closures/window_calibration_FL_state": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="Window Calibration Front Left State",
+            key=f"{DOMAIN}_body_closures_window_calibration_FL_state",
+        )
+    ),
+    "body/closures/window_calibration_FR_state": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="Window Calibration Front Right State",
+            key=f"{DOMAIN}_body_closures_window_calibration_FR_state",
+        )
+    ),
+    "body/closures/window_calibration_RL_state": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="Window Calibration Rear Left State",
+            key=f"{DOMAIN}_body_closures_window_calibration_RL_state",
+        )
+    ),
+    "body/closures/window_calibration_RR_state": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="Window Calibration Rear Right State",
+            key=f"{DOMAIN}_body_closures_window_calibration_RR_state",
+        )
+    ),
+    "energy_storage/charger_status/vehicle_charger_status": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="Vehicle Charger Status",
+            key=f"{DOMAIN}_energy_storage_charger_status_vehicle_charger_status",
+        )
+    ),
+    "energy_storage/charger/EMS_charger_evse_type": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="EMS Charger EVSE Type",
+            key=f"{DOMAIN}_energy_storage_charger_EMS_charger_evse_type",
+        )
+    ),
+    "energy_storage/mobile/remote_charging_available": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="Remote Charging Available",
+            key=f"{DOMAIN}_energy_storage_mobile_remote_charging_available",
+        )
+    ),
+    "energy_storage/mobile/soc_limit": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="SOC Limit",
+            key=f"{DOMAIN}_energy_storage_mobile_soc_limit",
+        )
+    ),
+    "telematics/privacy/offline_mode_enabled": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="Offline Mode Enabled",
+            key=f"{DOMAIN}_telematics_privacy_offline_mode_enabled",
+        )
+    ),
+    "thermal/hvac_mobile_status/3rd_row_left_seat_heat_status": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="3rd Row Left Seat Heat Status",
+            key=f"{DOMAIN}_thermal_hvac_mobile_status_3rd_row_left_seat_heat_status",
+        )
+    ),
+    "thermal/hvac_mobile_status/3rd_row_right_seat_heat_status": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="3rd Row Right Seat Heat Status",
+            key=f"{DOMAIN}_thermal_hvac_mobile_status_3rd_row_right_seat_heat_status",
+        )
+    ),
+    "thermal/hvac_mobile_status/defrost_defog_status": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="Defrost/Defog Status",
+            key=f"{DOMAIN}_thermal_hvac_mobile_status_defrost_defog_status",
+        )
+    ),
+    "thermal/hvac_mobile_status/estimated_cabin_temp_mobile": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="Estimated Cabin Temperature",
+            key=f"{DOMAIN}_thermal_hvac_mobile_status_estimated_cabin_temp_mobile",
+        )
+    ),
+    "thermal/hvac_mobile_status/left_seat_heat_status": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="Left Seat Heat Status",
+            key=f"{DOMAIN}_thermal_hvac_mobile_status_left_seat_heat_status",
+        )
+    ),
+    "thermal/hvac_mobile_status/left_seat_vent_status": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="Left Seat Vent Status",
+            key=f"{DOMAIN}_thermal_hvac_mobile_status_left_seat_vent_status",
+        )
+    ),
+    "thermal/hvac_mobile_status/rear_left_seat_heat_status": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="Rear Left Seat Heat Status",
+            key=f"{DOMAIN}_thermal_hvac_mobile_status_rear_left_seat_heat_status",
+        )
+    ),
+    "thermal/hvac_mobile_status/rear_right_seat_heat_status": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="Rear Right Seat Heat Status",
+            key=f"{DOMAIN}_thermal_hvac_mobile_status_rear_right_seat_heat_status",
+        )
+    ),
+    "thermal/hvac_mobile_status/right_seat_heat_status": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="Right Seat Heat Status",
+            key=f"{DOMAIN}_thermal_hvac_mobile_status_right_seat_heat_status",
+        )
+    ),
+    "thermal/hvac_mobile_status/right_seat_vent_status": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="Right Seat Vent Status",
+            key=f"{DOMAIN}_thermal_hvac_mobile_status_right_seat_vent_status",
+        )
+    ),
+    "thermal/hvac_mobile_status/set_temp_status_mobile": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="Set Temperature Mobile Status",
+            key=f"{DOMAIN}_thermal_hvac_mobile_status_set_temp_status_mobile",
+        )
+    ),
+    "thermal/hvac_mobile_status/steering_wheel_heat_status": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="Steering Wheel Heat Status",
+            key=f"{DOMAIN}_thermal_hvac_mobile_status_steering_wheel_heat_status",
         )
     ),
 }
@@ -526,38 +642,6 @@ BINARY_SENSORS: Final[dict[str, RivianBinarySensorEntity]] = {
             key=f"{DOMAIN}_body_closures_tonneau_state",
             device_class=BinarySensorDeviceClass.DOOR,
             on_value="open",
-        )
-    ),
-    "body/door_control_log/BCM_WindowCalibrationFL_Status": RivianBinarySensorEntity(
-        entity_description=RivianBinarySensorEntityDescription(
-            name="Window Front Left Calibration",
-            key=f"{DOMAIN}_body_door_control_log_BCM_WindowCalibrationFL_Status",
-            device_class=BinarySensorDeviceClass.PROBLEM,
-            on_value="Not_Calibrated",
-        )
-    ),
-    "body/door_control_log/BCM_WindowCalibrationFR_Status": RivianBinarySensorEntity(
-        entity_description=RivianBinarySensorEntityDescription(
-            name="Window Front Right Calibration",
-            key=f"{DOMAIN}_body_door_control_log_BCM_WindowCalibrationFR_Status",
-            device_class=BinarySensorDeviceClass.PROBLEM,
-            on_value="Not_Calibrated",
-        )
-    ),
-    "body/door_control_log/BCM_WindowCalibrationRL_Status": RivianBinarySensorEntity(
-        entity_description=RivianBinarySensorEntityDescription(
-            name="Window Rear Left Calibration",
-            key=f"{DOMAIN}_body_door_control_log_BCM_WindowCalibrationRL_Status",
-            device_class=BinarySensorDeviceClass.PROBLEM,
-            on_value="Not_Calibrated",
-        )
-    ),
-    "body/door_control_log/BCM_WindowCalibrationRR_Status": RivianBinarySensorEntity(
-        entity_description=RivianBinarySensorEntityDescription(
-            name="Window Rear Right Calibration",
-            key=f"{DOMAIN}_body_door_control_log_BCM_WindowCalibrationRR_Status",
-            device_class=BinarySensorDeviceClass.PROBLEM,
-            on_value="Not_Calibrated",
         )
     ),
     "body/wipers/fluid_state": RivianBinarySensorEntity(

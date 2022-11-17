@@ -159,9 +159,14 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):  # type: ignore[misc]
                 properties=sensors,
             )
             vijson = await vehicle_info.json()
+            _LOGGER.debug(vijson)
 
             vehicle_info_items = self.build_vehicle_info_dict(vijson)
-            return vehicle_info_items
+            if vehicle_info_items:
+                self._previous_vehicle_info_items = vehicle_info_items
+                return vehicle_info_items
+            else:
+                return self._previous_vehicle_info_items
         except RivianExpiredTokenError:
             _LOGGER.info("Rivian token expired, refreshing")
             token = await self._api.refresh_access_token(
