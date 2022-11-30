@@ -11,8 +11,6 @@ from homeassistant.data_entry_flow import FlowResult
 from homeassistant.const import (
     CONF_PASSWORD,
     CONF_USERNAME,
-    CONF_CLIENT_ID,
-    CONF_CLIENT_SECRET,
 )
 
 from .const import (
@@ -37,10 +35,6 @@ def _get_schema_credential_fields(user_input: list, default_dict: list) -> Any:
         {
             vol.Required(CONF_USERNAME, default=_get_default(CONF_USERNAME)): str,
             vol.Required(CONF_PASSWORD, default=_get_default(CONF_PASSWORD)): str,
-            vol.Required(CONF_CLIENT_ID, default=_get_default(CONF_CLIENT_ID)): str,
-            vol.Required(
-                CONF_CLIENT_SECRET, default=_get_default(CONF_CLIENT_SECRET)
-            ): str,
         }
     )
 
@@ -91,8 +85,6 @@ class RivianFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
         self._username = None
         self._password = None
-        self._client_id = None
-        self._client_secret = None
         self._otp = None
         self._vin = None
         self._access_token = None
@@ -127,19 +119,18 @@ class RivianFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
         self._username = user_input[CONF_USERNAME]
         self._password = user_input[CONF_PASSWORD]
-        self._client_id = user_input[CONF_CLIENT_ID]
-        self._client_secret = user_input[CONF_CLIENT_SECRET]
 
-        self._rivian = Rivian(self._client_id, self._client_secret)
-        auth = await self._rivian.authenticate(self._username, self._password)
+        self._rivian = Rivian("", "")
+        await self._rivian.create_csrf_token()
+        auth = await self._rivian.authenticate_graphql(self._username, self._password)
 
         json_data = await auth.json()
         if auth.status == 401:
             self._session_token = json_data["session_token"]
             return await self._show_otp_field(user_input)
 
-        self._access_token = json_data["access_token"]
-        self._refresh_token = json_data["refresh_token"]
+        self._access_token = json_data["data"]["login"]["accessToken"]
+        self._refresh_token = json_data["data"]["login"]["refreshToken"]
 
         return await self._show_vin_field(user_input)
 
@@ -148,8 +139,6 @@ class RivianFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         config_data = {
             "access_token": self._access_token,
             "refresh_token": self._refresh_token,
-            "client_id": self._client_id,
-            "client_secret": self._client_secret,
             "vin": self._vin,
         }
 
@@ -210,9 +199,7 @@ class RivianOptionsFlow(config_entries.OptionsFlow):
 
         if user_input.get(CONF_OTP) is not None:
             self._data.update(user_input)
-            otpauth = await self._rivian.validate_otp(
-                self._data.get(CONF_USERNAME), self._data.get(CONF_OTP)
-            )
+            otpauth = await self._rivian.validate_otp(self._data.get(CONF_USERNAME), self._data.get(CONF_OTP))
 
             if otpauth.status == 200:
                 oauth_json_data = await otpauth.json()
@@ -230,12 +217,9 @@ class RivianOptionsFlow(config_entries.OptionsFlow):
 
         self._data.update(user_input)
 
-        self._rivian = Rivian(
-            self._data.get(CONF_CLIENT_ID), self._data.get(CONF_CLIENT_SECRET)
-        )
-        auth = await self._rivian.authenticate(
-            self._data.get(CONF_USERNAME), self._data.get(CONF_PASSWORD)
-        )
+        self._rivian = Rivian("", "")
+        await self._rivian.create_csrf_token()
+        auth = await self._rivian.authenticate_graphql(self._data.get(CONF_USERNAME), self._data.get(CONF_PASSWORD))
 
         json_data = await auth.json()
         if auth.status == 401:
