@@ -226,8 +226,8 @@ class RivianOptionsFlow(config_entries.OptionsFlow):
             self._data.update({"session_token": json_data["session_token"]})
             return await self._show_otp_field(user_input)
 
-        self._data.update({"access_token": json_data["access_token"]})
-        self._data.update({"refresh_token": json_data["refresh_token"]})
+        self._data.update({"access_token": json_data["data"]["login"]["accessToken"]})
+        self._data.update({"refresh_token": json_data["data"]["login"]["refreshToken"]})
 
         return await self._show_vin_field(user_input)
 
