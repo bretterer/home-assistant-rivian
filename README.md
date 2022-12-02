@@ -5,20 +5,18 @@
 [![GitHub Activity][commits-shield]][commits]
 
 
-This integration is an unofficial Rivian integration for Home Assistant, installed through [HACS](https://hacs.xyz/docs/setup/download).
+An unofficial Rivian integration for Home Assistant, installed through [HACS](https://hacs.xyz/docs/setup/download).
 
-In order to use this extension, you will need the following information
+In order to use this extension, you'll need the following information
  - Rivian Username
  - Rivian Password
- - Client ID
- - Client Secret
  - VIN
 
 Your vehicle must be in delivered status and in your posession for this integration to function. The client id and client secret must be obtained outside of this integration and there is currently no official or unofficial way to do this. You can search forums or the [Rivian Discord][rivian-discord]
 
 ## Installation
 
-1. Use [HACS](https://hacs.xyz/docs/setup/download), in `HACS > Integrations > Explore & Add Repositories` search for "Rivian". After adding this `https://github.com/bretterer/home-assistant-rivian` as a custom repository. Skip to 7.
+1. Use [HACS](https://hacs.xyz/docs/setup/download). In HACS add a custom repository by going to `HACS > Integrations > 3 dots > custom repositories` and adding this github repo `https://github.com/bretterer/home-assistant-rivian`. Now skip to 7.
 2. If no HACS, use the tool of choice to open the directory (folder) for your HA configuration (where you find `configuration.yaml`).
 3. If you do not have a `custom_components` directory (folder) there, you need to create it.
 4. In the `custom_components` directory (folder) create a new folder called `rivian`.
