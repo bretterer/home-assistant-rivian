@@ -37,6 +37,7 @@ class RivianBinarySensorEntityDescription(BinarySensorEntityDescription):
     negate: bool = False
 
 
+
 @dataclass
 class RivianBinarySensorEntity(BinarySensorEntity):
     """Rivian Specific Sensor Entity"""

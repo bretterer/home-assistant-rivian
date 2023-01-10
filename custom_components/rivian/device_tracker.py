@@ -33,13 +33,13 @@ async def async_setup_entry(
 ):
     """Set up the Rivain binary_sensors by config_entry."""
 
-    coordinator = hass.data[DOMAIN][entry.entry_id][ATTR_COORDINATOR]
+    # coordinator = hass.data[DOMAIN][entry.entry_id][ATTR_COORDINATOR]
 
-    entities = []
-    value = "telematics/gnss/position"
-    entities.append(RivianDeviceEntity(coordinator, entry, value))
+    # entities = []
+    # value = "gnssLocation"
+    # entities.append(RivianDeviceEntity(coordinator, entry, value))
 
-    async_add_entities(entities, True)
+    # async_add_entities(entities, True)
 
 
 class RivianDeviceEntity(CoordinatorEntity, TrackerEntity):
