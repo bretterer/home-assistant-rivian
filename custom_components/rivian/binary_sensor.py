@@ -92,6 +92,8 @@ class RivianBinarySensor(RivianEntity, CoordinatorEntity, BinarySensorEntity):
 
         try:
             entity = self.coordinator.data[self._prop_key]
+            if entity is None:
+                return "Binary Sensor Unavailable"
             values = self.entity_description.on_value
             values = [values] if isinstance(values, str) else values
             result = entity["value"] in values
@@ -104,6 +106,8 @@ class RivianBinarySensor(RivianEntity, CoordinatorEntity, BinarySensorEntity):
         """Return the state attributes of the device."""
         try:
             entity = self.coordinator.data[self._prop_key]
+            if entity is None:
+                return "Binary Sensor Unavailable"
             return {
                 "value": entity["value"],
                 "last_update": entity["timeStamp"],
