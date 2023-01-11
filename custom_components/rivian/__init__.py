@@ -182,9 +182,6 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):  # type: ignore[misc]
                 return self._previous_vehicle_info_items
         except RivianExpiredTokenError:
             _LOGGER.info("Rivian token expired, refreshing")
-            token = await self._api.refresh_access_token(
-                self._refresh_token, self._client_id, self._client_secret
-            )
 
             self._rivian = Rivian("", "")
             await self._rivian.create_csrf_token()
