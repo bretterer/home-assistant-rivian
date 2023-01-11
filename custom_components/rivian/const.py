@@ -81,9 +81,7 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             native_unit_of_measurement=TEMP_FAHRENHEIT,
         ),
         value_lambda=lambda v: round(
-            TemperatureConverter.convert(
-                v, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT
-            ),
+            TemperatureConverter.convert(v, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT),
             1,
         ),
     ),
@@ -95,9 +93,7 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             native_unit_of_measurement=TEMP_FAHRENHEIT,
         ),
         value_lambda=lambda v: round(
-            TemperatureConverter.convert(
-                v, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT
-            ),
+            TemperatureConverter.convert(v, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT),
             1,
         ),
     ),
@@ -114,14 +110,48 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             key=f"{DOMAIN}_energy_storage_vehicle_energy_vehicle_range",
             native_unit_of_measurement=LENGTH_MILES,
         ),
-        value_lambda=lambda v: round(
-            DistanceConverter.convert(v, UnitOfLength.KILOMETERS, UnitOfLength.MILES), 1
+        value_lambda=lambda v: round(DistanceConverter.convert(v, UnitOfLength.KILOMETERS, UnitOfLength.MILES), 1),
+    ),
+    "driveMode": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="Drive Mode",
+            key=f"{DOMAIN}_dynamics_modes_drive_mode",
         ),
+        value_lambda=lambda v: {
+            "everyday": "All-Purpose",
+            "sport": "Sport",
+            "distance": "Conserve",
+            "winter": "Snow",
+            "towing": "Towing",
+            "off_road_towing": "All-Terrain",
+            "off_road_sand": "Soft Sand",
+            "off_road_rocks": "Rock Crawl",
+            "off_road_sport_auto": "Rally",
+            "off_road_sport_drift": "Drift",
+        }.get(v, v),
     ),
     "gearStatus": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Gear Selector",
             key=f"{DOMAIN}_dynamics_propulsion_status_prndl",
+        ),
+    ),
+    "gearGuardVideoMode": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="Gear Guard Video Mode",
+            key=f"{DOMAIN}_gearGuardVideoMode",
+        ),
+    ),
+    "gearGuardVideoStatus": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="Gear Guard Video Status",
+            key=f"{DOMAIN}_gearGuardVideoStatus",
+        ),
+    ),
+    "gearGuardVideoTermsAccepted": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="Gear Guard Video Status",
+            key=f"{DOMAIN}_gearGuardVideoTermsAccepted",
         ),
     ),
     "otaAvailableVersionNumber": RivianSensorEntity(
@@ -271,9 +301,7 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             key=f"{DOMAIN}_dynamics_odometer_value",
             native_unit_of_measurement=LENGTH_MILES,
         ),
-        value_lambda=lambda v: round(
-            DistanceConverter.convert(v, UnitOfLength.METERS, UnitOfLength.MILES), 1
-        ),
+        value_lambda=lambda v: round(DistanceConverter.convert(v, UnitOfLength.METERS, UnitOfLength.MILES), 1),
     ),
     "windowFrontLeftCalibrated": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
@@ -316,24 +344,6 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
     #         name="CGM OTA Install - Not Parked",
     #         key=f"{DOMAIN}_core_ota_status_cgm_ota_install_not_parked",
     #     )
-    # ),
-    # "dynamics/modes/drive_mode": RivianSensorEntity(
-    #     entity_description=RivianSensorEntityDescription(
-    #         name="Drive Mode",
-    #         key=f"{DOMAIN}_dynamics_modes_drive_mode",
-    #     ),
-    #     value_lambda=lambda v: {
-    #         "everyday": "All-Purpose",
-    #         "sport": "Sport",
-    #         "distance": "Conserve",
-    #         "winter": "Snow",
-    #         "towing": "Towing",
-    #         "off_road_towing": "All-Terrain",
-    #         "off_road_sand": "Soft Sand",
-    #         "off_road_rocks": "Rock Crawl",
-    #         "off_road_sport_auto": "Rally",
-    #         "off_road_sport_drift": "Drift",
-    #     }.get(v, v),
     # ),
     # "energy_storage/vehicle_efficiency/lifetime_wh_per_km": RivianSensorEntity(
     #     entity_description=RivianSensorEntityDescription(
@@ -433,6 +443,15 @@ BINARY_SENSORS: Final[dict[str, RivianBinarySensorEntity]] = {
             key=f"{DOMAIN}_energy_storage_charger_vehicle_charger_state",
             device_class=BinarySensorDeviceClass.BATTERY_CHARGING,
             on_value="charging_active",
+        )
+    ),
+    "chargerStatus": RivianBinarySensorEntity(
+        entity_description=RivianBinarySensorEntityDescription(
+            name="Charger Connection",
+            key=f"{DOMAIN}_energy_storage_charger_status_vehicle_charger_status",
+            device_class=BinarySensorDeviceClass.CONNECTIVITY,
+            on_value="chrgr_sts_not_connected",
+            negate=True,
         )
     ),
     "closureFrunkClosed": RivianBinarySensorEntity(
@@ -621,11 +640,29 @@ BINARY_SENSORS: Final[dict[str, RivianBinarySensorEntity]] = {
             negate=True,
         )
     ),
+    "seatFrontLeftVent": RivianBinarySensorEntity(
+        entity_description=RivianBinarySensorEntityDescription(
+            name="Vented Seat Front Left",
+            key=f"{DOMAIN}_thermal_hvac_mobile_status_left_seat_vent_status",
+            device_class=BinarySensorDeviceClass.COLD,
+            on_value="Off",
+            negate=True,
+        )
+    ),
     "seatFrontRightHeat": RivianBinarySensorEntity(
         entity_description=RivianBinarySensorEntityDescription(
             name="Heated Seat Front Right",
             key=f"{DOMAIN}_thermal_hvac_mobile_status_right_seat_heat_status",
             device_class=BinarySensorDeviceClass.HEAT,
+            on_value="Off",
+            negate=True,
+        )
+    ),
+    "seatFrontRightVent": RivianBinarySensorEntity(
+        entity_description=RivianBinarySensorEntityDescription(
+            name="Vented Seat Front Right",
+            key=f"{DOMAIN}_thermal_hvac_mobile_status_right_seat_vent_status",
+            device_class=BinarySensorDeviceClass.COLD,
             on_value="Off",
             negate=True,
         )
@@ -643,6 +680,24 @@ BINARY_SENSORS: Final[dict[str, RivianBinarySensorEntity]] = {
         entity_description=RivianBinarySensorEntityDescription(
             name="Heated Seat Rear Right",
             key=f"{DOMAIN}_thermal_hvac_mobile_status_rear_right_seat_heat_status",
+            device_class=BinarySensorDeviceClass.HEAT,
+            on_value="Off",
+            negate=True,
+        )
+    ),
+    "seatThirdRowLeftHeat": RivianBinarySensorEntity(
+        entity_description=RivianBinarySensorEntityDescription(
+            name="Heated Seat 3rd Row Left",
+            key=f"{DOMAIN}_thermal_hvac_mobile_status_3rd_row_left_seat_heat_status",
+            device_class=BinarySensorDeviceClass.HEAT,
+            on_value="Off",
+            negate=True,
+        )
+    ),
+    "seatThirdRowRightHeat": RivianBinarySensorEntity(
+        entity_description=RivianBinarySensorEntityDescription(
+            name="Heated Seat 3rd Row Right",
+            key=f"{DOMAIN}_thermal_hvac_mobile_status_3rd_row_right_seat_heat_status",
             device_class=BinarySensorDeviceClass.HEAT,
             on_value="Off",
             negate=True,
@@ -729,49 +784,4 @@ BINARY_SENSORS: Final[dict[str, RivianBinarySensorEntity]] = {
             on_value="low",
         )
     ),
-    # "thermal/hvac_mobile_status/3rd_row_left_seat_heat_status": RivianBinarySensorEntity(
-    #     entity_description=RivianBinarySensorEntityDescription(
-    #         name="Heated Seat 3rd Row Left",
-    #         key=f"{DOMAIN}_thermal_hvac_mobile_status_3rd_row_left_seat_heat_status",
-    #         device_class=BinarySensorDeviceClass.HEAT,
-    #         on_value="Off",
-    #         negate=True,
-    #     )
-    # ),
-    # "thermal/hvac_mobile_status/3rd_row_right_seat_heat_status": RivianBinarySensorEntity(
-    #     entity_description=RivianBinarySensorEntityDescription(
-    #         name="Heated Seat 3rd Row Right",
-    #         key=f"{DOMAIN}_thermal_hvac_mobile_status_3rd_row_right_seat_heat_status",
-    #         device_class=BinarySensorDeviceClass.HEAT,
-    #         on_value="Off",
-    #         negate=True,
-    #     )
-    # ),
-    # "thermal/hvac_mobile_status/left_seat_vent_status": RivianBinarySensorEntity(
-    #     entity_description=RivianBinarySensorEntityDescription(
-    #         name="Vented Seat Front Left",
-    #         key=f"{DOMAIN}_thermal_hvac_mobile_status_left_seat_vent_status",
-    #         device_class=BinarySensorDeviceClass.COLD,
-    #         on_value="Off",
-    #         negate=True,
-    #     )
-    # ),
-    # "thermal/hvac_mobile_status/right_seat_vent_status": RivianBinarySensorEntity(
-    #     entity_description=RivianBinarySensorEntityDescription(
-    #         name="Vented Seat Front Right",
-    #         key=f"{DOMAIN}_thermal_hvac_mobile_status_right_seat_vent_status",
-    #         device_class=BinarySensorDeviceClass.COLD,
-    #         on_value="Off",
-    #         negate=True,
-    #     )
-    # ),
-    # "energy_storage/charger_status/vehicle_charger_status": RivianBinarySensorEntity(
-    #     entity_description=RivianBinarySensorEntityDescription(
-    #         name="Charger Connection",
-    #         key=f"{DOMAIN}_energy_storage_charger_status_vehicle_charger_status",
-    #         device_class=BinarySensorDeviceClass.CONNECTIVITY,
-    #         on_value="chrgr_sts_not_connected",
-    #         negate=True,
-    #     )
-    # ),
 }
