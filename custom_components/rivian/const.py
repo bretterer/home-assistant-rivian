@@ -154,6 +154,12 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             key=f"{DOMAIN}_gearGuardVideoTermsAccepted",
         ),
     ),
+    "otaAvailableVersion": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="Software OTA - Available Version",
+            key=f"{DOMAIN}_telematics_ota_status_available_version",
+        )
+    ),
     "otaAvailableVersionNumber": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Software OTA - Available Version Number",
@@ -176,6 +182,12 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
         entity_description=RivianSensorEntityDescription(
             name="Software OTA - Status Current",
             key=f"{DOMAIN}_telematics_ota_status_status_current",
+        )
+    ),
+    "otaCurrentVersion": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="Software OTA - Current Version",
+            key=f"{DOMAIN}_telematics_ota_status_current_version",
         )
     ),
     "otaCurrentVersionNumber": RivianSensorEntity(
@@ -352,18 +364,6 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
     #     ),
     #     value_lambda=lambda v: round(DistanceConverter.convert(v, UnitOfLength.MILES, UnitOfLength.KILOMETERS), 1),
     # ),
-    # "telematics/ota_status/available_version": RivianSensorEntity(
-    #     entity_description=RivianSensorEntityDescription(
-    #         name="Software OTA - Available Version",
-    #         key=f"{DOMAIN}_telematics_ota_status_available_version",
-    #     )
-    # ),
-    # "telematics/ota_status/current_version": RivianSensorEntity(
-    #     entity_description=RivianSensorEntityDescription(
-    #         name="Software OTA - Current Version",
-    #         key=f"{DOMAIN}_telematics_ota_status_current_version",
-    #     )
-    # ),
     # "telematics/ota_status/pending_reason_active_mode": RivianSensorEntity(
     #     entity_description=RivianSensorEntityDescription(
     #         name="Software OTA - Pending Reason Active Mode",
@@ -476,6 +476,14 @@ BINARY_SENSORS: Final[dict[str, RivianBinarySensorEntity]] = {
             key=f"{DOMAIN}_body_closures_liftgate_state",
             device_class=BinarySensorDeviceClass.DOOR,
             on_value="open",
+        )
+    ),
+    "closureLiftgateLocked": RivianBinarySensorEntity(
+        entity_description=RivianBinarySensorEntityDescription(
+            name="Liftgate",
+            key=f"{DOMAIN}_body_closures_liftgate_locked_state",
+            device_class=BinarySensorDeviceClass.LOCK,
+            on_value="unlocked",
         )
     ),
     "closureSideBinLeftClosed": RivianBinarySensorEntity(
