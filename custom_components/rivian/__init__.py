@@ -156,7 +156,7 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):  # type: ignore[misc]
         for _, val in enumerate(BINARY_SENSORS):
             sensors.append(val)
 
-        # sensors.append("gnssLocation")
+        sensors.append("gnssLocation")
         try:
             auth = await self._api.authenticate_graphql(
                 self._entry.data.get(CONF_USERNAME), self._entry.data.get(CONF_PASSWORD)
