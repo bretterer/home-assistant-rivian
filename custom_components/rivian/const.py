@@ -154,6 +154,12 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             key=f"{DOMAIN}_gearGuardVideoTermsAccepted",
         ),
     ),
+    "otaAvailableVersion": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="Software OTA - Available Version",
+            key=f"{DOMAIN}_telematics_ota_status_available_version",
+        )
+    ),
     "otaAvailableVersionNumber": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Software OTA - Available Version Number",
@@ -357,12 +363,6 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
     #         key=f"{DOMAIN}_energy_storage_vehicle_efficiency_lifetime_wh_per_km",
     #     ),
     #     value_lambda=lambda v: round(DistanceConverter.convert(v, UnitOfLength.MILES, UnitOfLength.KILOMETERS), 1),
-    # ),
-    # "telematics/ota_status/available_version": RivianSensorEntity(
-    #     entity_description=RivianSensorEntityDescription(
-    #         name="Software OTA - Available Version",
-    #         key=f"{DOMAIN}_telematics_ota_status_available_version",
-    #     )
     # ),
     # "telematics/ota_status/pending_reason_active_mode": RivianSensorEntity(
     #     entity_description=RivianSensorEntityDescription(
