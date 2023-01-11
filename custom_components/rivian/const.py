@@ -178,6 +178,12 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             key=f"{DOMAIN}_telematics_ota_status_status_current",
         )
     ),
+    "otaCurrentVersion": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="Software OTA - Current Version",
+            key=f"{DOMAIN}_telematics_ota_status_current_version",
+        )
+    ),
     "otaCurrentVersionNumber": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Software OTA - Current Version Number",
@@ -356,12 +362,6 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
     #     entity_description=RivianSensorEntityDescription(
     #         name="Software OTA - Available Version",
     #         key=f"{DOMAIN}_telematics_ota_status_available_version",
-    #     )
-    # ),
-    # "telematics/ota_status/current_version": RivianSensorEntity(
-    #     entity_description=RivianSensorEntityDescription(
-    #         name="Software OTA - Current Version",
-    #         key=f"{DOMAIN}_telematics_ota_status_current_version",
     #     )
     # ),
     # "telematics/ota_status/pending_reason_active_mode": RivianSensorEntity(
