@@ -6,7 +6,14 @@ from datetime import timedelta
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import ATTR_MODEL, CONF_CLIENT_ID, CONF_CLIENT_SECRET, CONF_USERNAME, CONF_PASSWORD, Platform
+from homeassistant.const import (
+    ATTR_MODEL,
+    CONF_CLIENT_ID,
+    CONF_CLIENT_SECRET,
+    CONF_USERNAME,
+    CONF_PASSWORD,
+    Platform,
+)
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
@@ -169,25 +176,25 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):  # type: ignore[misc]
                 return self._previous_vehicle_info_items
         except RivianExpiredTokenError:
             _LOGGER.info("Rivian token expired, refreshing")
-            token = await self._api.refresh_access_token(
-                self._refresh_token, self._client_id, self._client_secret
-            )
 
             self._rivian = Rivian("", "")
             await self._rivian.create_csrf_token()
-            auth = await self._rivian.authenticate_graphql(self._entry.data.get(CONF_USERNAME), self._entry.data.get(CONF_PASSWORD))
-
+            auth = await self._rivian.authenticate_graphql(
+                self._entry.data.get(CONF_USERNAME), self._entry.data.get(CONF_PASSWORD)
+            )
 
             json_data = await auth.json()
             self._access_token = json_data["data"]["login"]["accessToken"]
-            
+
             return await self._update_api_data()
         except Exception as err:  # pylint: disable=broad-except
             if err.args[0] == 401:
                 self._rivian = Rivian("", "")
                 await self._rivian.create_csrf_token()
-                auth = await self._rivian.authenticate_graphql(self._entry.data.get(CONF_USERNAME), self._entry.data.get(CONF_PASSWORD))
-
+                auth = await self._rivian.authenticate_graphql(
+                    self._entry.data.get(CONF_USERNAME),
+                    self._entry.data.get(CONF_PASSWORD),
+                )
 
                 json_data = await auth.json()
                 self._access_token = json_data["data"]["login"]["accessToken"]
@@ -206,8 +213,9 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):  # type: ignore[misc]
             _LOGGER.info("Rivian token expired, refreshing")
             self._rivian = Rivian("", "")
             await self._rivian.create_csrf_token()
-            auth = await self._rivian.authenticate_graphql(self._entry.data.get(CONF_USERNAME), self._entry.data.get(CONF_PASSWORD))
-
+            auth = await self._rivian.authenticate_graphql(
+                self._entry.data.get(CONF_USERNAME), self._entry.data.get(CONF_PASSWORD)
+            )
 
             json_data = await auth.json()
             self._access_token = json_data["data"]["login"]["accessToken"]
