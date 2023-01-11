@@ -131,6 +131,7 @@ class RivianFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
         self._access_token = json_data["data"]["login"]["accessToken"]
         self._refresh_token = json_data["data"]["login"]["refreshToken"]
+        self._user_session_token = json_data["data"]["login"]["userSessionToken"]
 
         return await self._show_vin_field(user_input)
 
@@ -139,6 +140,7 @@ class RivianFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         config_data = {
             "access_token": self._access_token,
             "refresh_token": self._refresh_token,
+            "user_session_token": self._user_session_token,
             "vin": self._vin,
         }
 
@@ -199,7 +201,9 @@ class RivianOptionsFlow(config_entries.OptionsFlow):
 
         if user_input.get(CONF_OTP) is not None:
             self._data.update(user_input)
-            otpauth = await self._rivian.validate_otp(self._data.get(CONF_USERNAME), self._data.get(CONF_OTP))
+            otpauth = await self._rivian.validate_otp(
+                self._data.get(CONF_USERNAME), self._data.get(CONF_OTP)
+            )
 
             if otpauth.status == 200:
                 oauth_json_data = await otpauth.json()
@@ -219,7 +223,9 @@ class RivianOptionsFlow(config_entries.OptionsFlow):
 
         self._rivian = Rivian("", "")
         await self._rivian.create_csrf_token()
-        auth = await self._rivian.authenticate_graphql(self._data.get(CONF_USERNAME), self._data.get(CONF_PASSWORD))
+        auth = await self._rivian.authenticate_graphql(
+            self._data.get(CONF_USERNAME), self._data.get(CONF_PASSWORD)
+        )
 
         json_data = await auth.json()
         if auth.status == 401:
@@ -228,6 +234,9 @@ class RivianOptionsFlow(config_entries.OptionsFlow):
 
         self._data.update({"access_token": json_data["data"]["login"]["accessToken"]})
         self._data.update({"refresh_token": json_data["data"]["login"]["refreshToken"]})
+        self._data.update(
+            {"user_session_token": json_data["data"]["login"]["userSessionToken"]}
+        )
 
         return await self._show_vin_field(user_input)
 

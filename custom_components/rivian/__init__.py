@@ -6,7 +6,14 @@ from datetime import timedelta
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import ATTR_MODEL, CONF_CLIENT_ID, CONF_CLIENT_SECRET, CONF_USERNAME, CONF_PASSWORD, Platform
+from homeassistant.const import (
+    ATTR_MODEL,
+    CONF_CLIENT_ID,
+    CONF_CLIENT_SECRET,
+    CONF_USERNAME,
+    CONF_PASSWORD,
+    Platform,
+)
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
@@ -56,10 +63,8 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
     updated_config = config_entry.data.copy()
 
     try:
-        client = Rivian(
-            config_entry.data.get(CONF_CLIENT_ID),
-            config_entry.data.get(CONF_CLIENT_SECRET),
-        )
+        client = Rivian("", "")
+        await client.create_csrf_token()
     except Exception as err:  # pylint: disable=broad-except
         _LOGGER.error("Could not update Rivian Data: %s", err, exc_info=1)
         raise Exception("Error communicating with API") from err
@@ -151,11 +156,19 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):  # type: ignore[misc]
         for _, val in enumerate(BINARY_SENSORS):
             sensors.append(val)
 
-        sensors.append("telematics/gnss/position")
+        sensors.append("gnssLocation")
         try:
-            vehicle_info = await self._api.get_vehicle_info(
+            auth = await self._api.authenticate_graphql(
+                self._entry.data.get(CONF_USERNAME), self._entry.data.get(CONF_PASSWORD)
+            )
+
+            # vehicle_info = await self._api.get_vehicle_info(
+            #     vin=self._vin,
+            #     access_token=self._access_token,
+            #     properties=sensors,
+            # )
+            vehicle_info = await self._api.get_vehicle_state(
                 vin=self._vin,
-                access_token=self._access_token,
                 properties=sensors,
             )
             vijson = await vehicle_info.json()
@@ -175,19 +188,22 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):  # type: ignore[misc]
 
             self._rivian = Rivian("", "")
             await self._rivian.create_csrf_token()
-            auth = await self._rivian.authenticate_graphql(self._entry.data.get(CONF_USERNAME), self._entry.data.get(CONF_PASSWORD))
-
+            auth = await self._rivian.authenticate_graphql(
+                self._entry.data.get(CONF_USERNAME), self._entry.data.get(CONF_PASSWORD)
+            )
 
             json_data = await auth.json()
             self._access_token = json_data["data"]["login"]["accessToken"]
-            
+
             return await self._update_api_data()
         except Exception as err:  # pylint: disable=broad-except
             if err.args[0] == 401:
                 self._rivian = Rivian("", "")
                 await self._rivian.create_csrf_token()
-                auth = await self._rivian.authenticate_graphql(self._entry.data.get(CONF_USERNAME), self._entry.data.get(CONF_PASSWORD))
-
+                auth = await self._rivian.authenticate_graphql(
+                    self._entry.data.get(CONF_USERNAME),
+                    self._entry.data.get(CONF_PASSWORD),
+                )
 
                 json_data = await auth.json()
                 self._access_token = json_data["data"]["login"]["accessToken"]
@@ -206,8 +222,9 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):  # type: ignore[misc]
             _LOGGER.info("Rivian token expired, refreshing")
             self._rivian = Rivian("", "")
             await self._rivian.create_csrf_token()
-            auth = await self._rivian.authenticate_graphql(self._entry.data.get(CONF_USERNAME), self._entry.data.get(CONF_PASSWORD))
-
+            auth = await self._rivian.authenticate_graphql(
+                self._entry.data.get(CONF_USERNAME), self._entry.data.get(CONF_PASSWORD)
+            )
 
             json_data = await auth.json()
             self._access_token = json_data["data"]["login"]["accessToken"]
@@ -220,7 +237,7 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):  # type: ignore[misc]
 
     def build_vehicle_info_dict(self, vijson) -> dict[str, dict[str, Any]]:
         """take the json output of vehicle_info and build a dictionary"""
-        return vijson["data"]
+        return vijson["data"]["vehicleState"]
 
 
 class RivianEntity(Entity):

@@ -91,10 +91,12 @@ class RivianSensor(RivianEntity, CoordinatorEntity, SensorEntity):
     def native_value(self) -> str:
         try:
             entity = self.coordinator.data[self._prop_key]
+            if entity is None:
+                return "Sensor Unavailable"
             if self._sensor.value_lambda is None:
-                return entity[1]
+                return entity["value"]
             else:
-                return self._sensor.value_lambda(entity[1])
+                return self._sensor.value_lambda(entity["value"])
         except KeyError:
             return None
 
@@ -103,8 +105,10 @@ class RivianSensor(RivianEntity, CoordinatorEntity, SensorEntity):
         """Return the state attributes of the device."""
         try:
             entity = self.coordinator.data[self._prop_key]
+            if entity is None:
+                return None
             return {
-                "last_update": entity[0],
+                "last_update": entity["timeStamp"],
             }
         except KeyError:
             return None

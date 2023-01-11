@@ -36,7 +36,7 @@ async def async_setup_entry(
     coordinator = hass.data[DOMAIN][entry.entry_id][ATTR_COORDINATOR]
 
     entities = []
-    value = "telematics/gnss/position"
+    value = "gnssLocation"
     entities.append(RivianDeviceEntity(coordinator, entry, value))
 
     async_add_entities(entities, True)
@@ -84,12 +84,12 @@ class RivianDeviceEntity(CoordinatorEntity, TrackerEntity):
     @property
     def latitude(self) -> float | None:
         """Return latitude value of the device."""
-        return self._tracker_data[1]["lat"]
+        return self._tracker_data["latitude"]
 
     @property
     def longitude(self) -> float | None:
         """Return longitude value of the device."""
-        return self._tracker_data[1]["lon"]
+        return self._tracker_data["longitude"]
 
     @property
     def source_type(self):
@@ -100,16 +100,12 @@ class RivianDeviceEntity(CoordinatorEntity, TrackerEntity):
     # def location_accuracy(self) -> int:
     #     return self._tracker_data[6]
 
-    # @property
-    # def extra_state_attributes(self):
-    #     """Return the state attributes of the device."""
-    #     return {
-    #         "trackr_id": self.unique_id,
-    #         "altitude": self._tracker_data[3],
-    #         "heading": self._tracker_data[4],
-    #         "speed": self._tracker_data[5],
-    #         "last_update": self._tracker_data[0],
-    #     }
+    @property
+    def extra_state_attributes(self):
+        """Return the state attributes of the device."""
+        return {
+            "last_update": self._tracker_data["timeStamp"],
+        }
 
     @callback
     def _handle_coordinator_update(self) -> None:
