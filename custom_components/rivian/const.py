@@ -478,6 +478,14 @@ BINARY_SENSORS: Final[dict[str, RivianBinarySensorEntity]] = {
             on_value="open",
         )
     ),
+    "closureLiftgateLocked": RivianBinarySensorEntity(
+        entity_description=RivianBinarySensorEntityDescription(
+            name="Liftgate",
+            key=f"{DOMAIN}_body_closures_liftgate_locked_state",
+            device_class=BinarySensorDeviceClass.LOCK,
+            on_value="unlocked",
+        )
+    ),
     "closureSideBinLeftClosed": RivianBinarySensorEntity(
         entity_description=RivianBinarySensorEntityDescription(
             name="Gear Tunnel Left",
