@@ -35,8 +35,6 @@ ATTR_COORDINATOR = "rivian_coordinator"
 # Config properties
 CONF_OTP = "otp"
 CONF_VIN = "vin"
-CONF_ACCESS_TOKEN = "access_token"
-CONF_REFRESH_TOKEN = "refresh_token"
 
 SENSORS: Final[dict[str, RivianSensorEntity]] = {
     "batteryHvThermalEvent": RivianSensorEntity(
@@ -81,7 +79,9 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             native_unit_of_measurement=TEMP_FAHRENHEIT,
         ),
         value_lambda=lambda v: round(
-            TemperatureConverter.convert(v, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT),
+            TemperatureConverter.convert(
+                v, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT
+            ),
             1,
         ),
     ),
@@ -93,7 +93,9 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             native_unit_of_measurement=TEMP_FAHRENHEIT,
         ),
         value_lambda=lambda v: round(
-            TemperatureConverter.convert(v, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT),
+            TemperatureConverter.convert(
+                v, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT
+            ),
             1,
         ),
     ),
@@ -110,7 +112,9 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             key=f"{DOMAIN}_energy_storage_vehicle_energy_vehicle_range",
             native_unit_of_measurement=LENGTH_MILES,
         ),
-        value_lambda=lambda v: round(DistanceConverter.convert(v, UnitOfLength.KILOMETERS, UnitOfLength.MILES), 1),
+        value_lambda=lambda v: round(
+            DistanceConverter.convert(v, UnitOfLength.KILOMETERS, UnitOfLength.MILES), 1
+        ),
     ),
     "driveMode": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
@@ -313,7 +317,9 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             key=f"{DOMAIN}_dynamics_odometer_value",
             native_unit_of_measurement=LENGTH_MILES,
         ),
-        value_lambda=lambda v: round(DistanceConverter.convert(v, UnitOfLength.METERS, UnitOfLength.MILES), 1),
+        value_lambda=lambda v: round(
+            DistanceConverter.convert(v, UnitOfLength.METERS, UnitOfLength.MILES), 1
+        ),
     ),
     "windowFrontLeftCalibrated": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
