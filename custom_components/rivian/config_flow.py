@@ -90,6 +90,7 @@ class RivianFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         self._access_token = None
         self._refresh_token = None
         self._session_token = None
+        self._user_session_token = None
 
     async def async_step_user(self, user_input=None):
         """Handle the flow"""
