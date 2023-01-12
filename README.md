@@ -54,7 +54,7 @@ This integration uses the Rivian's GNSS sensors for device tracking. View the lo
 - [tmack8001](https://github.com/tmack8001) - Helping with Development and Testing
 
 ## Sponsors
-- [74656b] (https://github.com/74656b) Thank you for the sponsorship!
+- [74656b](https://github.com/74656b) Thank you for the sponsorship!
 ---
 
 [commits-shield]: https://img.shields.io/github/commit-activity/w/bretterer/home-assistant-rivian?style=flat-square
