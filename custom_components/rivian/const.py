@@ -43,12 +43,14 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
     "batteryHvThermalEvent": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Battery Thermal Status",
+            icon="mdi:battery-alert",
             key=f"{DOMAIN}_dynamics_hv_battery_notifications_BMS_thermal_event",
         )
     ),
     "batteryHvThermalEventPropagation": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
-            name="Battery Thermal Runaway Propagation",
+            name="Battery Thermal Runwaway Propagation",
+            icon="mdi:battery-alert",
             key=f"{DOMAIN}_energy_storage_icd_cid_notifications_b_pack_thermal_runaway_propagation",
         )
     ),
@@ -64,6 +66,7 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
     "batteryLimit": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="SOC Limit",
+            icon="mdi:battery-charging-80",
             key=f"{DOMAIN}_energy_storage_mobile_soc_limit",
             native_unit_of_measurement=PERCENTAGE,
         )
@@ -72,6 +75,7 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
         entity_description=RivianSensorEntityDescription(
             name="Brake Fluid Level Low",
             key=f"{DOMAIN}_dynamics/powertrain_status/brake_fluid_level_low",
+            icon="mdi:car-brake-fluid-level",
         ),
     ),
     "cabinClimateDriverTemperature": RivianSensorEntity(
@@ -107,6 +111,7 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             name="Cabin Climate Preconditioning Type",
             key=f"{DOMAIN}_cabinPreconditioningType",
         )
+            icon="mdi:thermostat",
     ),
     "distanceToEmpty": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
@@ -122,6 +127,7 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
     "driveMode": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Drive Mode",
+            icon="mdi:car-speed-limiter",
             key=f"{DOMAIN}_dynamics_modes_drive_mode",
         ),
         value_lambda=lambda v: {
@@ -140,6 +146,7 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
     "gearStatus": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Gear Selector",
+            icon="mdi:car-shift-pattern",
             key=f"{DOMAIN}_dynamics_propulsion_status_prndl",
         ),
     ),
@@ -147,12 +154,14 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
         entity_description=RivianSensorEntityDescription(
             name="Gear Guard Video Mode",
             key=f"{DOMAIN}_gearGuardVideoMode",
+            icon="mdi:cctv",
         ),
     ),
     "gearGuardVideoStatus": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Gear Guard Video Status",
             key=f"{DOMAIN}_gearGuardVideoStatus",
+            icon="mdi:cctv",
         ),
     ),
     "gearGuardVideoTermsAccepted": RivianSensorEntity(
@@ -160,124 +169,145 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             name="Gear Guard Video Status",
             key=f"{DOMAIN}_gearGuardVideoTermsAccepted",
         ),
+            icon="mdi:cctv",
     ),
     "otaAvailableVersion": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Software OTA - Available Version",
+            icon="mdi:package",
             key=f"{DOMAIN}_telematics_ota_status_available_version",
         )
     ),
     "otaAvailableVersionNumber": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Software OTA - Available Version Number",
+            icon="mdi:package",
             key=f"{DOMAIN}_telematics_ota_status_available_version_number",
         )
     ),
     "otaAvailableVersionWeek": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Software OTA - Available Version Week",
+            icon="mdi:package",
             key=f"{DOMAIN}_telematics_ota_status_available_version_week",
         )
     ),
     "otaAvailableVersionYear": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Software OTA - Available Version Year",
+            icon="mdi:package",
             key=f"{DOMAIN}_telematics_ota_status_available_version_year",
         )
     ),
     "otaCurrentStatus": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Software OTA - Status Current",
+            icon="mdi:package",
             key=f"{DOMAIN}_telematics_ota_status_status_current",
         )
     ),
     "otaCurrentVersion": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Software OTA - Current Version",
+            icon="mdi:package",
             key=f"{DOMAIN}_telematics_ota_status_current_version",
         )
     ),
     "otaCurrentVersionNumber": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Software OTA - Current Version Number",
+            icon="mdi:package",
             key=f"{DOMAIN}_telematics_ota_status_current_version_number",
         )
     ),
     "otaCurrentVersionWeek": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Software OTA - Current Version Week",
+            icon="mdi:package",
             key=f"{DOMAIN}_telematics_ota_status_current_version_week",
         )
     ),
     "otaCurrentVersionYear": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Software OTA - Current Version Year",
+            icon="mdi:package",
             key=f"{DOMAIN}_telematics_ota_status_current_version_year",
         )
     ),
     "otaDownloadProgress": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Software OTA - Download Progress",
+            icon="mdi:package",
             key=f"{DOMAIN}_telematics_ota_status_download_progress",
         )
     ),
     "otaInstallDuration": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Software OTA - Install Duration",
+            icon="mdi:package",
             key=f"{DOMAIN}_telematics_ota_status_install_duration",
         )
     ),
     "otaInstallProgress": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Software OTA - Install Progress",
+            icon="mdi:package",
             key=f"{DOMAIN}_telematics_ota_status_install_progress",
         )
     ),
     "otaInstallReady": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="CGM OTA Install - Install Ready",
+            icon="mdi:package",
             key=f"{DOMAIN}_core_ota_status_cgm_ota_install_ready",
         )
     ),
     "otaInstallTime": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Software OTA - Install Time",
+            icon="mdi:package",
             key=f"{DOMAIN}_telematics_ota_status_install_time",
         )
     ),
     "otaInstallType": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Software OTA - Install Type",
+            icon="mdi:package",
             key=f"{DOMAIN}_telematics_ota_status_install_type",
         )
     ),
     "otaStatus": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Software OTA - Status",
+            icon="mdi:package",
             key=f"{DOMAIN}_telematics_ota_status_status",
         )
     ),
     "petModeTemperatureStatus": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Pet Mode Temperature Status",
+            icon="mdi:dog-side",
             key=f"{DOMAIN}_thermal_hvac_settings_pet_mode_temperature_status",
         )
     ),
     "powerState": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Power State",
+            icon="mdi:power",
             key=f"{DOMAIN}_core_power_modes_power_state",
         )
     ),
     "rangeThreshold": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Range Threshold",
+            icon="mdi:map-marker-distance",
             key=f"{DOMAIN}_energy_storage_icd_cid_notifications_range_threshold",
         )
     ),
     "remoteChargingAvailable": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Remote Charging Available",
+            icon="mdi:battery-charging-wireless-80",
             key=f"{DOMAIN}_energy_storage_mobile_remote_charging_available",
         )
     ),
@@ -293,24 +323,28 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
         entity_description=RivianSensorEntityDescription(
             name="Tire Pressure Front Left",
             key=f"{DOMAIN}_dynamics_tires_tire_FL_pressure_status",
+            icon="mdi:tire",
         )
     ),
     "tirePressureStatusFrontRight": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Tire Pressure Front Right",
             key=f"{DOMAIN}_dynamics_tires_tire_FR_pressure_status",
+            icon="mdi:tire",
         )
     ),
     "tirePressureStatusRearLeft": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Tire Pressure Rear Left",
             key=f"{DOMAIN}_dynamics_tires_tire_RL_pressure_status",
+            icon="mdi:tire",
         )
     ),
     "tirePressureStatusRearRight": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Tire Pressure Rear Right",
             key=f"{DOMAIN}_dynamics_tires_tire_RR_pressure_status",
+            icon="mdi:tire",
         )
     ),
     "vehicleMileage": RivianSensorEntity(
@@ -328,24 +362,28 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
         entity_description=RivianSensorEntityDescription(
             name="Window Calibration Front Left State",
             key=f"{DOMAIN}_body_closures_window_calibration_FL_state",
+            icon="mdi:window-closed",
         )
     ),
     "windowFrontRightCalibrated": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Window Calibration Front Right State",
             key=f"{DOMAIN}_body_closures_window_calibration_FR_state",
+            icon="mdi:window-closed",
         )
     ),
     "windowRearLeftCalibrated": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Window Calibration Rear Left State",
             key=f"{DOMAIN}_body_closures_window_calibration_RL_state",
+            icon="mdi:window-closed",
         )
     ),
     "windowRearRightCalibrated": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Window Calibration Rear Right State",
             key=f"{DOMAIN}_body_closures_window_calibration_RR_state",
+            icon="mdi:window-closed",
         )
     ),
     # "core/ota_status/cgm_ota_install_fast_charging": RivianSensorEntity(
@@ -431,7 +469,6 @@ BINARY_SENSORS: Final[dict[str, RivianBinarySensorEntity]] = {
     "alarmSoundStatus": RivianBinarySensorEntity(
         entity_description=RivianBinarySensorEntityDescription(
             name="Gear Guard Alarm",
-            icon="mdi:alarm",
             key=f"{DOMAIN}_body_alarm_sound_alarm",
             device_class=BinarySensorDeviceClass.TAMPER,
             on_value="true",
