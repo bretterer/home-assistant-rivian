@@ -49,7 +49,7 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
     ),
     "batteryHvThermalEventPropagation": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
-            name="Battery Thermal Runwaway Propagation",
+            name="Battery Thermal Runaway Propagation",
             icon="mdi:battery-alert",
             key=f"{DOMAIN}_energy_storage_icd_cid_notifications_b_pack_thermal_runaway_propagation",
         )
@@ -74,8 +74,8 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
     "brakeFluidLow": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Brake Fluid Level Low",
-            key=f"{DOMAIN}_dynamics/powertrain_status/brake_fluid_level_low",
             icon="mdi:car-brake-fluid-level",
+            key=f"{DOMAIN}_dynamics_powertrain_status_brake_fluid_level_low",
         ),
     ),
     "cabinClimateDriverTemperature": RivianSensorEntity(
@@ -109,9 +109,9 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
     "cabinPreconditioningType": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Cabin Climate Preconditioning Type",
-            key=f"{DOMAIN}_cabinPreconditioningType",
-        )
             icon="mdi:thermostat",
+            key=f"{DOMAIN}_cabin_preconditioning_type",
+        ),
     ),
     "distanceToEmpty": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
@@ -153,23 +153,23 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
     "gearGuardVideoMode": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Gear Guard Video Mode",
-            key=f"{DOMAIN}_gearGuardVideoMode",
             icon="mdi:cctv",
+            key=f"{DOMAIN}_gear_guard_video_mode",
         ),
     ),
     "gearGuardVideoStatus": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Gear Guard Video Status",
-            key=f"{DOMAIN}_gearGuardVideoStatus",
             icon="mdi:cctv",
+            key=f"{DOMAIN}_gear_guard_video_status",
         ),
     ),
     "gearGuardVideoTermsAccepted": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
-            name="Gear Guard Video Status",
-            key=f"{DOMAIN}_gearGuardVideoTermsAccepted",
-        ),
+            name="Gear Guard Video Terms Accepted",
             icon="mdi:cctv",
+            key=f"{DOMAIN}_gear_guard_video_terms_accepted",
+       ),
     ),
     "otaAvailableVersion": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
@@ -314,7 +314,7 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
     "timeToEndOfCharge": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Charging Time Remaining",
-            key=f"{DOMAIN}_energy_storage_charger_EMS_charger_remainingtime_min_1",
+            key=f"{DOMAIN}_energy_storage_charger_EMS_charger_remaining_time_min_1",
             device_class=SensorDeviceClass.DURATION,
             native_unit_of_measurement=TIME_MINUTES,
         )
