@@ -45,7 +45,8 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             name="Battery Thermal Status",
             icon="mdi:battery-alert",
             key=f"{DOMAIN}_dynamics_hv_battery_notifications_BMS_thermal_event",
-        )
+        ),
+        value_lambda=lambda v: v.replace("_", " ").title(),
     ),
     "batteryHvThermalEventPropagation": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
@@ -112,6 +113,7 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             icon="mdi:thermostat",
             key=f"{DOMAIN}_cabin_preconditioning_type",
         ),
+        value_lambda=lambda v: v.replace("_", " ").title(),
     ),
     "distanceToEmpty": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
@@ -149,6 +151,7 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             icon="mdi:car-shift-pattern",
             key=f"{DOMAIN}_dynamics_propulsion_status_prndl",
         ),
+        value_lambda=lambda v: v.title(),
     ),
     "gearGuardVideoMode": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
@@ -156,6 +159,7 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             icon="mdi:cctv",
             key=f"{DOMAIN}_gear_guard_video_mode",
         ),
+        value_lambda=lambda v: v.replace("_", " ").title(),
     ),
     "gearGuardVideoStatus": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
@@ -163,6 +167,7 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             icon="mdi:cctv",
             key=f"{DOMAIN}_gear_guard_video_status",
         ),
+        value_lambda=lambda v: v.replace("_", " ").title(),
     ),
     "gearGuardVideoTermsAccepted": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
@@ -170,6 +175,7 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             icon="mdi:cctv",
             key=f"{DOMAIN}_gear_guard_video_terms_accepted",
        ),
+        value_lambda=lambda v: v.replace("_", " ").title(),
     ),
     "otaAvailableVersion": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
@@ -204,7 +210,8 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             name="Software OTA - Status Current",
             icon="mdi:package",
             key=f"{DOMAIN}_telematics_ota_status_status_current",
-        )
+        ),
+        value_lambda=lambda v: v.replace("_", " ").title(),
     ),
     "otaCurrentVersion": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
@@ -260,7 +267,8 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             name="CGM OTA Install - Install Ready",
             icon="mdi:package",
             key=f"{DOMAIN}_core_ota_status_cgm_ota_install_ready",
-        )
+        ),
+        value_lambda=lambda v: v.replace("_", " ").title().replace("Ota", "OTA"),
     ),
     "otaInstallTime": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
@@ -288,21 +296,24 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             name="Pet Mode Temperature Status",
             icon="mdi:dog-side",
             key=f"{DOMAIN}_thermal_hvac_settings_pet_mode_temperature_status",
-        )
+        ),
+        value_lambda=lambda v: v.replace("_", " ").title(),
     ),
     "powerState": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Power State",
             icon="mdi:power",
             key=f"{DOMAIN}_core_power_modes_power_state",
-        )
+        ),
+        value_lambda=lambda v: v.title(),
     ),
     "rangeThreshold": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Range Threshold",
             icon="mdi:map-marker-distance",
             key=f"{DOMAIN}_energy_storage_icd_cid_notifications_range_threshold",
-        )
+        ),
+        value_lambda=lambda v: v.replace("_", " ").title(),
     ),
     "remoteChargingAvailable": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
