@@ -23,6 +23,9 @@ from rivian.exceptions import RivianExpiredTokenError
 
 from .const import (
     ATTR_COORDINATOR,
+    CONF_ACCESS_TOKEN,
+    CONF_REFRESH_TOKEN,
+    CONF_USER_SESSION_TOKEN,
     CONF_VIN,
     DOMAIN,
     ISSUE_URL,
@@ -133,6 +136,12 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):  # type: ignore[misc]
         self._entry = entry
         self._vin = entry.data.get(CONF_VIN)
         self._login_attempts = 0
+
+        # sync tokens from initial configuration
+        self._api._access_token = entry.data.get(CONF_ACCESS_TOKEN)
+        self._api._refresh_token = entry.data.get(CONF_REFRESH_TOKEN)
+        self._api._user_session_token = entry.data.get(CONF_USER_SESSION_TOKEN)
+
         super().__init__(
             hass,
             _LOGGER,
@@ -151,7 +160,7 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):  # type: ignore[misc]
 
         sensors.append("gnssLocation")
         try:
-            if self._login_attempts >= 4:
+            if self._login_attempts >= 5:
                 raise Exception("too many attempts to login - aborting")
 
             # determine if we need to authenticate and/or refresh csrf

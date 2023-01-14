@@ -79,7 +79,7 @@ class RivianFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
     def __init__(self):
         """Initalize"""
-        self._rivian = None
+        self._rivian = Rivian("", "")
         self._data = {}
         self._errors = {}
 
@@ -102,12 +102,12 @@ class RivianFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input.get(CONF_OTP) is not None:
             self._otp = user_input[CONF_OTP]
-            otpauth = await self._rivian.validate_otp(self._username, self._otp)
+            otpauth = await self._rivian.validate_otp_graphql(self._username, self._otp)
 
             if otpauth.status == 200:
-                oauth_json_data = await otpauth.json()
-                self._access_token = oauth_json_data["access_token"]
-                self._refresh_token = oauth_json_data["refresh_token"]
+                self._access_token = self._rivian._access_token
+                self._refresh_token = self._rivian._refresh_token
+                self._user_session_token = self._rivian._user_session_token
                 return await self._show_vin_field(user_input)
 
             self._errors["base"] = "communication"
@@ -121,18 +121,16 @@ class RivianFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         self._username = user_input[CONF_USERNAME]
         self._password = user_input[CONF_PASSWORD]
 
-        self._rivian = Rivian("", "")
         await self._rivian.create_csrf_token()
         auth = await self._rivian.authenticate_graphql(self._username, self._password)
 
-        json_data = await auth.json()
-        if auth.status == 401:
-            self._session_token = json_data["session_token"]
+        if self._rivian._otp_needed:
+            self._data.update({"otp_token": self._rivian._otp_token})
             return await self._show_otp_field(user_input)
 
-        self._access_token = json_data["data"]["login"]["accessToken"]
-        self._refresh_token = json_data["data"]["login"]["refreshToken"]
-        self._user_session_token = json_data["data"]["login"]["userSessionToken"]
+        self._access_token = self._rivian._access_token
+        self._refresh_token = self._rivian._refresh_token
+        self._user_session_token = self._rivian._user_session_token
 
         return await self._show_vin_field(user_input)
 
@@ -191,7 +189,7 @@ class RivianOptionsFlow(config_entries.OptionsFlow):
     def __init__(self, config_entry):
         """Initialize."""
         self.config = config_entry
-        self._rivian = None
+        self._rivian = Rivian("", "")
         self._data = dict(config_entry.options)
         self._errors = {}
 
@@ -202,14 +200,16 @@ class RivianOptionsFlow(config_entries.OptionsFlow):
 
         if user_input.get(CONF_OTP) is not None:
             self._data.update(user_input)
-            otpauth = await self._rivian.validate_otp(
+            otpauth = await self._rivian.validate_otp_graphql(
                 self._data.get(CONF_USERNAME), self._data.get(CONF_OTP)
             )
 
             if otpauth.status == 200:
-                oauth_json_data = await otpauth.json()
-                self._data.update({"access_token": oauth_json_data["access_token"]})
-                self._data.update({"refresh_token": oauth_json_data["refresh_token"]})
+                self._data.update({"access_token": self._rivian._access_token})
+                self._data.update({"refresh_token": self._rivian._refresh_token})
+                self._data.update(
+                    {"user_session_token": self._rivian._user_session_token}
+                )
                 return await self._show_vin_field(user_input)
 
             self._errors["base"] = "communication"
@@ -222,22 +222,18 @@ class RivianOptionsFlow(config_entries.OptionsFlow):
 
         self._data.update(user_input)
 
-        self._rivian = Rivian("", "")
         await self._rivian.create_csrf_token()
-        auth = await self._rivian.authenticate_graphql(
+        await self._rivian.authenticate_graphql(
             self._data.get(CONF_USERNAME), self._data.get(CONF_PASSWORD)
         )
 
-        json_data = await auth.json()
-        if auth.status == 401:
-            self._data.update({"session_token": json_data["session_token"]})
+        if self._rivian._otp_needed:
+            self._data.update({"otp_token": self._rivian._otp_token})
             return await self._show_otp_field(user_input)
 
-        self._data.update({"access_token": json_data["data"]["login"]["accessToken"]})
-        self._data.update({"refresh_token": json_data["data"]["login"]["refreshToken"]})
-        self._data.update(
-            {"user_session_token": json_data["data"]["login"]["userSessionToken"]}
-        )
+        self._data.update({"access_token": self._rivian._access_token})
+        self._data.update({"refresh_token": self._rivian._refresh_token})
+        self._data.update({"user_session_token": self._rivian._user_session_token})
 
         return await self._show_vin_field(user_input)
 
