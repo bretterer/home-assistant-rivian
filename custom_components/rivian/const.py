@@ -700,7 +700,7 @@ BINARY_SENSORS: Final[dict[str, RivianBinarySensorEntity]] = {
         entity_description=RivianBinarySensorEntityDescription(
             name="Heated Seat Front Left",
             key=f"{DOMAIN}_thermal_hvac_mobile_status_left_seat_heat_status",
-            device_class=BinarySensorDeviceClass.HEAT,
+            device_class=BinarySensorDeviceClass.RUNNING,
             on_value="Off",
             negate=True,
         )
@@ -709,7 +709,7 @@ BINARY_SENSORS: Final[dict[str, RivianBinarySensorEntity]] = {
         entity_description=RivianBinarySensorEntityDescription(
             name="Vented Seat Front Left",
             key=f"{DOMAIN}_thermal_hvac_mobile_status_left_seat_vent_status",
-            device_class=BinarySensorDeviceClass.COLD,
+            device_class=BinarySensorDeviceClass.RUNNING,
             on_value="Off",
             negate=True,
         )
@@ -718,7 +718,7 @@ BINARY_SENSORS: Final[dict[str, RivianBinarySensorEntity]] = {
         entity_description=RivianBinarySensorEntityDescription(
             name="Heated Seat Front Right",
             key=f"{DOMAIN}_thermal_hvac_mobile_status_right_seat_heat_status",
-            device_class=BinarySensorDeviceClass.HEAT,
+            device_class=BinarySensorDeviceClass.RUNNING,
             on_value="Off",
             negate=True,
         )
@@ -727,7 +727,7 @@ BINARY_SENSORS: Final[dict[str, RivianBinarySensorEntity]] = {
         entity_description=RivianBinarySensorEntityDescription(
             name="Vented Seat Front Right",
             key=f"{DOMAIN}_thermal_hvac_mobile_status_right_seat_vent_status",
-            device_class=BinarySensorDeviceClass.COLD,
+            device_class=BinarySensorDeviceClass.RUNNING,
             on_value="Off",
             negate=True,
         )
@@ -736,7 +736,7 @@ BINARY_SENSORS: Final[dict[str, RivianBinarySensorEntity]] = {
         entity_description=RivianBinarySensorEntityDescription(
             name="Heated Seat Rear Left",
             key=f"{DOMAIN}_thermal_hvac_mobile_status_rear_left_seat_heat_status",
-            device_class=BinarySensorDeviceClass.HEAT,
+            device_class=BinarySensorDeviceClass.RUNNING,
             on_value="Off",
             negate=True,
         )
@@ -745,7 +745,7 @@ BINARY_SENSORS: Final[dict[str, RivianBinarySensorEntity]] = {
         entity_description=RivianBinarySensorEntityDescription(
             name="Heated Seat Rear Right",
             key=f"{DOMAIN}_thermal_hvac_mobile_status_rear_right_seat_heat_status",
-            device_class=BinarySensorDeviceClass.HEAT,
+            device_class=BinarySensorDeviceClass.RUNNING,
             on_value="Off",
             negate=True,
         )
@@ -754,7 +754,7 @@ BINARY_SENSORS: Final[dict[str, RivianBinarySensorEntity]] = {
         entity_description=RivianBinarySensorEntityDescription(
             name="Heated Seat 3rd Row Left",
             key=f"{DOMAIN}_thermal_hvac_mobile_status_3rd_row_left_seat_heat_status",
-            device_class=BinarySensorDeviceClass.HEAT,
+            device_class=BinarySensorDeviceClass.RUNNING,
             on_value="Off",
             negate=True,
         )
@@ -763,7 +763,7 @@ BINARY_SENSORS: Final[dict[str, RivianBinarySensorEntity]] = {
         entity_description=RivianBinarySensorEntityDescription(
             name="Heated Seat 3rd Row Right",
             key=f"{DOMAIN}_thermal_hvac_mobile_status_3rd_row_right_seat_heat_status",
-            device_class=BinarySensorDeviceClass.HEAT,
+            device_class=BinarySensorDeviceClass.RUNNING,
             on_value="Off",
             negate=True,
         )
@@ -772,7 +772,7 @@ BINARY_SENSORS: Final[dict[str, RivianBinarySensorEntity]] = {
         entity_description=RivianBinarySensorEntityDescription(
             name="Heated Steering Wheel",
             key=f"{DOMAIN}_thermal_hvac_mobile_status_steering_wheel_heat_status",
-            device_class=BinarySensorDeviceClass.HEAT,
+            device_class=BinarySensorDeviceClass.RUNNING,
             on_value="Off",
             negate=True,
         )
