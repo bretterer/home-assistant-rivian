@@ -12,7 +12,16 @@ In order to use this extension, you'll need the following information
  - Rivian Password
  - VIN
 
-Your vehicle must be in delivered status and in your posession for this integration to function. The client id and client secret must be obtained outside of this integration and there is currently no official or unofficial way to do this. You can search forums or the [Rivian Discord][rivian-discord]
+Your vehicle must be in delivered status and in your possession for this integration to function.
+
+# Disclaimer
+This [Home Assistant](https://www.home-assistant.io/) integration is not affiliated, associated, nor sponsored by Rivian Automotive, Inc.
+
+Any use of this integration is at the sole discretion and risk of the Rivian vehicle owner integrating it into their Home Assistant installation. This owner takes full responsibility to protect their local Home Assistant installation.
+
+This integration is provided out of love and passion towards the Rivian ownership community and with a focus on building insights and awareness into the state of one's own vehicle for use by the owner and the owner alone.
+
+No user or vehicle data is or ever will be shared outside of the Home Assistant integration itself which is a single user environment hosted and running within an owner's own private network and hardware systems.
 
 ## Installation
 
