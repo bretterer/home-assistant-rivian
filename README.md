@@ -34,6 +34,26 @@ No user or vehicle data is or ever will be shared outside of the Home Assistant 
 7. Restart Home Assistant.
 8. [![Add Integration][add-integration-badge]][add-integration] or in the HA UI go to "Configuration" -> "Integrations" click "+" and search for "Rivian (Unofficial)".
 
+## Configuration
+
+To connect your newly installed integration up to pull available sensor data (see below example) for your Rivian vehicle you should follow the following configuration recommendations. Not doing so could put your main Rivian account at risk of being locked and available to you.
+
+* One Time Password (**recommended**) - It is best security practice to always enable One Time Password / Multi Factor Authentication this way your credentials (username + password) can not be used without your explicit consent through the personal device configured on your Rivian Account.
+* No Account Reuse* (**recommended**) - Another best security practice is to not reuse account or credentials across different integrations (eg. sharing credentials between HA with your every day account). We highly recommend the owner to *Invite a new driver* for example, `user+<purpose>@domain.com`, and use only this profile for configuration within HA.
+
+The configuration flow is as follows:
+
+1. **Username and Password (required)**
+   - For the integration to work we require a username and password to a Rivian account that has an active *driver profile* for the vehicle you wish to monitor remotely. 
+2. **OTP/MFA (optional)**
+   - If OTP is enabled on the account provided you will receive a txt from Rivian with a one time use passcode enter that at this step.
+3. Vehicle VIN (required)
+   - Type the interested vehicle's identification number (VIN) as found on the [Rivian Account website](https://rivian.com/account/home)
+   - Currently we only poll for a single vehicle's sensor data, track https://github.com/bretterer/home-assistant-rivian/issues/20 for multiple VIN support to come later.
+
+
+*Developer and Maintainers of this project take no personal responsibility for misconfiguration, or misuse of the code provided by this integration. Account security is fully the sole responsibility of the owner configuring this integration. Accounts may become locked/quarantined due to the use of this unofficial integration.
+
 <!---->
 
 ## Available Sensors
