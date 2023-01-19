@@ -48,7 +48,7 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
     ),
     "batteryHvThermalEventPropagation": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
-            name="Battery Thermal Runwaway Propagation",
+            name="Battery Thermal Runaway Propagation",
             key=f"{DOMAIN}_energy_storage_icd_cid_notifications_b_pack_thermal_runaway_propagation",
         )
     ),
