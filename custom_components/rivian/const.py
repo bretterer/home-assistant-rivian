@@ -174,7 +174,7 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             name="Gear Guard Video Terms Accepted",
             icon="mdi:cctv",
             key=f"{DOMAIN}_gear_guard_video_terms_accepted",
-       ),
+        ),
         value_lambda=lambda v: v.replace("_", " ").title(),
     ),
     "otaAvailableVersion": RivianSensorEntity(
@@ -506,7 +506,7 @@ BINARY_SENSORS: Final[dict[str, RivianBinarySensorEntity]] = {
         entity_description=RivianBinarySensorEntityDescription(
             name="Charger Connection",
             key=f"{DOMAIN}_energy_storage_charger_status_vehicle_charger_status",
-            device_class=BinarySensorDeviceClass.CONNECTIVITY,
+            device_class=BinarySensorDeviceClass.PLUG,
             on_value="chrgr_sts_not_connected",
             negate=True,
         )
@@ -610,6 +610,7 @@ BINARY_SENSORS: Final[dict[str, RivianBinarySensorEntity]] = {
     "defrostDefogStatus": RivianBinarySensorEntity(
         entity_description=RivianBinarySensorEntityDescription(
             name="Defrost/Defog",
+            icon="mdi:car-defrost-front",
             key=f"{DOMAIN}_thermal_hvac_mobile_status_defrost_defog_status",
             device_class=BinarySensorDeviceClass.RUNNING,
             on_value="Off",
@@ -699,6 +700,7 @@ BINARY_SENSORS: Final[dict[str, RivianBinarySensorEntity]] = {
     "seatFrontLeftHeat": RivianBinarySensorEntity(
         entity_description=RivianBinarySensorEntityDescription(
             name="Heated Seat Front Left",
+            icon="mdi:car-seat-heater",
             key=f"{DOMAIN}_thermal_hvac_mobile_status_left_seat_heat_status",
             device_class=BinarySensorDeviceClass.RUNNING,
             on_value="Off",
@@ -708,6 +710,7 @@ BINARY_SENSORS: Final[dict[str, RivianBinarySensorEntity]] = {
     "seatFrontLeftVent": RivianBinarySensorEntity(
         entity_description=RivianBinarySensorEntityDescription(
             name="Vented Seat Front Left",
+            icon="mdi:car-seat-cooler",
             key=f"{DOMAIN}_thermal_hvac_mobile_status_left_seat_vent_status",
             device_class=BinarySensorDeviceClass.RUNNING,
             on_value="Off",
@@ -717,6 +720,7 @@ BINARY_SENSORS: Final[dict[str, RivianBinarySensorEntity]] = {
     "seatFrontRightHeat": RivianBinarySensorEntity(
         entity_description=RivianBinarySensorEntityDescription(
             name="Heated Seat Front Right",
+            icon="mdi:car-seat-heater",
             key=f"{DOMAIN}_thermal_hvac_mobile_status_right_seat_heat_status",
             device_class=BinarySensorDeviceClass.RUNNING,
             on_value="Off",
@@ -726,6 +730,7 @@ BINARY_SENSORS: Final[dict[str, RivianBinarySensorEntity]] = {
     "seatFrontRightVent": RivianBinarySensorEntity(
         entity_description=RivianBinarySensorEntityDescription(
             name="Vented Seat Front Right",
+            icon="mdi:car-seat-cooler",
             key=f"{DOMAIN}_thermal_hvac_mobile_status_right_seat_vent_status",
             device_class=BinarySensorDeviceClass.RUNNING,
             on_value="Off",
@@ -735,6 +740,7 @@ BINARY_SENSORS: Final[dict[str, RivianBinarySensorEntity]] = {
     "seatRearLeftHeat": RivianBinarySensorEntity(
         entity_description=RivianBinarySensorEntityDescription(
             name="Heated Seat Rear Left",
+            icon="mdi:car-seat-heater",
             key=f"{DOMAIN}_thermal_hvac_mobile_status_rear_left_seat_heat_status",
             device_class=BinarySensorDeviceClass.RUNNING,
             on_value="Off",
@@ -744,6 +750,7 @@ BINARY_SENSORS: Final[dict[str, RivianBinarySensorEntity]] = {
     "seatRearRightHeat": RivianBinarySensorEntity(
         entity_description=RivianBinarySensorEntityDescription(
             name="Heated Seat Rear Right",
+            icon="mdi:car-seat-heater",
             key=f"{DOMAIN}_thermal_hvac_mobile_status_rear_right_seat_heat_status",
             device_class=BinarySensorDeviceClass.RUNNING,
             on_value="Off",
@@ -753,6 +760,7 @@ BINARY_SENSORS: Final[dict[str, RivianBinarySensorEntity]] = {
     "seatThirdRowLeftHeat": RivianBinarySensorEntity(
         entity_description=RivianBinarySensorEntityDescription(
             name="Heated Seat 3rd Row Left",
+            icon="mdi:car-seat-heater",
             key=f"{DOMAIN}_thermal_hvac_mobile_status_3rd_row_left_seat_heat_status",
             device_class=BinarySensorDeviceClass.RUNNING,
             on_value="Off",
@@ -762,6 +770,7 @@ BINARY_SENSORS: Final[dict[str, RivianBinarySensorEntity]] = {
     "seatThirdRowRightHeat": RivianBinarySensorEntity(
         entity_description=RivianBinarySensorEntityDescription(
             name="Heated Seat 3rd Row Right",
+            icon="mdi:car-seat-heater",
             key=f"{DOMAIN}_thermal_hvac_mobile_status_3rd_row_right_seat_heat_status",
             device_class=BinarySensorDeviceClass.RUNNING,
             on_value="Off",
@@ -771,6 +780,7 @@ BINARY_SENSORS: Final[dict[str, RivianBinarySensorEntity]] = {
     "steeringWheelHeat": RivianBinarySensorEntity(
         entity_description=RivianBinarySensorEntityDescription(
             name="Heated Steering Wheel",
+            icon="mdi:steering",  # ideally should be mdi:steering-heater, but that doesn't exist yet
             key=f"{DOMAIN}_thermal_hvac_mobile_status_steering_wheel_heat_status",
             device_class=BinarySensorDeviceClass.RUNNING,
             on_value="Off",
