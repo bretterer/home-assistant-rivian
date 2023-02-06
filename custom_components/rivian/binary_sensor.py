@@ -52,9 +52,9 @@ async def async_setup_entry(
             )
         )
 
-    # custom aggregiate entities
+    # custom aggregate entities
     entities.append(
-        RivianAggregiateBinarySensor(
+        RivianAggregateBinarySensor(
             coordinator=coordinator,
             config_entry=entry,
             sensor=RivianBinarySensorEntity(
@@ -69,7 +69,7 @@ async def async_setup_entry(
         )
     )
     entities.append(
-        RivianAggregiateBinarySensor(
+        RivianAggregateBinarySensor(
             coordinator=coordinator,
             config_entry=entry,
             sensor=RivianBinarySensorEntity(
@@ -84,7 +84,7 @@ async def async_setup_entry(
         )
     )
     entities.append(
-        RivianAggregiateBinarySensor(
+        RivianAggregateBinarySensor(
             coordinator=coordinator,
             config_entry=entry,
             sensor=RivianBinarySensorEntity(
@@ -99,7 +99,7 @@ async def async_setup_entry(
         )
     )
     entities.append(
-        RivianAggregiateBinarySensor(
+        RivianAggregateBinarySensor(
             coordinator=coordinator,
             config_entry=entry,
             sensor=RivianBinarySensorEntity(
@@ -117,8 +117,8 @@ async def async_setup_entry(
     async_add_entities(entities, True)
 
 
-class RivianAggregiateBinarySensor(RivianEntity, CoordinatorEntity, BinarySensorEntity):
-    """Rivian Aggregiate Binary Sensor Entity - OR the value of different entities and report as new entity"""
+class RivianAggregateBinarySensor(RivianEntity, CoordinatorEntity, BinarySensorEntity):
+    """Rivian Aggregate Binary Sensor Entity - OR the value of different entities and report as new entity"""
 
     def __init__(
         self,
