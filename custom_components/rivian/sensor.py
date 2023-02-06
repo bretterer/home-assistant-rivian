@@ -107,7 +107,12 @@ class RivianSensor(RivianEntity, CoordinatorEntity, SensorEntity):
             entity = self.coordinator.data[self._prop_key]
             if entity is None:
                 return None
+            if self._sensor.value_lambda is None:
+                return {
+                    "last_update": entity["timeStamp"],
+                }
             return {
+                "native_value": entity["value"],
                 "last_update": entity["timeStamp"],
             }
         except KeyError:
