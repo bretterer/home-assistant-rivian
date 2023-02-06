@@ -39,6 +39,35 @@ CONF_ACCESS_TOKEN = "access_token"
 CONF_REFRESH_TOKEN = "refresh_token"
 CONF_USER_SESSION_TOKEN = "user_session_token"
 
+LOCK_STATE_ENTITIES = {
+    "closureFrunkLocked",
+    "closureLiftgateLocked",
+    "closureSideBinLeftLocked",
+    "closureSideBinRightLocked",
+    "closureTailgateLocked",
+    "closureTonneauLocked",
+    "doorFrontLeftLocked",
+    "doorFrontRightLocked",
+    "doorRearLeftLocked",
+    "doorRearRightLocked",
+}
+
+DOOR_STATE_ENTITIES = {
+    "doorFrontLeftClosed",
+    "doorFrontRightClosed",
+    "doorRearLeftClosed",
+    "doorRearRightClosed",
+}
+
+CLOSURE_STATE_ENTITIES = {
+    "closureFrunkClosed",
+    "closureLiftgateClosed",
+    "closureSideBinLeftClosed",
+    "closureSideBinRightClosed",
+    "closureTailgateClosed",
+    "closureTonneauClosed",
+}
+
 SENSORS: Final[dict[str, RivianSensorEntity]] = {
     "batteryHvThermalEvent": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
@@ -723,6 +752,7 @@ BINARY_SENSORS: Final[dict[str, RivianBinarySensorEntity]] = {
     "steeringWheelHeat": RivianBinarySensorEntity(
         entity_description=RivianBinarySensorEntityDescription(
             name="Heated Steering Wheel",
+            icon="mdi:steering",  # mdi:steering-heater, https://github.com/Templarian/MaterialDesign/issues/6925
             key=f"{DOMAIN}_thermal_hvac_mobile_status_steering_wheel_heat_status",
             device_class=BinarySensorDeviceClass.HEAT,
             on_value="Off",
