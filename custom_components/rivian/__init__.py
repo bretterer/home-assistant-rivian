@@ -159,6 +159,7 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):  # type: ignore[misc]
             sensors.append(val)
 
         sensors.append("gnssLocation")
+
         try:
             if self._login_attempts >= 5:
                 raise Exception("too many attempts to login - aborting")
