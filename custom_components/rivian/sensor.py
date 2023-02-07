@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import ATTR_MODEL, ATTR_NAME
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -17,6 +18,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
     ATTR_COORDINATOR,
+    CONF_VIN,
     DOMAIN,
     NAME,
     SENSORS,
@@ -72,6 +74,7 @@ class RivianSensor(RivianEntity, CoordinatorEntity, SensorEntity):
         self._name = self.entity_description.key
         self._prop_key = prop_key
         self.entity_id = f"sensor.{self.entity_description.key}"
+        self._vin = config_entry.data.get(CONF_VIN)
 
     @property
     def unique_id(self) -> str:
@@ -81,11 +84,29 @@ class RivianSensor(RivianEntity, CoordinatorEntity, SensorEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Get device information."""
-        return {
-            "identifiers": {get_device_identifier(self._config_entry)},
-            "name": NAME,
-            "manufacturer": NAME,
-        }
+        info = DeviceInfo(
+            identifiers={get_device_identifier(self._config_entry)},
+            manufacturer=NAME,
+        )
+
+        """Attempt to derive Rivian model information from VIN."""
+        if self._vin[9] == "N":
+            model_year = "2022"
+        elif self._vin[9] == "P":
+            model_year = "2023"
+
+        if self._vin[0:5] == "7FCTG":
+            model_line = "R1T"
+        elif self._vin[0:5] == "7PDSG":
+            model_line = "R1S"
+
+        if model_year and model_line:
+            info[ATTR_MODEL] = f"{model_year} Rivian {model_line}"
+            info[ATTR_NAME] = f"Rivian {model_line}"
+        else:
+            info[ATTR_NAME] = "Rivian"
+
+        return info
 
     @property
     def native_value(self) -> str:

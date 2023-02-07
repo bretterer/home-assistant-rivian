@@ -6,6 +6,7 @@ import logging
 from homeassistant.components.device_tracker import SOURCE_TYPE_GPS
 from homeassistant.components.device_tracker.config_entry import TrackerEntity
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import ATTR_MODEL, ATTR_NAME
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.update_coordinator import (
@@ -17,6 +18,7 @@ from homeassistant.helpers.entity import EntityDescription
 
 from .const import (
     ATTR_COORDINATOR,
+    CONF_VIN,
     DOMAIN,
     NAME,
 )
@@ -61,6 +63,7 @@ class RivianDeviceEntity(CoordinatorEntity, TrackerEntity):
         self.entity_description = EntityDescription(
             name="Rivian", key=f"{DOMAIN}_telematics_gnss_position"
         )
+        self._vin = config_entry.data.get(CONF_VIN)
 
     @property
     def unique_id(self) -> str:
@@ -70,11 +73,29 @@ class RivianDeviceEntity(CoordinatorEntity, TrackerEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Get device information."""
-        return {
-            "identifiers": {get_device_identifier(self._config_entry)},
-            "name": NAME,
-            "manufacturer": NAME,
-        }
+        info = DeviceInfo(
+            identifiers={get_device_identifier(self._config_entry)},
+            manufacturer=NAME,
+        )
+
+        """Attempt to derive Rivian model information from VIN."""
+        if self._vin[9] == "N":
+            model_year = "2022"
+        elif self._vin[9] == "P":
+            model_year = "2023"
+
+        if self._vin[0:5] == "7FCTG":
+            model_line = "R1T"
+        elif self._vin[0:5] == "7PDSG":
+            model_line = "R1S"
+
+        if model_year and model_line:
+            info[ATTR_MODEL] = f"{model_year} Rivian {model_line}"
+            info[ATTR_NAME] = f"Rivian {model_line}"
+        else:
+            info[ATTR_NAME] = "Rivian"
+
+        return info
 
     @property
     def force_update(self):
