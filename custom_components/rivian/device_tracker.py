@@ -110,8 +110,9 @@ class RivianDeviceEntity(CoordinatorEntity, TrackerEntity):
     @callback
     def _handle_coordinator_update(self) -> None:
         """Respond to a DataUpdateCoordinator update."""
-        self._tracker_data = self.coordinator.data[self._attribute]
-        self.async_write_ha_state()
+        if hasattr(self.coordinator.data, self._attribute):
+          self._tracker_data = self.coordinator.data[self._attribute]
+          self.async_write_ha_state()
 
     async def async_added_to_hass(self) -> None:
         """Handle entity which will be added."""
