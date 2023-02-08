@@ -110,7 +110,7 @@ class RivianDeviceEntity(CoordinatorEntity, TrackerEntity):
     @callback
     def _handle_coordinator_update(self) -> None:
         """Respond to a DataUpdateCoordinator update."""
-        if hasattr(self.coordinator.data, self._attribute):
+        if self.coordinator.data[self._attribute]["longitude"] is not None and self.coordinator.data[self._attribute]["lattitude"] is not None:
           self._tracker_data = self.coordinator.data[self._attribute]
           self.async_write_ha_state()
 
