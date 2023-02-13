@@ -195,6 +195,7 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             device_class=SensorDeviceClass.ENUM,
             options=[
                 "Drive",
+                "Neutral",
                 "Park",
                 "Reverse",
             ],
