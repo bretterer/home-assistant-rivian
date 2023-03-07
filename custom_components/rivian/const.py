@@ -845,7 +845,7 @@ BINARY_SENSORS: Final[dict[str, RivianBinarySensorEntity]] = {
             icon="mdi:steering",  # mdi:steering-heater, https://github.com/Templarian/MaterialDesign/issues/6925
             key=f"{DOMAIN}_thermal_hvac_mobile_status_steering_wheel_heat_status",
             device_class=BinarySensorDeviceClass.RUNNING,
-            on_value="On",
+            on_value="Level_1",
         )
     ),
     "tirePressureStatusValidFrontLeft": RivianBinarySensorEntity(
