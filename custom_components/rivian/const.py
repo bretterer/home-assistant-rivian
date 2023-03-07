@@ -116,9 +116,7 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             native_unit_of_measurement=TEMP_FAHRENHEIT,
         ),
         value_lambda=lambda v: round(
-            TemperatureConverter.convert(
-                v, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT
-            ),
+            TemperatureConverter.convert(v, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT),
             1,
         ),
     ),
@@ -130,9 +128,7 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             native_unit_of_measurement=TEMP_FAHRENHEIT,
         ),
         value_lambda=lambda v: round(
-            TemperatureConverter.convert(
-                v, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT
-            ),
+            TemperatureConverter.convert(v, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT),
             1,
         ),
     ),
@@ -151,9 +147,7 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             key=f"{DOMAIN}_energy_storage_vehicle_energy_vehicle_range",
             native_unit_of_measurement=LENGTH_MILES,
         ),
-        value_lambda=lambda v: round(
-            DistanceConverter.convert(v, UnitOfLength.KILOMETERS, UnitOfLength.MILES), 1
-        ),
+        value_lambda=lambda v: round(DistanceConverter.convert(v, UnitOfLength.KILOMETERS, UnitOfLength.MILES), 1),
     ),
     "driveMode": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
@@ -443,9 +437,7 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             key=f"{DOMAIN}_dynamics_odometer_value",
             native_unit_of_measurement=LENGTH_MILES,
         ),
-        value_lambda=lambda v: round(
-            DistanceConverter.convert(v, UnitOfLength.METERS, UnitOfLength.MILES), 1
-        ),
+        value_lambda=lambda v: round(DistanceConverter.convert(v, UnitOfLength.METERS, UnitOfLength.MILES), 1),
     ),
     "windowFrontLeftCalibrated": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
@@ -781,8 +773,7 @@ BINARY_SENSORS: Final[dict[str, RivianBinarySensorEntity]] = {
             icon="mdi:car-seat-heater",
             key=f"{DOMAIN}_thermal_hvac_mobile_status_left_seat_heat_status",
             device_class=BinarySensorDeviceClass.RUNNING,
-            on_value="Off",
-            negate=True,
+            on_value=["Level_1", "Level_2", "Level_3"],
         )
     ),
     "seatFrontLeftVent": RivianBinarySensorEntity(
@@ -791,8 +782,7 @@ BINARY_SENSORS: Final[dict[str, RivianBinarySensorEntity]] = {
             icon="mdi:car-seat-cooler",
             key=f"{DOMAIN}_thermal_hvac_mobile_status_left_seat_vent_status",
             device_class=BinarySensorDeviceClass.RUNNING,
-            on_value="Off",
-            negate=True,
+            on_value=["Level_1", "Level_2", "Level_3"],
         )
     ),
     "seatFrontRightHeat": RivianBinarySensorEntity(
@@ -801,8 +791,7 @@ BINARY_SENSORS: Final[dict[str, RivianBinarySensorEntity]] = {
             icon="mdi:car-seat-heater",
             key=f"{DOMAIN}_thermal_hvac_mobile_status_right_seat_heat_status",
             device_class=BinarySensorDeviceClass.RUNNING,
-            on_value="Off",
-            negate=True,
+            on_value=["Level_1", "Level_2", "Level_3"],
         )
     ),
     "seatFrontRightVent": RivianBinarySensorEntity(
@@ -811,8 +800,7 @@ BINARY_SENSORS: Final[dict[str, RivianBinarySensorEntity]] = {
             icon="mdi:car-seat-cooler",
             key=f"{DOMAIN}_thermal_hvac_mobile_status_right_seat_vent_status",
             device_class=BinarySensorDeviceClass.RUNNING,
-            on_value="Off",
-            negate=True,
+            on_value=["Level_1", "Level_2", "Level_3"],
         )
     ),
     "seatRearLeftHeat": RivianBinarySensorEntity(
@@ -821,8 +809,7 @@ BINARY_SENSORS: Final[dict[str, RivianBinarySensorEntity]] = {
             icon="mdi:car-seat-heater",
             key=f"{DOMAIN}_thermal_hvac_mobile_status_rear_left_seat_heat_status",
             device_class=BinarySensorDeviceClass.RUNNING,
-            on_value="Off",
-            negate=True,
+            on_value=["Level_1", "Level_2", "Level_3"],
         )
     ),
     "seatRearRightHeat": RivianBinarySensorEntity(
@@ -831,8 +818,7 @@ BINARY_SENSORS: Final[dict[str, RivianBinarySensorEntity]] = {
             icon="mdi:car-seat-heater",
             key=f"{DOMAIN}_thermal_hvac_mobile_status_rear_right_seat_heat_status",
             device_class=BinarySensorDeviceClass.RUNNING,
-            on_value="Off",
-            negate=True,
+            on_value=["Level_1", "Level_2", "Level_3"],
         )
     ),
     "seatThirdRowLeftHeat": RivianBinarySensorEntity(
@@ -841,8 +827,7 @@ BINARY_SENSORS: Final[dict[str, RivianBinarySensorEntity]] = {
             icon="mdi:car-seat-heater",
             key=f"{DOMAIN}_thermal_hvac_mobile_status_3rd_row_left_seat_heat_status",
             device_class=BinarySensorDeviceClass.RUNNING,
-            on_value="Off",
-            negate=True,
+            on_value=["Level_1", "Level_2", "Level_3"],
         )
     ),
     "seatThirdRowRightHeat": RivianBinarySensorEntity(
@@ -851,8 +836,7 @@ BINARY_SENSORS: Final[dict[str, RivianBinarySensorEntity]] = {
             icon="mdi:car-seat-heater",
             key=f"{DOMAIN}_thermal_hvac_mobile_status_3rd_row_right_seat_heat_status",
             device_class=BinarySensorDeviceClass.RUNNING,
-            on_value="Off",
-            negate=True,
+            on_value=["Level_1", "Level_2", "Level_3"],
         )
     ),
     "steeringWheelHeat": RivianBinarySensorEntity(
@@ -861,8 +845,7 @@ BINARY_SENSORS: Final[dict[str, RivianBinarySensorEntity]] = {
             icon="mdi:steering",  # mdi:steering-heater, https://github.com/Templarian/MaterialDesign/issues/6925
             key=f"{DOMAIN}_thermal_hvac_mobile_status_steering_wheel_heat_status",
             device_class=BinarySensorDeviceClass.RUNNING,
-            on_value="Off",
-            negate=True,
+            on_value="Level_1",
         )
     ),
     "tirePressureStatusValidFrontLeft": RivianBinarySensorEntity(
