@@ -30,9 +30,7 @@ from . import (
 _LOGGER = logging.getLogger(__name__)
 
 
-async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
-):
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback):
     """Set up the Rivain binary_sensors by config_entry."""
 
     coordinator = hass.data[DOMAIN][entry.entry_id][ATTR_COORDINATOR]
@@ -60,9 +58,7 @@ class RivianDeviceEntity(CoordinatorEntity, TrackerEntity):
         self._config_entry = config_entry
         self.entity_id = f"device_tracker.{DOMAIN}_telematics_gnss_position"
         self._attr_name = "Rivian Location"
-        self.entity_description = EntityDescription(
-            name="Rivian", key=f"{DOMAIN}_telematics_gnss_position"
-        )
+        self.entity_description = EntityDescription(name="Rivian", key=f"{DOMAIN}_telematics_gnss_position")
         self._vin = config_entry.data.get(CONF_VIN)
 
     @property
@@ -77,6 +73,8 @@ class RivianDeviceEntity(CoordinatorEntity, TrackerEntity):
             identifiers={get_device_identifier(self._config_entry)},
             manufacturer=NAME,
         )
+        model_year = ""
+        model_line = ""
 
         """Attempt to derive Rivian model information from VIN."""
         if self._vin[9] == "N":
