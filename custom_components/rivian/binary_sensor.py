@@ -37,9 +37,7 @@ from . import (
 _LOGGER: logging.Logger = logging.getLogger(__name__)
 
 
-async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
-):
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback):
     """Set up the sensor entities"""
     coordinator = hass.data[DOMAIN][entry.entry_id][ATTR_COORDINATOR]
 
@@ -154,6 +152,8 @@ class RivianAggregateBinarySensor(RivianEntity, CoordinatorEntity, BinarySensorE
             identifiers={get_device_identifier(self._config_entry)},
             manufacturer=NAME,
         )
+        model_year = ""
+        model_line = ""
 
         """Attempt to derive Rivian model information from VIN."""
         if self._vin[9] == "N":
@@ -221,6 +221,8 @@ class RivianBinarySensor(RivianEntity, CoordinatorEntity, BinarySensorEntity):
             identifiers={get_device_identifier(self._config_entry)},
             manufacturer=NAME,
         )
+        model_year = ""
+        model_line = ""
 
         """Attempt to derive Rivian model information from VIN."""
         if self._vin[9] == "N":
