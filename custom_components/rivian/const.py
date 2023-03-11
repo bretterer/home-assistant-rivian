@@ -68,6 +68,8 @@ CLOSURE_STATE_ENTITIES = {
     "closureTonneauClosed",
 }
 
+INVALID_SENSOR_STATES = ('fault', 'signal_not_available')
+
 SENSORS: Final[dict[str, RivianSensorEntity]] = {
     "batteryHvThermalEvent": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
