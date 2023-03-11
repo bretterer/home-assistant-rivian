@@ -23,14 +23,15 @@ from rivian.exceptions import RivianExpiredTokenError
 
 from .const import (
     ATTR_COORDINATOR,
+    BINARY_SENSORS,
     CONF_ACCESS_TOKEN,
     CONF_REFRESH_TOKEN,
     CONF_USER_SESSION_TOKEN,
     CONF_VIN,
     DOMAIN,
+    INVALID_SENSOR_STATES,
     ISSUE_URL,
     SENSORS,
-    BINARY_SENSORS,
     UPDATE_INTERVAL,
     VERSION,
 )
@@ -43,9 +44,7 @@ PLATFORMS: list[Platform] = [
 ]
 
 
-async def async_setup(
-    hass: HomeAssistant, config_entry: ConfigEntry
-):  # pylint: disable=unused-argument
+async def async_setup(hass: HomeAssistant, config_entry: ConfigEntry):  # pylint: disable=unused-argument
     """Disallow configuration via YAML."""
     return True
 
@@ -110,9 +109,7 @@ def get_entity_unique_id(config_entry_id: str, name: str) -> str:
     return f"{config_entry_id}:{DOMAIN}_{name}"
 
 
-def get_device_identifier(
-    entry: ConfigEntry, name: str | None = None
-) -> tuple[str, str]:
+def get_device_identifier(entry: ConfigEntry, name: str | None = None) -> tuple[str, str]:
     """Get a device identifier."""
     if name:
         return (DOMAIN, f"{entry.entry_id}:{DOMAIN}:{slugify(name)}")
@@ -136,6 +133,7 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):  # type: ignore[misc]
         self._entry = entry
         self._vin = entry.data.get(CONF_VIN)
         self._login_attempts = 0
+        self._previous_vehicle_info_items = None
 
         # sync tokens from initial configuration
         self._api._access_token = entry.data.get(CONF_ACCESS_TOKEN)
@@ -168,14 +166,8 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):  # type: ignore[misc]
             if not self._api._csrf_token:
                 _LOGGER.info("Rivian csrf token not set - creating")
                 await self._api.create_csrf_token()
-            if (
-                not self._api._app_session_token
-                or not self._api._user_session_token
-                or not self._api._refresh_token
-            ):
-                _LOGGER.info(
-                    "Rivian app_session_token, user_session_token or refresh_token not set - authenticating"
-                )
+            if not self._api._app_session_token or not self._api._user_session_token or not self._api._refresh_token:
+                _LOGGER.info("Rivian app_session_token, user_session_token or refresh_token not set - authenticating")
                 self._login_attempts += 1
                 await self._api.authenticate_graphql(
                     self._entry.data.get(CONF_USERNAME),
@@ -188,24 +180,17 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):  # type: ignore[misc]
                 properties=sensors,
             )
             vijson = await vehicle_info.json()
-            _LOGGER.debug(vijson)
+            # _LOGGER.debug(vijson)
             self._login_attempts = 0
 
-            vehicle_info_items = self.build_vehicle_info_dict(vijson)
-            if vehicle_info_items:
-                self._previous_vehicle_info_items = vehicle_info_items
-                return vehicle_info_items
-            else:
-                return self._previous_vehicle_info_items
+            return self.build_vehicle_info_dict(vijson)
         except RivianExpiredTokenError:  # graphql is always 200 - no exception parsing yet
             _LOGGER.info("Rivian token expired, refreshing")
 
             await self._api.create_csrf_token()
             return await self._update_api_data()
         except Exception as err:  # pylint: disable=broad-except
-            _LOGGER.error(
-                "Unknown Exception while updating Rivian data: %s", err, exc_info=1
-            )
+            _LOGGER.error("Unknown Exception while updating Rivian data: %s", err, exc_info=1)
             raise Exception("Error communicating with API") from err
 
     async def _async_update_data(self):
@@ -217,14 +202,30 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):  # type: ignore[misc]
             await self._api.create_csrf_token()
             return await self._update_api_data()
         except Exception as err:  # pylint: disable=broad-except
-            _LOGGER.error(
-                "Unknown Exception while updating Rivian data: %s", err, exc_info=1
-            )
+            _LOGGER.error("Unknown Exception while updating Rivian data: %s", err, exc_info=1)
             raise Exception("Error communicating with API") from err
 
     def build_vehicle_info_dict(self, vijson) -> dict[str, dict[str, Any]]:
         """take the json output of vehicle_info and build a dictionary"""
-        return vijson["data"]["vehicleState"]
+
+        _LOGGER.debug(vijson)
+        items = vijson["data"]["vehicleState"]
+
+        if not self._previous_vehicle_info_items:
+            self._previous_vehicle_info_items = items
+            return items
+        elif not items:
+            return self._previous_vehicle_info_items
+
+        for i in list(filter(lambda x: items[x] is not None, items)):
+            if i == "gnssLocation":
+                continue
+            value = str(items[i]["value"]).lower()
+            prev_value = self._previous_vehicle_info_items[i]["value"]
+            if value in INVALID_SENSOR_STATES and prev_value:
+                items[i] = self._previous_vehicle_info_items[i]
+        self._previous_vehicle_info_items = items
+        return items
 
 
 class RivianEntity(Entity):
