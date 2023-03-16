@@ -174,7 +174,7 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             "distance": "Conserve",
             "winter": "Snow",
             "towing": "Towing",
-            "off_road_towing": "All-Terrain",
+            "off_road_auto": "All-Terrain",
             "off_road_sand": "Soft Sand",
             "off_road_rocks": "Rock Crawl",
             "off_road_sport_auto": "Rally",
