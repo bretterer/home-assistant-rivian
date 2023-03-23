@@ -68,6 +68,8 @@ CLOSURE_STATE_ENTITIES = {
     "closureTonneauClosed",
 }
 
+INVALID_SENSOR_STATES = {"fault", "signal_not_available", "undefined"}
+
 SENSORS: Final[dict[str, RivianSensorEntity]] = {
     "batteryHvThermalEvent": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
@@ -583,7 +585,7 @@ BINARY_SENSORS: Final[dict[str, RivianBinarySensorEntity]] = {
             name="Charging Status",
             key=f"{DOMAIN}_energy_storage_charger_vehicle_charger_state",
             device_class=BinarySensorDeviceClass.BATTERY_CHARGING,
-            on_value="charging_active",
+            on_value=["charging_active", "charging_connecting"],
         )
     ),
     "chargerStatus": RivianBinarySensorEntity(
