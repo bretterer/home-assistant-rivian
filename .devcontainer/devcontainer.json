@@ -1,9 +1,12 @@
 // See https://aka.ms/vscode-remote/devcontainer.json for format details.
 {
-	"name": "Home Assistant Rivian integration development",
+    "name": "Home Assistant Rivian integration development",
     "image": "mcr.microsoft.com/vscode/devcontainers/python:0-3.10-bullseye",
     "postCreateCommand": "scripts/setup",
-    "forwardPorts": [8123],
+    "postAttachCommand": "scripts/setup",
+    "forwardPorts": [
+        8123
+    ],
     "customizations": {
         "vscode": {
             "extensions": [
@@ -29,5 +32,7 @@
         }
     },
     "remoteUser": "vscode",
-    "features": {"rust": "latest"}
+    "features": {
+        "rust": "latest"
+    }
 }
