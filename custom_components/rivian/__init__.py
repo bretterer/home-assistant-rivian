@@ -189,11 +189,9 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):  # type: ignore[misc]
             if self._wallboxes or self._wallboxes is None:
                 resp = await self._api.get_registered_wallboxes()
                 if resp.status == 200:
--                    wallboxes = (await resp.json())["data"]["getRegisteredWallboxes"]
-+                    wbjson = await resp.json()
-+                    _LOGGER.debug(wbjson)
-+                    wallboxes = wbjson["data"]["getRegisteredWallboxes"]
-                    self._wallboxes = wallboxes
+                    wbjson = await resp.json()
+                    _LOGGER.debug(wbjson)
+                    self._wallboxes = wbjson["data"]["getRegisteredWallboxes"]
 
             return self.build_vehicle_info_dict(vijson)
         except RivianExpiredTokenError:  # graphql is always 200 - no exception parsing yet
