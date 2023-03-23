@@ -241,7 +241,7 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
     "otaAvailableVersionGitHash": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Software OTA - Available Version Git Hash",
-            icon="mdi:commit",
+            icon="mdi:source-commit",
             key=f"{DOMAIN}_telematics_ota_status_available_version_git_hash",
         )
     ),
@@ -284,7 +284,7 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
     "otaCurrentVersionGitHash": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Software OTA - Current Version Git Hash",
-            icon="mdi:commit",
+            icon="mdi:source-commit",
             key=f"{DOMAIN}_telematics_ota_status_current_version_git_hash",
         )
     ),
