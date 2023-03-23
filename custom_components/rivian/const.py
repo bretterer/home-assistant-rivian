@@ -248,21 +248,21 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
     "otaAvailableVersionNumber": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Software OTA - Available Version Number",
-            icon="mdi:package",
+            icon="mdi:numeric",
             key=f"{DOMAIN}_telematics_ota_status_available_version_number",
         )
     ),
     "otaAvailableVersionWeek": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Software OTA - Available Version Week",
-            icon="mdi:package",
+            icon="mdi:calendar-week",
             key=f"{DOMAIN}_telematics_ota_status_available_version_week",
         )
     ),
     "otaAvailableVersionYear": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Software OTA - Available Version Year",
-            icon="mdi:package",
+            icon="mdi:calendar",
             key=f"{DOMAIN}_telematics_ota_status_available_version_year",
         )
     ),
@@ -291,49 +291,49 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
     "otaCurrentVersionNumber": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Software OTA - Current Version Number",
-            icon="mdi:package",
+            icon="mdi:numeric",
             key=f"{DOMAIN}_telematics_ota_status_current_version_number",
         )
     ),
     "otaCurrentVersionWeek": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Software OTA - Current Version Week",
-            icon="mdi:package",
+            icon="mdi:calendar-week",
             key=f"{DOMAIN}_telematics_ota_status_current_version_week",
         )
     ),
     "otaCurrentVersionYear": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Software OTA - Current Version Year",
-            icon="mdi:package",
+            icon="mdi:calendar",
             key=f"{DOMAIN}_telematics_ota_status_current_version_year",
         )
     ),
     "otaDownloadProgress": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Software OTA - Download Progress",
-            icon="mdi:package",
+            icon="mdi:progress-download",
             key=f"{DOMAIN}_telematics_ota_status_download_progress",
         )
     ),
     "otaInstallDuration": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Software OTA - Install Duration",
-            icon="mdi:package",
+            icon="mdi:wrench-clock",
             key=f"{DOMAIN}_telematics_ota_status_install_duration",
         )
     ),
     "otaInstallProgress": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Software OTA - Install Progress",
-            icon="mdi:package",
+            icon="mdi:progress-clock",
             key=f"{DOMAIN}_telematics_ota_status_install_progress",
         )
     ),
     "otaInstallReady": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="CGM OTA Install - Install Ready",
-            icon="mdi:package",
+            icon="mdi:progress-check",
             key=f"{DOMAIN}_core_ota_status_cgm_ota_install_ready",
         ),
         value_lambda=lambda v: v.replace("_", " ").title().replace("Ota", "OTA"),
@@ -341,7 +341,7 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
     "otaInstallTime": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Software OTA - Install Time",
-            icon="mdi:package",
+            icon="mdi:clock",
             key=f"{DOMAIN}_telematics_ota_status_install_time",
         )
     ),
