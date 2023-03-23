@@ -23,5 +23,17 @@
                 "title": "Setup your Rivian Integration"
             }
         }
+    },
+    "entity": {
+      "sensor": {
+        "charging_status": {
+          "state": {
+            "available": "Available",
+            "disconnected": "[%key:common::state::disconnected%]",
+            "plugged_in": "Plugged in",
+            "charging": "Charging"
+          }
+        }
+      }
     }
 }

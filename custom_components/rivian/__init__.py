@@ -6,18 +6,15 @@ from datetime import timedelta
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import (
-    ATTR_MODEL,
-    CONF_USERNAME,
-    CONF_PASSWORD,
-    Platform,
+from homeassistant.const import ATTR_MODEL, CONF_PASSWORD, CONF_USERNAME, Platform
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.entity import DeviceInfo, Entity, EntityDescription
+from homeassistant.helpers.update_coordinator import (
+    CoordinatorEntity,
+    DataUpdateCoordinator,
 )
-from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import Entity
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.loader import async_get_integration
 from homeassistant.util import slugify
-
 from rivian import Rivian
 from rivian.exceptions import RivianExpiredTokenError
 
@@ -135,6 +132,7 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):  # type: ignore[misc]
         self._vin = entry.data.get(CONF_VIN)
         self._login_attempts = 0
         self._previous_vehicle_info_items = None
+        self._wallboxes: list[dict[str, Any]] | None = None
 
         # sync tokens from initial configuration
         self._api._access_token = entry.data.get(CONF_ACCESS_TOKEN)
@@ -147,6 +145,11 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):  # type: ignore[misc]
             name=DOMAIN,
             update_interval=timedelta(seconds=UPDATE_INTERVAL),
         )
+
+    @property
+    def wallboxes(self) -> list[dict[str, Any]]:
+        """Return the wallboxes."""
+        return self._wallboxes or []
 
     async def _update_api_data(self):
         """Update data via api."""
@@ -182,6 +185,12 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):  # type: ignore[misc]
             )
             vijson = await vehicle_info.json()
             self._login_attempts = 0
+
+            if self._wallboxes or self._wallboxes is None:
+                resp = await self._api.get_registered_wallboxes()
+                if resp.status == 200:
+                    wallboxes = (await resp.json())["data"]["getRegisteredWallboxes"]
+                    self._wallboxes = wallboxes
 
             return self.build_vehicle_info_dict(vijson)
         except RivianExpiredTokenError:  # graphql is always 200 - no exception parsing yet
@@ -246,3 +255,44 @@ class RivianEntity(Entity):
     def _get_model(self) -> str:
         """Get the Rivian model string."""
         return str(self.hass.data[DOMAIN][self._config_entry.entry_id][ATTR_MODEL])
+
+
+class RivianWallboxEntity(CoordinatorEntity[RivianDataUpdateCoordinator]):
+    """Base class for Rivian wallbox entities."""
+
+    _attr_has_entity_name = True
+
+    def __init__(
+        self,
+        coordinator: RivianDataUpdateCoordinator,
+        description: EntityDescription,
+        wallbox: dict[str, Any],
+    ) -> None:
+        """Construct a Rivian wallbox entity."""
+        super().__init__(coordinator)
+        self.entity_description = description
+        self.wallbox = wallbox
+
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, wallbox["serialNumber"])},
+            name=wallbox["name"],
+            manufacturer="Rivian",
+            model=wallbox["model"],
+            sw_version=wallbox["softwareVersion"],
+        )
+        self._attr_unique_id = f"{wallbox['serialNumber']}-{description.key}"
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated data from the coordinator."""
+        wallbox = next(
+            (
+                wallbox
+                for wallbox in self.coordinator.wallboxes
+                if wallbox["wallboxId"] == self.wallbox["wallboxId"]
+            ),
+            self.wallbox,
+        )
+        if self.wallbox != wallbox:
+            self.wallbox = wallbox
+            self.async_write_ha_state()
