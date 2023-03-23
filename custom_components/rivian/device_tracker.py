@@ -129,8 +129,12 @@ class RivianDeviceEntity(CoordinatorEntity, TrackerEntity):
     @callback
     def _handle_coordinator_update(self) -> None:
         """Respond to a DataUpdateCoordinator update."""
-        self._tracker_data = self.coordinator.data[self._attribute]
-        self.async_write_ha_state()
+        try:
+            if self.coordinator.data[self._attribute]["timeStamp"] != self._tracker_data["timeStamp"]:
+                self._tracker_data = self.coordinator.data[self._attribute]
+                self.async_write_ha_state()
+        except:
+            self._tracker_data = self.coordinator.data[self._attribute]
 
     async def async_added_to_hass(self) -> None:
         """Handle entity which will be added."""
