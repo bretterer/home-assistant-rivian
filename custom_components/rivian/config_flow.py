@@ -86,6 +86,7 @@ class RivianFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         self._username = None
         self._password = None
         self._otp = None
+        self._vehicles = []
         self._vin = None
         self._access_token = None
         self._refresh_token = None
@@ -108,15 +109,10 @@ class RivianFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                 self._access_token = self._rivian._access_token
                 self._refresh_token = self._rivian._refresh_token
                 self._user_session_token = self._rivian._user_session_token
-                return await self._show_vin_field(user_input)
+                return await self._fetch_vehicle_vin()
 
             self._errors["base"] = "communication"
             return await self._show_credential_fields(user_input)
-
-        if user_input.get(CONF_VIN) is not None:
-            self._vin = user_input[CONF_VIN]
-
-            return await self._async_create_entry()
 
         self._username = user_input[CONF_USERNAME]
         self._password = user_input[CONF_PASSWORD]
@@ -132,7 +128,24 @@ class RivianFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         self._refresh_token = self._rivian._refresh_token
         self._user_session_token = self._rivian._user_session_token
 
-        return await self._show_vin_field(user_input)
+        return await self._fetch_vehicle_vin()
+
+    async def _fetch_vehicle_vin(self):
+        # fetch user's accessible vehicles
+        user_information = await self._rivian.get_user_information()
+        uijson = await user_information.json()
+        _LOGGER.debug(uijson)
+        if uijson:
+            self._vehicles = uijson['data']['currentUser']['vehicles']
+            # select first to bypass _show_vin_field
+            if len(self._vehicles) > 0:
+                _LOGGER.info("found %d vehicles associated to driver credentials",
+                    len(self._vehicles))
+                self._vin = self._vehicles[0]['vin']
+                _LOGGER.info("defaulted entity to first vin found %s",
+                    len(self._vin))
+
+        return await self._async_create_entry()
 
     async def _async_create_entry(self) -> FlowResult:
         """Create the config entry."""
@@ -210,7 +223,7 @@ class RivianOptionsFlow(config_entries.OptionsFlow):
                 self._data.update(
                     {"user_session_token": self._rivian._user_session_token}
                 )
-                return await self._show_vin_field(user_input)
+                return await self._fetch_vehicle_vin()
 
             self._errors["base"] = "communication"
             return await self._show_credential_fields(user_input)
@@ -235,7 +248,23 @@ class RivianOptionsFlow(config_entries.OptionsFlow):
         self._data.update({"refresh_token": self._rivian._refresh_token})
         self._data.update({"user_session_token": self._rivian._user_session_token})
 
-        return await self._show_vin_field(user_input)
+        return await self._fetch_vehicle_vin()
+
+    async def _fetch_vehicle_vin(self):
+        # fetch user's accessible vehicles
+        user_information = await self._rivian.get_user_information()
+        uijson = await user_information.json()
+        _LOGGER.debug(uijson)
+        if uijson:
+            self._vehicles = uijson['data']['currentUser']['vehicles']
+            # select first to bypass _show_vin_field
+            if len(self._vehicles) > 0:
+                _LOGGER.info("found %d vehicles associated to driver credentials",
+                    len(self._vehicles))
+                self._vin = self._vehicles[0]['vin']
+                _LOGGER.info("defaulted entity to first vin found %s", self._vin)
+
+        return self.async_create_entry(title="", data=self._data)
 
     async def _show_credential_fields(self, user_input):
         """Show the configuration form to edit data."""

@@ -13,11 +13,7 @@
                 "data": {
                     "password": "Password",
                     "username": "Username",
-                    "client_id": "Client ID",
-                    "client_secret": "Client Secret",
-                    "otp": "Verification Code",
-                    "vehicle_id": "Vehicle Identification Number",
-                    "vin": "Vehicle Identification Number"
+                    "otp": "Verification Code"
                 },
                 "title": "Setup your Rivian Integration"
             }
@@ -37,11 +33,7 @@
                 "data": {
                     "password": "Password",
                     "username": "Username",
-                    "client_id": "Client ID",
-                    "client_secret": "Client Secret",
-                    "otp": "Verification Code",
-                    "vehicle_id": "Vehicle Identification Number",
-                    "vin": "Vehicle Identification Number"
+                    "otp": "Verification Code"
                 },
                 "title": "Configure your Rivian Integration"
             }
