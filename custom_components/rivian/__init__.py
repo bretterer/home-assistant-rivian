@@ -189,7 +189,10 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):  # type: ignore[misc]
             if self._wallboxes or self._wallboxes is None:
                 resp = await self._api.get_registered_wallboxes()
                 if resp.status == 200:
-                    wallboxes = (await resp.json())["data"]["getRegisteredWallboxes"]
+-                    wallboxes = (await resp.json())["data"]["getRegisteredWallboxes"]
++                    wbjson = await resp.json()
++                    _LOGGER.debug(wbjson)
++                    wallboxes = wbjson["data"]["getRegisteredWallboxes"]
                     self._wallboxes = wallboxes
 
             return self.build_vehicle_info_dict(vijson)
