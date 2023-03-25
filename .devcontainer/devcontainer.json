@@ -11,9 +11,11 @@
         "vscode": {
             "extensions": [
                 "ms-python.python",
+                "ms-python.vscode-pylance",
+                "ms-python.isort",
+                "esbenp.prettier-vscode",
                 "github.vscode-pull-request-github",
-                "ryanluker.vscode-coverage-gutters",
-                "ms-python.vscode-pylance"
+                "ryanluker.vscode-coverage-gutters"
             ],
             "settings": {
                 "files.eol": "\n",
@@ -23,10 +25,12 @@
                 "python.linting.pylintEnabled": true,
                 "python.linting.enabled": true,
                 "python.formatting.provider": "black",
-                "python.formatting.blackPath": "/usr/local/py-utils/bin/black",
                 "editor.formatOnPaste": false,
                 "editor.formatOnSave": true,
                 "editor.formatOnType": true,
+                "editor.codeActionsOnSave": {
+                  "source.organizeImports": true
+                },
                 "files.trimTrailingWhitespace": true
             }
         }
