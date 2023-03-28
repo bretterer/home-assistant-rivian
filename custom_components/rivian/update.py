@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
+from typing import Any
 
 from homeassistant.components.update import (
     UpdateDeviceClass,
@@ -63,18 +65,51 @@ class RivianUpdateEntity(RivianEntity, CoordinatorEntity, UpdateEntity):
         )
 
     @property
-    def installed_version(self) -> str | None:
+    def installed_version(self) -> str:
         """Version installed and in use."""
         return self.coordinator.data["otaCurrentVersion"]["value"]
 
     @property
-    def latest_version(self) -> str | None:
+    def latest_version(self) -> str:
         """Latest version available for install."""
         if (value := self.coordinator.data["otaAvailableVersion"]["value"]) == "0.0.0":
             value = self.installed_version
         return value
 
     @property
-    def in_progress(self) -> bool | int | None:
+    def in_progress(self) -> bool | int:
         """Update installation progress."""
-        return self.coordinator.data["otaInstallProgress"]["value"]
+        progress = self.coordinator.data["otaInstallProgress"]["value"]
+        if (
+            progress == 0
+            and self.coordinator.data["otaAvailableVersion"]["value"] == "0.0.0"
+        ):
+            return False
+        if self.coordinator.data["otaStatus"]["value"] == "Ready_To_Install":
+            return False
+        return progress
+
+    @property
+    def release_url(self) -> str:
+        """URL to the full release notes of the latest version available."""
+        return f"https://rivian.software/{self.latest_version.replace('.','-')}/"
+
+    @property
+    def extra_state_attributes(self) -> Mapping[str, Any]:
+        """Return entity specific state attributes."""
+        return {
+            "current_version": {
+                "year": self.coordinator.data["otaCurrentVersionYear"]["value"],
+                "week": self.coordinator.data["otaCurrentVersionWeek"]["value"],
+                "number": self.coordinator.data["otaCurrentVersionNumber"]["value"],
+                "git_hash": self.coordinator.data["otaCurrentVersionGitHash"]["value"],
+            },
+            "available_version": {
+                "year": self.coordinator.data["otaAvailableVersionYear"]["value"],
+                "week": self.coordinator.data["otaAvailableVersionWeek"]["value"],
+                "number": self.coordinator.data["otaAvailableVersionNumber"]["value"],
+                "git_hash": self.coordinator.data["otaAvailableVersionGitHash"][
+                    "value"
+                ],
+            },
+        }
