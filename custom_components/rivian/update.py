@@ -77,16 +77,16 @@ class RivianUpdateEntity(RivianEntity, CoordinatorEntity, UpdateEntity):
         return value
 
     @property
-    def in_progress(self) -> bool | int:
+    def in_progress(self) -> int | None:
         """Update installation progress."""
         progress = self.coordinator.data["otaInstallProgress"]["value"]
         if (
             progress == 0
             and self.coordinator.data["otaAvailableVersion"]["value"] == "0.0.0"
         ):
-            return False
+            return None
         if self.coordinator.data["otaStatus"]["value"] == "Ready_To_Install":
-            return False
+            return None
         return progress
 
     @property
