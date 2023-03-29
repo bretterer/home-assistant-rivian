@@ -268,6 +268,7 @@ class RivianBinarySensor(RivianEntity, CoordinatorEntity, BinarySensorEntity):
             return {
                 "value": entity["value"],
                 "last_update": entity["timeStamp"],
+                "history": str(entity["history"]),
             }
         except KeyError:
             return None

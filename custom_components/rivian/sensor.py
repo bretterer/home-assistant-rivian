@@ -135,6 +135,7 @@ class RivianSensor(RivianEntity, CoordinatorEntity, SensorEntity):
             return {
                 "native_value": entity["value"],
                 "last_update": entity["timeStamp"],
+                "history": str(entity["history"]),
             }
         except KeyError:
             return None
