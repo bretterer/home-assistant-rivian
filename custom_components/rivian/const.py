@@ -1,25 +1,18 @@
 """Rivian (Unofficial)"""
 from __future__ import annotations
+
 from typing import Final
 
-from homeassistant.const import (
-    LENGTH_MILES,
-    PERCENTAGE,
-    TEMP_FAHRENHEIT,
-    TIME_MINUTES,
-)
-
-from homeassistant.const import UnitOfLength, UnitOfTemperature
+from homeassistant.components.binary_sensor import BinarySensorDeviceClass
+from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
+from homeassistant.const import PERCENTAGE, UnitOfLength, UnitOfTemperature, UnitOfTime
 from homeassistant.util.unit_conversion import DistanceConverter, TemperatureConverter
 
-from homeassistant.components.binary_sensor import BinarySensorDeviceClass
-from homeassistant.components.sensor import SensorDeviceClass
-
 from .data_classes import (
-    RivianSensorEntity,
-    RivianSensorEntityDescription,
     RivianBinarySensorEntity,
     RivianBinarySensorEntityDescription,
+    RivianSensorEntity,
+    RivianSensorEntityDescription,
 )
 
 NAME = "Rivian (Unofficial)"
@@ -90,8 +83,9 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
         entity_description=RivianSensorEntityDescription(
             name="Battery State of Charge",
             key=f"{DOMAIN}_energy_storage_charger_adjusted_soc",
-            native_unit_of_measurement=PERCENTAGE,
             device_class=SensorDeviceClass.BATTERY,
+            native_unit_of_measurement=PERCENTAGE,
+            state_class=SensorStateClass.MEASUREMENT,
         ),
         value_lambda=lambda v: round(v, 1),
     ),
@@ -113,24 +107,30 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
     "cabinClimateDriverTemperature": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Driver Temperature",
-            icon="mdi:thermometer",
             key=f"{DOMAIN}_thermal_hvac_cabin_control_driver_temperature",
-            native_unit_of_measurement=TEMP_FAHRENHEIT,
+            device_class=SensorDeviceClass.TEMPERATURE,
+            native_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
+            state_class=SensorStateClass.MEASUREMENT,
         ),
         value_lambda=lambda v: round(
-            TemperatureConverter.convert(v, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT),
+            TemperatureConverter.convert(
+                v, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT
+            ),
             1,
         ),
     ),
     "cabinClimateInteriorTemperature": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Cabin Temperature",
-            icon="mdi:thermometer",
             key=f"{DOMAIN}_thermal_hvac_cabin_control_cabin_temperature",
-            native_unit_of_measurement=TEMP_FAHRENHEIT,
+            device_class=SensorDeviceClass.TEMPERATURE,
+            native_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
+            state_class=SensorStateClass.MEASUREMENT,
         ),
         value_lambda=lambda v: round(
-            TemperatureConverter.convert(v, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT),
+            TemperatureConverter.convert(
+                v, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT
+            ),
             1,
         ),
     ),
@@ -161,9 +161,13 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             name="Estimated Vehicle Range",
             icon="mdi:map-marker-distance",
             key=f"{DOMAIN}_energy_storage_vehicle_energy_vehicle_range",
-            native_unit_of_measurement=LENGTH_MILES,
+            device_class=SensorDeviceClass.DISTANCE,
+            native_unit_of_measurement=UnitOfLength.MILES,
+            state_class=SensorStateClass.MEASUREMENT,
         ),
-        value_lambda=lambda v: round(DistanceConverter.convert(v, UnitOfLength.KILOMETERS, UnitOfLength.MILES), 1),
+        value_lambda=lambda v: round(
+            DistanceConverter.convert(v, UnitOfLength.KILOMETERS, UnitOfLength.MILES), 1
+        ),
     ),
     "driveMode": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
@@ -376,10 +380,12 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             device_class=SensorDeviceClass.ENUM,
             options=[
                 "Idle",
+                "Ready To Download",
                 "Downloading",
                 "Preparing",
                 "Ready To Install",
                 "Install Countdown",
+                "Awaiting Install",
                 "Installing",
                 "Connection Lost",
             ],
@@ -436,7 +442,7 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             name="Charging Time Remaining",
             key=f"{DOMAIN}_energy_storage_charger_EMS_charger_remaining_time_min_1",
             device_class=SensorDeviceClass.DURATION,
-            native_unit_of_measurement=TIME_MINUTES,
+            native_unit_of_measurement=UnitOfTime.MINUTES,
         )
     ),
     "tirePressureStatusFrontLeft": RivianSensorEntity(
@@ -472,9 +478,13 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             name="Odometer",
             icon="mdi:counter",
             key=f"{DOMAIN}_dynamics_odometer_value",
-            native_unit_of_measurement=LENGTH_MILES,
+            device_class=SensorDeviceClass.DISTANCE,
+            native_unit_of_measurement=UnitOfLength.MILES,
+            state_class=SensorStateClass.TOTAL_INCREASING,
         ),
-        value_lambda=lambda v: round(DistanceConverter.convert(v, UnitOfLength.METERS, UnitOfLength.MILES), 1),
+        value_lambda=lambda v: round(
+            DistanceConverter.convert(v, UnitOfLength.METERS, UnitOfLength.MILES), 1
+        ),
     ),
     "windowFrontLeftCalibrated": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
@@ -564,7 +574,7 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
     #         name="Estimated Cabin Temperature",
     #         icon="mdi:thermometer",
     #         key=f"{DOMAIN}_thermal_hvac_mobile_status_estimated_cabin_temp_mobile",
-    #         native_unit_of_measurement=TEMP_FAHRENHEIT,
+    #         native_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
     #     ),
     #     value_lambda=lambda v: round(
     #         TemperatureConverter.convert(v, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT), 1
@@ -575,7 +585,7 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
     #         name="Set Temperature Mobile Status",
     #         icon="mdi:thermometer",
     #         key=f"{DOMAIN}_thermal_hvac_mobile_status_set_temp_status_mobile",
-    #         native_unit_of_measurement=TEMP_FAHRENHEIT,
+    #         native_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
     #     ),
     #     value_lambda=lambda v: round(
     #         TemperatureConverter.convert(v, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT), 1
@@ -958,4 +968,18 @@ BINARY_SENSORS: Final[dict[str, RivianBinarySensorEntity]] = {
             on_value="low",
         )
     ),
+}
+
+UPDATE_SENSOR_FIELDS: Final[set[str]] = {
+    "otaCurrentVersion",
+    "otaCurrentVersionYear",
+    "otaCurrentVersionWeek",
+    "otaCurrentVersionNumber",
+    "otaCurrentVersionGitHash",
+    "otaAvailableVersion",
+    "otaAvailableVersionYear",
+    "otaAvailableVersionWeek",
+    "otaAvailableVersionNumber",
+    "otaAvailableVersionGitHash",
+    "otaInstallProgress",
 }
