@@ -5,7 +5,13 @@ from typing import Final
 
 from homeassistant.components.binary_sensor import BinarySensorDeviceClass
 from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
-from homeassistant.const import PERCENTAGE, UnitOfLength, UnitOfTemperature, UnitOfTime
+from homeassistant.const import (
+    PERCENTAGE,
+    EntityCategory,
+    UnitOfLength,
+    UnitOfTemperature,
+    UnitOfTime,
+)
 from homeassistant.util.unit_conversion import DistanceConverter, TemperatureConverter
 
 from .data_classes import (
@@ -110,7 +116,6 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             key=f"{DOMAIN}_thermal_hvac_cabin_control_driver_temperature",
             device_class=SensorDeviceClass.TEMPERATURE,
             native_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
-            state_class=SensorStateClass.MEASUREMENT,
         ),
         value_lambda=lambda v: round(
             TemperatureConverter.convert(
@@ -248,6 +253,7 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             name="Gear Guard Video Terms Accepted",
             icon="mdi:cctv",
             key=f"{DOMAIN}_gear_guard_video_terms_accepted",
+            entity_category=EntityCategory.DIAGNOSTIC,
         ),
         value_lambda=lambda v: v.replace("_", " ").title(),
     ),
@@ -256,6 +262,8 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             name="Software OTA - Available Version",
             icon="mdi:package",
             key=f"{DOMAIN}_telematics_ota_status_available_version",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
         )
     ),
     "otaAvailableVersionGitHash": RivianSensorEntity(
@@ -263,6 +271,8 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             name="Software OTA - Available Version Git Hash",
             icon="mdi:source-commit",
             key=f"{DOMAIN}_telematics_ota_status_available_version_git_hash",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
         )
     ),
     "otaAvailableVersionNumber": RivianSensorEntity(
@@ -270,6 +280,8 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             name="Software OTA - Available Version Number",
             icon="mdi:numeric",
             key=f"{DOMAIN}_telematics_ota_status_available_version_number",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
         )
     ),
     "otaAvailableVersionWeek": RivianSensorEntity(
@@ -277,6 +289,8 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             name="Software OTA - Available Version Week",
             icon="mdi:calendar-week",
             key=f"{DOMAIN}_telematics_ota_status_available_version_week",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
         )
     ),
     "otaAvailableVersionYear": RivianSensorEntity(
@@ -284,6 +298,8 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             name="Software OTA - Available Version Year",
             icon="mdi:calendar",
             key=f"{DOMAIN}_telematics_ota_status_available_version_year",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
         )
     ),
     "otaCurrentStatus": RivianSensorEntity(
@@ -299,6 +315,8 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             name="Software OTA - Current Version",
             icon="mdi:package",
             key=f"{DOMAIN}_telematics_ota_status_current_version",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
         )
     ),
     "otaCurrentVersionGitHash": RivianSensorEntity(
@@ -306,6 +324,8 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             name="Software OTA - Current Version Git Hash",
             icon="mdi:source-commit",
             key=f"{DOMAIN}_telematics_ota_status_current_version_git_hash",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
         )
     ),
     "otaCurrentVersionNumber": RivianSensorEntity(
@@ -313,6 +333,8 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             name="Software OTA - Current Version Number",
             icon="mdi:numeric",
             key=f"{DOMAIN}_telematics_ota_status_current_version_number",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
         )
     ),
     "otaCurrentVersionWeek": RivianSensorEntity(
@@ -320,6 +342,8 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             name="Software OTA - Current Version Week",
             icon="mdi:calendar-week",
             key=f"{DOMAIN}_telematics_ota_status_current_version_week",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
         )
     ),
     "otaCurrentVersionYear": RivianSensorEntity(
@@ -327,6 +351,8 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             name="Software OTA - Current Version Year",
             icon="mdi:calendar",
             key=f"{DOMAIN}_telematics_ota_status_current_version_year",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
         )
     ),
     "otaDownloadProgress": RivianSensorEntity(
@@ -348,6 +374,8 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             name="Software OTA - Install Progress",
             icon="mdi:progress-clock",
             key=f"{DOMAIN}_telematics_ota_status_install_progress",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
         )
     ),
     "otaInstallReady": RivianSensorEntity(
@@ -443,6 +471,7 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             key=f"{DOMAIN}_energy_storage_charger_EMS_charger_remaining_time_min_1",
             device_class=SensorDeviceClass.DURATION,
             native_unit_of_measurement=UnitOfTime.MINUTES,
+            state_class=SensorStateClass.MEASUREMENT,
         )
     ),
     "tirePressureStatusFrontLeft": RivianSensorEntity(
@@ -491,6 +520,7 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             name="Window Calibration Front Left State",
             key=f"{DOMAIN}_body_closures_window_calibration_FL_state",
             icon="mdi:window-closed",
+            entity_category=EntityCategory.DIAGNOSTIC,
         )
     ),
     "windowFrontRightCalibrated": RivianSensorEntity(
@@ -498,6 +528,7 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             name="Window Calibration Front Right State",
             key=f"{DOMAIN}_body_closures_window_calibration_FR_state",
             icon="mdi:window-closed",
+            entity_category=EntityCategory.DIAGNOSTIC,
         )
     ),
     "windowRearLeftCalibrated": RivianSensorEntity(
@@ -505,6 +536,7 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             name="Window Calibration Rear Left State",
             key=f"{DOMAIN}_body_closures_window_calibration_RL_state",
             icon="mdi:window-closed",
+            entity_category=EntityCategory.DIAGNOSTIC,
         )
     ),
     "windowRearRightCalibrated": RivianSensorEntity(
@@ -512,6 +544,7 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             name="Window Calibration Rear Right State",
             key=f"{DOMAIN}_body_closures_window_calibration_RR_state",
             icon="mdi:window-closed",
+            entity_category=EntityCategory.DIAGNOSTIC,
         )
     ),
     # "core/ota_status/cgm_ota_install_fast_charging": RivianSensorEntity(
