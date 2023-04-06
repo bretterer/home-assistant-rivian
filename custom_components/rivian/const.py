@@ -142,6 +142,20 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
         ),
         value_lambda=lambda v: v.replace("_", " ").title(),
     ),
+    "chargerDerateStatus": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="Charger Derate Status",
+            key=f"{DOMAIN}_charger_derate_status",
+            icon="mdi:ev-station",
+        )
+    ),
+    "closureLiftgateNextAction": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="Liftgate Next Action",
+            key=f"{DOMAIN}_closure_liftgate_next_action",
+            icon="mdi:gesture-tap-button",
+        )
+    ),
     "distanceToEmpty": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Estimated Vehicle Range",
@@ -408,6 +422,13 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             name="Remote Charging Available",
             icon="mdi:battery-charging-wireless-80",
             key=f"{DOMAIN}_energy_storage_mobile_remote_charging_available",
+        )
+    ),
+    "serviceMode": RivianSensorEntity(
+        entity_description=RivianSensorEntityDescription(
+            name="Service Mode",
+            key=f"{DOMAIN}_service_mode",
+            icon="mdi:account-wrench",
         )
     ),
     "timeToEndOfCharge": RivianSensorEntity(
