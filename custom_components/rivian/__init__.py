@@ -212,7 +212,12 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):  # type: ignore[misc]
         items = vijson["data"]["vehicleState"]
 
         if not self._previous_vehicle_info_items:
-            self._previous_vehicle_info_items = items
+            for i in list(filter(lambda x: items[x] is not None, items)):
+                if i == "gnssLocation":
+                    continue
+                value = str(items[i]["value"]).lower()
+                items[i]["history"] = {items[i]["value"]}
+                self._previous_vehicle_info_items = items
             return items
         elif not items:
             return self._previous_vehicle_info_items
@@ -222,8 +227,12 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):  # type: ignore[misc]
                 continue
             value = str(items[i]["value"]).lower()
             prev_value = self._previous_vehicle_info_items[i]["value"]
+            self._previous_vehicle_info_items[i]["history"].add(items[i]["value"])
             if value in INVALID_SENSOR_STATES and prev_value:
                 items[i] = self._previous_vehicle_info_items[i]
+            else:
+                items[i]["history"] = self._previous_vehicle_info_items[i]["history"]
+
         self._previous_vehicle_info_items = items
         return items
 
