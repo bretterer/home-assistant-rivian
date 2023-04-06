@@ -3,38 +3,36 @@ from __future__ import annotations
 
 import logging
 
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorStateClass,
+)
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import ATTR_MODEL, ATTR_NAME
+from homeassistant.const import (
+    ATTR_MODEL,
+    ATTR_NAME,
+    EntityCategory,
+    UnitOfElectricCurrent,
+    UnitOfElectricPotential,
+    UnitOfPower,
+)
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-
-
-from homeassistant.components.sensor import (
-    SensorEntity,
-)
-
+from homeassistant.helpers.typing import StateType
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import (
-    ATTR_COORDINATOR,
-    CONF_VIN,
-    DOMAIN,
-    NAME,
-    SENSORS,
-)
-
-from .data_classes import RivianSensorEntity
-
-from . import (
-    get_device_identifier,
-    RivianEntity,
-)
+from . import RivianEntity, RivianWallboxEntity, get_device_identifier
+from .const import ATTR_COORDINATOR, CONF_VIN, DOMAIN, NAME, SENSORS
+from .data_classes import RivianSensorEntity, RivianWallboxSensorEntityDescription
 
 _LOGGER: logging.Logger = logging.getLogger(__name__)
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback):
+async def async_setup_entry(
+    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+) -> None:
     """Set up the sensor entities"""
     coordinator = hass.data[DOMAIN][entry.entry_id][ATTR_COORDINATOR]
 
@@ -48,6 +46,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
                 prop_key=value,
             )
         )
+
+    # Add wallbox entities
+    entities.extend(
+        RivianWallboxSensorEntity(coordinator, description, wallbox)
+        for wallbox in coordinator.wallboxes
+        for description in WALLBOX_SENSORS
+    )
+
     async_add_entities(entities, True)
 
 
@@ -139,3 +145,88 @@ class RivianSensor(RivianEntity, CoordinatorEntity, SensorEntity):
             }
         except KeyError:
             return None
+
+
+class RivianWallboxSensorEntity(RivianWallboxEntity, SensorEntity):
+    """Representation of a Rivian wallbox sensor entity."""
+
+    entity_description: RivianWallboxSensorEntityDescription
+
+    @property
+    def native_value(self) -> StateType:
+        """Return the value reported by the sensor."""
+        value = self.wallbox[self.entity_description.field]
+        if self.device_class == SensorDeviceClass.ENUM:
+            return value.lower()
+        return value
+
+
+WALLBOX_SENSORS = (
+    RivianWallboxSensorEntityDescription(
+        key="charging_status",
+        field="chargingStatus",
+        name="Charging status",
+        icon="mdi:ev-plug-type1",
+        device_class=SensorDeviceClass.ENUM,
+        options=["available", "disconnected", "plugged_in", "charging"],
+        translation_key="charging_status",
+    ),
+    RivianWallboxSensorEntityDescription(
+        key="amperage",
+        field="currentAmps",
+        name="Amperage",
+        device_class=SensorDeviceClass.CURRENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        native_unit_of_measurement=UnitOfElectricCurrent.AMPERE,
+        state_class=SensorStateClass.MEASUREMENT,
+    ),
+    RivianWallboxSensorEntityDescription(
+        key="amperage_maximum",
+        field="maxAmps",
+        name="Amperage maximum",
+        device_class=SensorDeviceClass.CURRENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        native_unit_of_measurement=UnitOfElectricCurrent.AMPERE,
+        state_class=SensorStateClass.MEASUREMENT,
+    ),
+    RivianWallboxSensorEntityDescription(
+        key="power",
+        field="power",
+        name="Power",
+        device_class=SensorDeviceClass.POWER,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        native_unit_of_measurement=UnitOfPower.WATT,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        suggested_unit_of_measurement=UnitOfPower.KILO_WATT,
+    ),
+    RivianWallboxSensorEntityDescription(
+        key="power_maximum",
+        field="maxPower",
+        name="Power maximum",
+        device_class=SensorDeviceClass.POWER,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        native_unit_of_measurement=UnitOfPower.WATT,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        suggested_unit_of_measurement=UnitOfPower.KILO_WATT,
+    ),
+    RivianWallboxSensorEntityDescription(
+        key="voltage",
+        field="currentVoltage",
+        name="Voltage",
+        device_class=SensorDeviceClass.VOLTAGE,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        native_unit_of_measurement=UnitOfElectricPotential.VOLT,
+        state_class=SensorStateClass.MEASUREMENT,
+    ),
+    RivianWallboxSensorEntityDescription(
+        key="voltage_maximum",
+        field="maxVoltage",
+        name="Voltage maximum",
+        device_class=SensorDeviceClass.VOLTAGE,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        native_unit_of_measurement=UnitOfElectricPotential.VOLT,
+        state_class=SensorStateClass.MEASUREMENT,
+    ),
+)

@@ -42,3 +42,17 @@ class RivianBinarySensorEntity(BinarySensorEntity):
     """Rivian Specific Sensor Entity"""
 
     entity_description: RivianBinarySensorEntityDescription
+
+
+@dataclass
+class RivianWallboxRequiredKeysMixin:
+    """A class that describes Rivian wallbox sensor entity required keys."""
+
+    field: str
+
+
+@dataclass
+class RivianWallboxSensorEntityDescription(
+    SensorEntityDescription, RivianWallboxRequiredKeysMixin
+):
+    """A class that describes Rivian wallbox sensor entities."""
