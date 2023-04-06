@@ -46,7 +46,7 @@ class RivianUpdateEntity(RivianEntity, UpdateEntity):
         """Create a Rivian update entity."""
         super().__init__(coordinator, entry)
         self._vin = vin
-        self._attr_unique_id = f"{vin}-software"
+        self._attr_unique_id = f"{vin}-software_ota"
 
     @property
     def installed_version(self) -> str:
