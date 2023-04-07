@@ -23,6 +23,8 @@ from .helpers import get_model_and_year
 
 _LOGGER: logging.Logger = logging.getLogger(__name__)
 
+INSTALLING_STATUS = ("Install_Countdown", "Awaiting_Install", "Installing")
+
 
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
@@ -79,15 +81,9 @@ class RivianUpdateEntity(RivianEntity, CoordinatorEntity, UpdateEntity):
     @property
     def in_progress(self) -> int | None:
         """Update installation progress."""
-        progress = self.coordinator.data["otaInstallProgress"]["value"]
-        if (
-            progress == 0
-            and self.coordinator.data["otaAvailableVersion"]["value"] == "0.0.0"
-        ):
-            return None
-        if self.coordinator.data["otaStatus"]["value"] == "Ready_To_Install":
-            return None
-        return progress
+        if self.coordinator.data["otaStatus"]["value"] in INSTALLING_STATUS:
+            return self.coordinator.data["otaInstallProgress"]["value"]
+        return None
 
     @property
     def release_url(self) -> str:
