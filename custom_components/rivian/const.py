@@ -12,7 +12,6 @@ from homeassistant.const import (
     UnitOfTemperature,
     UnitOfTime,
 )
-from homeassistant.util.unit_conversion import DistanceConverter, TemperatureConverter
 
 from .data_classes import (
     RivianBinarySensorEntity,
@@ -92,8 +91,8 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             device_class=SensorDeviceClass.BATTERY,
             native_unit_of_measurement=PERCENTAGE,
             state_class=SensorStateClass.MEASUREMENT,
-        ),
-        value_lambda=lambda v: round(v, 1),
+            suggested_display_precision=1,
+        )
     ),
     "batteryLimit": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
@@ -115,29 +114,21 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             name="Driver Temperature",
             key=f"{DOMAIN}_thermal_hvac_cabin_control_driver_temperature",
             device_class=SensorDeviceClass.TEMPERATURE,
-            native_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
-        ),
-        value_lambda=lambda v: round(
-            TemperatureConverter.convert(
-                v, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT
-            ),
-            1,
-        ),
+            native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+            suggested_display_precision=1,
+            suggested_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
+        )
     ),
     "cabinClimateInteriorTemperature": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
             name="Cabin Temperature",
             key=f"{DOMAIN}_thermal_hvac_cabin_control_cabin_temperature",
             device_class=SensorDeviceClass.TEMPERATURE,
-            native_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
+            native_unit_of_measurement=UnitOfTemperature.CELSIUS,
             state_class=SensorStateClass.MEASUREMENT,
-        ),
-        value_lambda=lambda v: round(
-            TemperatureConverter.convert(
-                v, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT
-            ),
-            1,
-        ),
+            suggested_display_precision=1,
+            suggested_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
+        )
     ),
     "cabinPreconditioningType": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
@@ -167,12 +158,11 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             icon="mdi:map-marker-distance",
             key=f"{DOMAIN}_energy_storage_vehicle_energy_vehicle_range",
             device_class=SensorDeviceClass.DISTANCE,
-            native_unit_of_measurement=UnitOfLength.MILES,
+            native_unit_of_measurement=UnitOfLength.KILOMETERS,
             state_class=SensorStateClass.MEASUREMENT,
-        ),
-        value_lambda=lambda v: round(
-            DistanceConverter.convert(v, UnitOfLength.KILOMETERS, UnitOfLength.MILES), 1
-        ),
+            suggested_display_precision=1,
+            suggested_unit_of_measurement=UnitOfLength.MILES,
+        )
     ),
     "driveMode": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(
@@ -254,6 +244,7 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             icon="mdi:cctv",
             key=f"{DOMAIN}_gear_guard_video_terms_accepted",
             entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
         ),
         value_lambda=lambda v: v.replace("_", " ").title(),
     ),
@@ -508,12 +499,11 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             icon="mdi:counter",
             key=f"{DOMAIN}_dynamics_odometer_value",
             device_class=SensorDeviceClass.DISTANCE,
-            native_unit_of_measurement=UnitOfLength.MILES,
+            native_unit_of_measurement=UnitOfLength.METERS,
             state_class=SensorStateClass.TOTAL_INCREASING,
-        ),
-        value_lambda=lambda v: round(
-            DistanceConverter.convert(v, UnitOfLength.METERS, UnitOfLength.MILES), 1
-        ),
+            suggested_display_precision=1,
+            suggested_unit_of_measurement=UnitOfLength.MILES,
+        )
     ),
     "windowFrontLeftCalibrated": RivianSensorEntity(
         entity_description=RivianSensorEntityDescription(

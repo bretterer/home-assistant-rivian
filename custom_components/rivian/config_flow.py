@@ -1,23 +1,18 @@
 """Rivian (Unofficial)"""
 from __future__ import annotations
+
 import logging
 from typing import Any
 
 from rivian import Rivian
 import voluptuous as vol
-from homeassistant.core import callback
-from homeassistant import config_entries
-from homeassistant.data_entry_flow import FlowResult
-from homeassistant.const import (
-    CONF_PASSWORD,
-    CONF_USERNAME,
-)
 
-from .const import (
-    DOMAIN,
-    CONF_OTP,
-    CONF_VIN,
-)
+from homeassistant import config_entries
+from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
+from homeassistant.core import callback
+from homeassistant.data_entry_flow import FlowResult
+
+from .const import CONF_OTP, CONF_VIN, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 

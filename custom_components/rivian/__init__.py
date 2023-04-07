@@ -1,9 +1,12 @@
 """Rivian (Unofficial)"""
 from __future__ import annotations
 
-import logging
 from datetime import timedelta
+import logging
 from typing import Any
+
+from rivian import Rivian
+from rivian.exceptions import RivianExpiredTokenError
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_MODEL, CONF_PASSWORD, CONF_USERNAME, Platform
@@ -16,8 +19,6 @@ from homeassistant.helpers.update_coordinator import (
 )
 from homeassistant.loader import async_get_integration
 from homeassistant.util import slugify
-from rivian import Rivian
-from rivian.exceptions import RivianExpiredTokenError
 
 from .const import (
     ATTR_COORDINATOR,

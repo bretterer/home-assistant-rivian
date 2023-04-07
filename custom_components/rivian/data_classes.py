@@ -1,18 +1,14 @@
 """Rivian Specific Data Classes"""
 from __future__ import annotations
+
 from ast import Expression
-
 from dataclasses import dataclass
-
-from homeassistant.components.sensor import (
-    SensorEntity,
-    SensorEntityDescription,
-)
 
 from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
     BinarySensorEntityDescription,
 )
+from homeassistant.components.sensor import SensorEntity, SensorEntityDescription
 
 
 @dataclass
