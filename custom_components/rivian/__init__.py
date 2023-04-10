@@ -280,6 +280,7 @@ class RivianEntity(CoordinatorEntity[RivianDataUpdateCoordinator]):
             name=f"{manufacturer} {model}" if model else manufacturer,
             manufacturer=manufacturer,
             model=f"{year} {manufacturer} {model}" if model and year else None,
+            sw_version=self._get_value("otaCurrentVersion"),
         )
 
     @property
