@@ -178,7 +178,7 @@ class RivianAggregateBinarySensor(RivianEntity, CoordinatorEntity, BinarySensorE
     def is_on(self) -> bool:
         """Return true if sensor is on."""
         return self.entity_description.on_value in (
-            self.coordinator.data[entity_key]["value"]
+            self.coordinator.data.get(entity_key, {}).get("value")
             for entity_key in self._prop_key_set
         )
 
