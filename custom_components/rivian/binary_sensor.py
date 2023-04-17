@@ -1,43 +1,33 @@
 """Rivian (Unofficial)"""
 from __future__ import annotations
 
-import logging
-
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import ATTR_MODEL, ATTR_NAME
-from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from collections.abc import Mapping
+from typing import Any
 
 from homeassistant.components.binary_sensor import (
-    BinarySensorEntity,
     BinarySensorDeviceClass,
+    BinarySensorEntity,
 )
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
-
+from . import RivianDataUpdateCoordinator, RivianEntity
 from .const import (
     ATTR_COORDINATOR,
+    BINARY_SENSORS,
     CLOSURE_STATE_ENTITIES,
     CONF_VIN,
     DOMAIN,
     DOOR_STATE_ENTITIES,
     LOCK_STATE_ENTITIES,
-    NAME,
-    BINARY_SENSORS,
 )
-
 from .data_classes import RivianBinarySensorEntity, RivianBinarySensorEntityDescription
 
-from . import (
-    get_device_identifier,
-    RivianEntity,
-)
 
-_LOGGER: logging.Logger = logging.getLogger(__name__)
-
-
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback):
+async def async_setup_entry(
+    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+) -> None:
     """Set up the sensor entities"""
     coordinator = hass.data[DOMAIN][entry.entry_id][ATTR_COORDINATOR]
 
@@ -117,24 +107,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     async_add_entities(entities, True)
 
 
-class RivianAggregateBinarySensor(RivianEntity, CoordinatorEntity, BinarySensorEntity):
+class RivianAggregateBinarySensor(RivianEntity, BinarySensorEntity):
     """Rivian Aggregate Binary Sensor Entity - OR the value of different entities and report as new entity"""
 
     def __init__(
         self,
-        coordinator,
-        config_entry,
+        coordinator: RivianDataUpdateCoordinator,
+        config_entry: ConfigEntry,
         sensor: RivianBinarySensorEntity,
         prop_key_set: set(str),
-    ):
-        """"""
-        CoordinatorEntity.__init__(self, coordinator)
-        BinarySensorEntity.__init__(self)
-        super().__init__(coordinator)
+    ) -> None:
+        """Create a Rivian aggregate binary sensor."""
+        super().__init__(coordinator, config_entry)
         self._sensor = sensor
         self.entity_description = sensor.entity_description
-        self.coordinator = coordinator
-        self._config_entry = config_entry
         self._name = self.entity_description.key
         self._prop_key_set = prop_key_set
         self.entity_id = f"binary_sensor.{self.entity_description.key}"
@@ -146,35 +132,6 @@ class RivianAggregateBinarySensor(RivianEntity, CoordinatorEntity, BinarySensorE
         return f"{DOMAIN}_{self._name}_{self._config_entry.entry_id}"
 
     @property
-    def device_info(self) -> DeviceInfo:
-        """Get device information."""
-        info = DeviceInfo(
-            identifiers={get_device_identifier(self._config_entry)},
-            manufacturer=NAME,
-        )
-        model_year = ""
-        model_line = ""
-
-        """Attempt to derive Rivian model information from VIN."""
-        if self._vin[9] == "N":
-            model_year = "2022"
-        elif self._vin[9] == "P":
-            model_year = "2023"
-
-        if self._vin[0:5] == "7FCTG":
-            model_line = "R1T"
-        elif self._vin[0:5] == "7PDSG":
-            model_line = "R1S"
-
-        if model_year and model_line:
-            info[ATTR_MODEL] = f"{model_year} Rivian {model_line}"
-            info[ATTR_NAME] = f"Rivian {model_line}"
-        else:
-            info[ATTR_NAME] = "Rivian"
-
-        return info
-
-    @property
     def is_on(self) -> bool:
         """Return true if sensor is on."""
         return self.entity_description.on_value in (
@@ -183,24 +140,20 @@ class RivianAggregateBinarySensor(RivianEntity, CoordinatorEntity, BinarySensorE
         )
 
 
-class RivianBinarySensor(RivianEntity, CoordinatorEntity, BinarySensorEntity):
+class RivianBinarySensor(RivianEntity, BinarySensorEntity):
     """Rivian Binary Sensor Entity."""
 
     def __init__(
         self,
-        coordinator,
-        config_entry,
+        coordinator: RivianDataUpdateCoordinator,
+        config_entry: ConfigEntry,
         sensor: RivianBinarySensorEntity,
         prop_key: str,
-    ):
-        """"""
-        CoordinatorEntity.__init__(self, coordinator)
-        BinarySensorEntity.__init__(self)
-        super().__init__(coordinator)
+    ) -> None:
+        """Create a Rivian binary sensor."""
+        super().__init__(coordinator, config_entry)
         self._sensor = sensor
         self.entity_description = sensor.entity_description
-        self.coordinator = coordinator
-        self._config_entry = config_entry
         self._name = self.entity_description.key
         self._prop_key = prop_key
         self.entity_id = f"binary_sensor.{self.entity_description.key}"
@@ -212,38 +165,8 @@ class RivianBinarySensor(RivianEntity, CoordinatorEntity, BinarySensorEntity):
         return f"{DOMAIN}_{self._name}_{self._config_entry.entry_id}"
 
     @property
-    def device_info(self) -> DeviceInfo:
-        """Get device information."""
-        info = DeviceInfo(
-            identifiers={get_device_identifier(self._config_entry)},
-            manufacturer=NAME,
-        )
-        model_year = ""
-        model_line = ""
-
-        """Attempt to derive Rivian model information from VIN."""
-        if self._vin[9] == "N":
-            model_year = "2022"
-        elif self._vin[9] == "P":
-            model_year = "2023"
-
-        if self._vin[0:5] == "7FCTG":
-            model_line = "R1T"
-        elif self._vin[0:5] == "7PDSG":
-            model_line = "R1S"
-
-        if model_year and model_line:
-            info[ATTR_MODEL] = f"{model_year} Rivian {model_line}"
-            info[ATTR_NAME] = f"Rivian {model_line}"
-        else:
-            info[ATTR_NAME] = "Rivian"
-
-        return info
-
-    @property
     def is_on(self) -> bool:
         """Return true if sensor is on."""
-
         try:
             entity = self.coordinator.data[self._prop_key]
             if entity is None:
@@ -256,7 +179,7 @@ class RivianBinarySensor(RivianEntity, CoordinatorEntity, BinarySensorEntity):
             return None
 
     @property
-    def extra_state_attributes(self):
+    def extra_state_attributes(self) -> Mapping[str, Any] | None:
         """Return the state attributes of the device."""
         try:
             entity = self.coordinator.data[self._prop_key]
