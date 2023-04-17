@@ -12,7 +12,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_MODEL, CONF_PASSWORD, CONF_USERNAME, Platform
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryNotReady
-from homeassistant.helpers.entity import DeviceInfo, Entity, EntityDescription
+from homeassistant.helpers.entity import DeviceInfo, EntityDescription
 from homeassistant.helpers.update_coordinator import (
     CoordinatorEntity,
     DataUpdateCoordinator,
@@ -22,7 +22,6 @@ from homeassistant.util import slugify
 
 from .const import (
     ATTR_COORDINATOR,
-    BINARY_SENSORS,
     CONF_ACCESS_TOKEN,
     CONF_REFRESH_TOKEN,
     CONF_USER_SESSION_TOKEN,
@@ -30,9 +29,8 @@ from .const import (
     DOMAIN,
     INVALID_SENSOR_STATES,
     ISSUE_URL,
-    SENSORS,
     UPDATE_INTERVAL,
-    UPDATE_SENSOR_FIELDS,
+    VEHICLE_STATE_API_FIELDS,
     VERSION,
 )
 from .helpers import get_model_and_year
@@ -154,13 +152,6 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):  # type: ignore[misc]
 
     async def _update_api_data(self):
         """Update data via api."""
-        sensors: set[str] = {"gnssLocation"}
-        for _, val in enumerate(SENSORS):
-            sensors.add(val)
-        for _, val in enumerate(BINARY_SENSORS):
-            sensors.add(val)
-        sensors.update(UPDATE_SENSOR_FIELDS)
-
         try:
             if self._login_attempts >= 5:
                 raise Exception("too many attempts to login - aborting")
@@ -185,8 +176,7 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):  # type: ignore[misc]
 
             # fetch vehicle sensor data
             vehicle_info = await self._api.get_vehicle_state(
-                vin=self._vin,
-                properties=sensors,
+                vin=self._vin, properties=VEHICLE_STATE_API_FIELDS
             )
             vijson = await vehicle_info.json()
             self._login_attempts = 0

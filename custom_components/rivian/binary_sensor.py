@@ -23,6 +23,7 @@ from .const import (
     LOCK_STATE_ENTITIES,
 )
 from .data_classes import RivianBinarySensorEntity, RivianBinarySensorEntityDescription
+from .helpers import get_model_and_year
 
 
 async def async_setup_entry(
@@ -30,17 +31,15 @@ async def async_setup_entry(
 ) -> None:
     """Set up the sensor entities"""
     coordinator = hass.data[DOMAIN][entry.entry_id][ATTR_COORDINATOR]
+    vin_model = get_model_and_year(entry.data[CONF_VIN])[0]
 
-    entities = []
-    for _, value in enumerate(BINARY_SENSORS):
-        entities.append(
-            RivianBinarySensor(
-                coordinator=coordinator,
-                config_entry=entry,
-                sensor=BINARY_SENSORS[value],
-                prop_key=value,
-            )
+    entities = [
+        RivianBinarySensor(
+            coordinator=coordinator, config_entry=entry, sensor=sensor, prop_key=value
         )
+        for model in (vin_model, vin_model[:2])
+        for value, sensor in BINARY_SENSORS.get(model, {}).items()
+    ]
 
     # custom aggregate entities
     entities.append(

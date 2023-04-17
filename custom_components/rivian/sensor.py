@@ -23,6 +23,7 @@ from homeassistant.helpers.typing import StateType
 from . import RivianDataUpdateCoordinator, RivianEntity, RivianWallboxEntity
 from .const import ATTR_COORDINATOR, CONF_VIN, DOMAIN, SENSORS
 from .data_classes import RivianSensorEntity, RivianWallboxSensorEntityDescription
+from .helpers import get_model_and_year
 
 
 async def async_setup_entry(
@@ -30,17 +31,15 @@ async def async_setup_entry(
 ) -> None:
     """Set up the sensor entities"""
     coordinator = hass.data[DOMAIN][entry.entry_id][ATTR_COORDINATOR]
+    vin_model = get_model_and_year(entry.data[CONF_VIN])[0]
 
-    entities = []
-    for _, value in enumerate(SENSORS):
-        entities.append(
-            RivianSensor(
-                coordinator=coordinator,
-                config_entry=entry,
-                sensor=SENSORS[value],
-                prop_key=value,
-            )
+    entities = [
+        RivianSensor(
+            coordinator=coordinator, config_entry=entry, sensor=sensor, prop_key=value
         )
+        for model in (vin_model, vin_model[:2])
+        for value, sensor in SENSORS.get(model, {}).items()
+    ]
 
     # Add wallbox entities
     entities.extend(
