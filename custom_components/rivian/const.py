@@ -988,7 +988,8 @@ BINARY_SENSORS: Final[dict[str, RivianBinarySensorEntity]] = {
             icon="mdi:wiper-wash",
             key=f"{DOMAIN}_body_wipers_fluid_state",
             device_class=BinarySensorDeviceClass.PROBLEM,
-            on_value="low",
+            on_value="normal",
+            negate=True,
         )
     ),
 }
