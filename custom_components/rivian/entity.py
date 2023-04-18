@@ -31,7 +31,6 @@ from .const import (
     UPDATE_INTERVAL,
     UPDATE_SENSOR_FIELDS,
 )
-from .helpers import get_model_and_year
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -44,9 +43,9 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):
         self._hass = hass
         self._api = client
         self._entry = entry
-        self._vins: list[str] | None = None
         self._login_attempts = 0
         self._previous_vehicle_info_items = None
+        self._vehicles: dict[str, dict[str, Any]] | None = None
         self._wallboxes: list[dict[str, Any]] | None = None
 
         # sync tokens from initial configuration
@@ -62,9 +61,9 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):
         )
 
     @property
-    def vins(self) -> list[str]:
-        """Return the VINs."""
-        return self._vins or []
+    def vehicles(self) -> dict[str, dict[str, Any]]:
+        """Return the vehicles."""
+        return self._vehicles or {}
 
     @property
     def wallboxes(self) -> list[dict[str, Any]]:
@@ -102,12 +101,12 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):
                     self._entry.data.get(CONF_PASSWORD),
                 )
 
-            if self._vins is None:
+            if self._vehicles is None:
                 await self._fetch_vins()
 
             # fetch vehicle sensor data
             vehicle_states: dict[str, Any] = {}
-            for vin in self._vins:
+            for vin in self._vehicles:
                 vehicle_info = await self._api.get_vehicle_state(
                     vin=vin, properties=sensors
                 )
@@ -158,11 +157,12 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):
         uijson = await user_information.json()
         _LOGGER.debug(uijson)
         if uijson:
-            self._vins = [
-                vehicle["vin"] for vehicle in uijson["data"]["currentUser"]["vehicles"]
-            ]
+            self._vehicles = {
+                vehicle["vin"]: vehicle["vehicle"]
+                for vehicle in uijson["data"]["currentUser"]["vehicles"]
+            }
         else:
-            self._vins = []
+            self._vehicles = {}
 
     def build_vehicle_info_dict(self, vijson) -> dict[str, dict[str, Any]]:
         """take the json output of vehicle_info and build a dictionary"""
@@ -218,12 +218,15 @@ class RivianEntity(CoordinatorEntity[RivianDataUpdateCoordinator]):
         self._available = True
 
         manufacturer = "Rivian"
-        model, year = get_model_and_year(vin)
+        model = coordinator.vehicles[vin]["model"]
+        model_year = coordinator.vehicles[vin]["modelYear"]
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, vin), get_device_identifier(config_entry)},
             name=f"{manufacturer} {model}" if model else manufacturer,
             manufacturer=manufacturer,
-            model=f"{year} {manufacturer} {model}" if model and year else None,
+            model=f"{model_year} {manufacturer} {model}"
+            if model and model_year
+            else None,
             sw_version=self._get_value("otaCurrentVersion"),
         )
 

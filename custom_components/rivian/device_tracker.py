@@ -32,7 +32,7 @@ async def async_setup_entry(
 
     entities = [
         RivianDeviceEntity(coordinator, entry, LOCATION_DESCRIPTION, vin)
-        for vin in coordinator.vins
+        for vin in coordinator.vehicles
     ]
 
     # Migrate unique ids to support multiple VIN

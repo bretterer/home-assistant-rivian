@@ -37,7 +37,7 @@ async def async_setup_entry(
     ]
     entities = [
         RivianUpdateEntity(coordinator, entry, UPDATE_DESCRIPTION, vin)
-        for vin in coordinator.vins
+        for vin in coordinator.vehicles
     ]
     async_add_entities(entities, True)
 
