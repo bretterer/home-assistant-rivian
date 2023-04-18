@@ -15,8 +15,8 @@ from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import ATTR_COORDINATOR, CONF_VIN, DOMAIN
-from .entity import RivianEntity
+from .const import ATTR_COORDINATOR, DOMAIN
+from .entity import RivianDataUpdateCoordinator, RivianEntity
 
 INSTALLING_STATUS = ("Install_Countdown", "Awaiting_Install", "Installing")
 
@@ -32,9 +32,13 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     """Set up the sensor entities"""
-    coordinator = hass.data[DOMAIN][entry.entry_id][ATTR_COORDINATOR]
-    vin = entry.data.get(CONF_VIN)
-    entities = [RivianUpdateEntity(coordinator, entry, UPDATE_DESCRIPTION, vin)]
+    coordinator: RivianDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][
+        ATTR_COORDINATOR
+    ]
+    entities = [
+        RivianUpdateEntity(coordinator, entry, UPDATE_DESCRIPTION, vin)
+        for vin in coordinator.vins
+    ]
     async_add_entities(entities, True)
 
 

@@ -10,7 +10,7 @@ from rivian import Rivian
 from rivian.exceptions import RivianExpiredTokenError
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import ATTR_MODEL, CONF_PASSWORD, CONF_USERNAME
+from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import DeviceInfo, EntityDescription
 import homeassistant.helpers.entity_registry as er
@@ -25,7 +25,6 @@ from .const import (
     CONF_ACCESS_TOKEN,
     CONF_REFRESH_TOKEN,
     CONF_USER_SESSION_TOKEN,
-    CONF_VIN,
     DOMAIN,
     INVALID_SENSOR_STATES,
     SENSORS,
@@ -45,7 +44,7 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):
         self._hass = hass
         self._api = client
         self._entry = entry
-        self._vin = entry.data.get(CONF_VIN)
+        self._vins: list[str] | None = None
         self._login_attempts = 0
         self._previous_vehicle_info_items = None
         self._wallboxes: list[dict[str, Any]] | None = None
@@ -61,6 +60,11 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):
             name=DOMAIN,
             update_interval=timedelta(seconds=UPDATE_INTERVAL),
         )
+
+    @property
+    def vins(self) -> list[str]:
+        """Return the VINs."""
+        return self._vins or []
 
     @property
     def wallboxes(self) -> list[dict[str, Any]]:
@@ -98,12 +102,17 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):
                     self._entry.data.get(CONF_PASSWORD),
                 )
 
+            if self._vins is None:
+                await self._fetch_vins()
+
             # fetch vehicle sensor data
-            vehicle_info = await self._api.get_vehicle_state(
-                vin=self._vin,
-                properties=sensors,
-            )
-            vijson = await vehicle_info.json()
+            vehicle_states: dict[str, Any] = {}
+            for vin in self._vins:
+                vehicle_info = await self._api.get_vehicle_state(
+                    vin=vin, properties=sensors
+                )
+                vijson = await vehicle_info.json()
+                vehicle_states[vin] = self.build_vehicle_info_dict(vijson)
             self._login_attempts = 0
 
             if self._wallboxes or self._wallboxes is None:
@@ -113,7 +122,7 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):
                     _LOGGER.debug(wbjson)
                     self._wallboxes = wbjson["data"]["getRegisteredWallboxes"]
 
-            return self.build_vehicle_info_dict(vijson)
+            return vehicle_states
         except (
             RivianExpiredTokenError
         ):  # graphql is always 200 - no exception parsing yet
@@ -142,6 +151,18 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):
                 "Unknown Exception while updating Rivian data: %s", err, exc_info=1
             )
             raise Exception("Error communicating with API") from err
+
+    async def _fetch_vins(self) -> None:
+        """Fetch user's accessible vehicles."""
+        user_information = await self._api.get_user_information()
+        uijson = await user_information.json()
+        _LOGGER.debug(uijson)
+        if uijson:
+            self._vins = [
+                vehicle["vin"] for vehicle in uijson["data"]["currentUser"]["vehicles"]
+            ]
+        else:
+            self._vins = []
 
     def build_vehicle_info_dict(self, vijson) -> dict[str, dict[str, Any]]:
         """take the json output of vehicle_info and build a dictionary"""
@@ -211,13 +232,9 @@ class RivianEntity(CoordinatorEntity[RivianDataUpdateCoordinator]):
         """Return the availability of the entity."""
         return self._available
 
-    def _get_model(self) -> str:
-        """Get the Rivian model string."""
-        return str(self.hass.data[DOMAIN][self._config_entry.entry_id][ATTR_MODEL])
-
     def _get_value(self, key: str) -> Any | None:
         """Get a data value from the coordinator."""
-        if entity := self.coordinator.data.get(key, {}):
+        if entity := self.coordinator.data[self._vin].get(key, {}):
             return entity.get("value")
         return None
 
@@ -269,8 +286,7 @@ def get_device_identifier(
     """Get a device identifier."""
     if name:
         return (DOMAIN, f"{entry.entry_id}:{DOMAIN}:{slugify(name)}")
-    else:
-        return (DOMAIN, f"{DOMAIN}:{entry.entry_id}")
+    return (DOMAIN, f"{DOMAIN}:{entry.entry_id}")
 
 
 def async_update_unique_id(

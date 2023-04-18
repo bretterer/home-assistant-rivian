@@ -6,10 +6,9 @@ import logging
 from rivian import Rivian
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import ATTR_MODEL, Platform
+from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
-from homeassistant.loader import async_get_integration
 
 from .const import ATTR_COORDINATOR, DOMAIN, ISSUE_URL, VERSION
 from .entity import RivianDataUpdateCoordinator
@@ -49,12 +48,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
 
     config_entry.add_update_listener(update_listener)
 
-    model = f"{(await async_get_integration(hass, DOMAIN)).version}"
-
-    hass.data[DOMAIN][config_entry.entry_id] = {
-        ATTR_COORDINATOR: coordinator,
-        ATTR_MODEL: model,
-    }
+    hass.data[DOMAIN][config_entry.entry_id] = {ATTR_COORDINATOR: coordinator}
 
     await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS)
 

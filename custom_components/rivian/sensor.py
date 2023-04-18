@@ -22,26 +22,34 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import StateType
 
-from .const import ATTR_COORDINATOR, CONF_VIN, DOMAIN, SENSORS
+from .const import ATTR_COORDINATOR, DOMAIN, SENSORS
 from .data_classes import (
     RivianSensorEntityDescription,
     RivianWallboxSensorEntityDescription,
 )
-from .entity import RivianEntity, RivianWallboxEntity, async_update_unique_id
+from .entity import (
+    RivianDataUpdateCoordinator,
+    RivianEntity,
+    RivianWallboxEntity,
+    async_update_unique_id,
+)
 
 
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     """Set up the sensor entities"""
-    coordinator = hass.data[DOMAIN][entry.entry_id][ATTR_COORDINATOR]
-    vin = entry.data.get(CONF_VIN)
+    coordinator: RivianDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][
+        ATTR_COORDINATOR
+    ]
 
     entities = [
         RivianSensorEntity(coordinator, entry, description, vin)
         for description in SENSORS
+        for vin in coordinator.vins
     ]
-    # Migrate unique ids for future support of multiple VIN
+
+    # Migrate unique ids to support multiple VIN
     async_update_unique_id(hass, PLATFORM, entities)
 
     # Add wallbox entities
@@ -70,7 +78,7 @@ class RivianSensorEntity(RivianEntity, SensorEntity):
     def extra_state_attributes(self) -> Mapping[str, Any] | None:
         """Return the state attributes of the device."""
         try:
-            entity = self.coordinator.data[self.entity_description.field]
+            entity = self.coordinator.data[self._vin][self.entity_description.field]
             if entity is None:
                 return None
             if self.entity_description.value_lambda is None:

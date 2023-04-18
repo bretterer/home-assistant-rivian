@@ -13,7 +13,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import ATTR_COORDINATOR, CONF_VIN, DOMAIN
+from .const import ATTR_COORDINATOR, DOMAIN
 from .data_classes import RivianTrackerEntityDescription
 from .entity import RivianDataUpdateCoordinator, RivianEntity, async_update_unique_id
 
@@ -26,13 +26,18 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     """Set up the Rivain binary_sensors by config_entry."""
-    coordinator = hass.data[DOMAIN][entry.entry_id][ATTR_COORDINATOR]
-    vin = entry.data.get(CONF_VIN)
+    coordinator: RivianDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][
+        ATTR_COORDINATOR
+    ]
 
-    entities = [RivianDeviceEntity(coordinator, entry, LOCATION_DESCRIPTION, vin)]
+    entities = [
+        RivianDeviceEntity(coordinator, entry, LOCATION_DESCRIPTION, vin)
+        for vin in coordinator.vins
+    ]
 
-    # Migrate unique ids for future support of multiple VIN
+    # Migrate unique ids to support multiple VIN
     async_update_unique_id(hass, PLATFORM, entities)
+
     async_add_entities(entities, True)
 
 
@@ -51,7 +56,7 @@ class RivianDeviceEntity(RivianEntity, TrackerEntity):
         """Create a Rivian device tracker entity."""
         super().__init__(coordinator, config_entry, description, vin)
         self._attribute = "gnssLocation"
-        self._tracker_data = coordinator.data[self._attribute]
+        self._tracker_data = coordinator.data[vin][self._attribute]
 
     @property
     def force_update(self) -> bool:
@@ -87,12 +92,10 @@ class RivianDeviceEntity(RivianEntity, TrackerEntity):
     @callback
     def _handle_coordinator_update(self) -> None:
         """Respond to a DataUpdateCoordinator update."""
+        entity = self.coordinator.data[self._vin][self._attribute]
         try:
-            if (
-                self.coordinator.data[self._attribute]["timeStamp"]
-                != self._tracker_data["timeStamp"]
-            ):
-                self._tracker_data = self.coordinator.data[self._attribute]
+            if entity["timeStamp"] != self._tracker_data["timeStamp"]:
+                self._tracker_data = entity
                 self.async_write_ha_state()
         except:
-            self._tracker_data = self.coordinator.data[self._attribute]
+            self._tracker_data = entity

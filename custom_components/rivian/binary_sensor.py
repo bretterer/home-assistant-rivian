@@ -13,7 +13,7 @@ from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import ATTR_COORDINATOR, BINARY_SENSORS, CONF_VIN, DOMAIN
+from .const import ATTR_COORDINATOR, BINARY_SENSORS, DOMAIN
 from .data_classes import RivianBinarySensorEntityDescription
 from .entity import RivianDataUpdateCoordinator, RivianEntity, async_update_unique_id
 
@@ -22,20 +22,19 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     """Set up the sensor entities"""
-    coordinator = hass.data[DOMAIN][entry.entry_id][ATTR_COORDINATOR]
-    vin = entry.data.get(CONF_VIN)
+    coordinator: RivianDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][
+        ATTR_COORDINATOR
+    ]
 
     entities = [
-        RivianBinarySensorEntity(
-            coordinator=coordinator,
-            config_entry=entry,
-            description=description,
-            vin=vin,
-        )
+        RivianBinarySensorEntity(coordinator, entry, description, vin)
         for description in BINARY_SENSORS
+        for vin in coordinator.vins
     ]
-    # Migrate unique ids for future support of multiple VIN
+
+    # Migrate unique ids to support multiple VIN
     async_update_unique_id(hass, PLATFORM, entities)
+
     async_add_entities(entities, True)
 
 
@@ -76,7 +75,7 @@ class RivianBinarySensorEntity(RivianEntity, BinarySensorEntity):
         if self._aggregate:
             return None
         try:
-            entity = self.coordinator.data[self.entity_description.field]
+            entity = self.coordinator.data[self._vin][self.entity_description.field]
             if entity is None:
                 return "Binary Sensor Unavailable"
             return {
