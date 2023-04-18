@@ -44,7 +44,6 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):
         self._api = client
         self._entry = entry
         self._login_attempts = 0
-        self._previous_vehicle_info_items = None
         self._vehicles: dict[str, dict[str, Any]] | None = None
         self._wallboxes: list[dict[str, Any]] | None = None
 
@@ -111,7 +110,7 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):
                     vin=vin, properties=sensors
                 )
                 vijson = await vehicle_info.json()
-                vehicle_states[vin] = self.build_vehicle_info_dict(vijson)
+                vehicle_states[vin] = self._build_vehicle_info_dict(vin, vijson)
             self._login_attempts = 0
 
             if self._wallboxes or self._wallboxes is None:
@@ -164,35 +163,25 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):
         else:
             self._vehicles = {}
 
-    def build_vehicle_info_dict(self, vijson) -> dict[str, dict[str, Any]]:
-        """take the json output of vehicle_info and build a dictionary"""
-
-        _LOGGER.debug(vijson)
+    def _build_vehicle_info_dict(
+        self, vin: str, vijson: dict
+    ) -> dict[str, dict[str, Any]]:
+        """Take the json output of vehicle_info and build a dictionary."""
+        _LOGGER.debug("VIN: %s, data: %s", vin, vijson)
         items = vijson["data"]["vehicleState"]
 
-        if not self._previous_vehicle_info_items:
-            for i in list(filter(lambda x: items[x] is not None, items)):
-                if i == "gnssLocation":
-                    continue
-                value = str(items[i]["value"]).lower()
-                items[i]["history"] = {items[i]["value"]}
-                self._previous_vehicle_info_items = items
-            return items
-        elif not items:
-            return self._previous_vehicle_info_items
+        if not (prev_items := (self.data or {}).get(vin) or items) or not items:
+            return prev_items
 
-        for i in list(filter(lambda x: items[x] is not None, items)):
+        for i in filter(lambda x: items[x] is not None, items):
             if i == "gnssLocation":
                 continue
-            value = str(items[i]["value"]).lower()
-            prev_value = self._previous_vehicle_info_items[i]["value"]
-            self._previous_vehicle_info_items[i]["history"].add(items[i]["value"])
-            if value in INVALID_SENSOR_STATES and prev_value:
-                items[i] = self._previous_vehicle_info_items[i]
-            else:
-                items[i]["history"] = self._previous_vehicle_info_items[i]["history"]
-
-        self._previous_vehicle_info_items = items
+            value = items[i]["value"]
+            prev_value = prev_items[i]["value"]
+            prev_items[i].setdefault("history", set()).add(value)
+            if str(value).lower() in INVALID_SENSOR_STATES and value != prev_value:
+                items[i] = prev_items[i]
+            items[i]["history"] = prev_items[i]["history"]
         return items
 
 
