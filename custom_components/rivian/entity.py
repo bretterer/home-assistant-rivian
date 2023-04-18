@@ -102,7 +102,7 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):
                 )
 
             if self._vehicles is None:
-                await self._fetch_vins()
+                await self._fetch_vehicles()
 
             # fetch vehicle sensor data
             vehicle_states: dict[str, Any] = {}
@@ -151,7 +151,7 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):
             )
             raise Exception("Error communicating with API") from err
 
-    async def _fetch_vins(self) -> None:
+    async def _fetch_vehicles(self) -> None:
         """Fetch user's accessible vehicles."""
         user_information = await self._api.get_user_information()
         uijson = await user_information.json()
