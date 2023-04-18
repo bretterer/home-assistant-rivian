@@ -21,15 +21,13 @@ from homeassistant.helpers.update_coordinator import (
 from homeassistant.util import slugify
 
 from .const import (
-    BINARY_SENSORS,
     CONF_ACCESS_TOKEN,
     CONF_REFRESH_TOKEN,
     CONF_USER_SESSION_TOKEN,
     DOMAIN,
     INVALID_SENSOR_STATES,
-    SENSORS,
     UPDATE_INTERVAL,
-    UPDATE_SENSOR_FIELDS,
+    VEHICLE_STATE_API_FIELDS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -71,13 +69,6 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):
 
     async def _update_api_data(self):
         """Update data via api."""
-        sensors: set[str] = {"gnssLocation"}
-        sensors.update(sensor.field for sensor in SENSORS)
-        for sensor in BINARY_SENSORS:
-            fields = [sensor.field] if isinstance(sensor.field, str) else sensor.field
-            sensors.update(fields)
-        sensors.update(UPDATE_SENSOR_FIELDS)
-
         try:
             if self._login_attempts >= 5:
                 raise Exception("too many attempts to login - aborting")
@@ -107,7 +98,7 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):
             vehicle_states: dict[str, Any] = {}
             for vin in self._vehicles:
                 vehicle_info = await self._api.get_vehicle_state(
-                    vin=vin, properties=sensors
+                    vin=vin, properties=VEHICLE_STATE_API_FIELDS
                 )
                 vijson = await vehicle_info.json()
                 vehicle_states[vin] = self._build_vehicle_info_dict(vin, vijson)
