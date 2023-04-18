@@ -5,12 +5,14 @@ from collections.abc import Mapping
 from typing import Any
 
 from homeassistant.components.sensor import (
+    DOMAIN as PLATFORM,
     SensorDeviceClass,
     SensorEntity,
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
+    STATE_UNAVAILABLE,
     EntityCategory,
     UnitOfElectricCurrent,
     UnitOfElectricPotential,
@@ -20,9 +22,12 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import StateType
 
-from . import RivianDataUpdateCoordinator, RivianEntity, RivianWallboxEntity
 from .const import ATTR_COORDINATOR, CONF_VIN, DOMAIN, SENSORS
-from .data_classes import RivianSensorEntity, RivianWallboxSensorEntityDescription
+from .data_classes import (
+    RivianSensorEntityDescription,
+    RivianWallboxSensorEntityDescription,
+)
+from .entity import RivianEntity, RivianWallboxEntity, async_update_unique_id
 
 
 async def async_setup_entry(
@@ -30,17 +35,14 @@ async def async_setup_entry(
 ) -> None:
     """Set up the sensor entities"""
     coordinator = hass.data[DOMAIN][entry.entry_id][ATTR_COORDINATOR]
+    vin = entry.data.get(CONF_VIN)
 
-    entities = []
-    for _, value in enumerate(SENSORS):
-        entities.append(
-            RivianSensor(
-                coordinator=coordinator,
-                config_entry=entry,
-                sensor=SENSORS[value],
-                prop_key=value,
-            )
-        )
+    entities = [
+        RivianSensorEntity(coordinator, entry, description, vin)
+        for description in SENSORS
+    ]
+    # Migrate unique ids for future support of multiple VIN
+    async_update_unique_id(hass, PLATFORM, entities)
 
     # Add wallbox entities
     entities.extend(
@@ -52,51 +54,26 @@ async def async_setup_entry(
     async_add_entities(entities, True)
 
 
-class RivianSensor(RivianEntity, SensorEntity):
-    """Representation of a Sensor."""
+class RivianSensorEntity(RivianEntity, SensorEntity):
+    """Representation of a Rivian sensor entity."""
 
-    def __init__(
-        self,
-        coordinator: RivianDataUpdateCoordinator,
-        config_entry: ConfigEntry,
-        sensor: RivianSensorEntity,
-        prop_key: str,
-    ) -> None:
-        """Create a Rivian sensor."""
-        super().__init__(coordinator, config_entry)
-        self._sensor = sensor
-        self.entity_description = sensor.entity_description
-        self._name = self.entity_description.key
-        self._prop_key = prop_key
-        self.entity_id = f"sensor.{self.entity_description.key}"
-        self._vin = config_entry.data.get(CONF_VIN)
+    entity_description: RivianSensorEntityDescription
 
     @property
-    def unique_id(self) -> str:
-        """Return a unique ID to use for this entity."""
-        return f"{DOMAIN}_{self._name}_{self._config_entry.entry_id}"
-
-    @property
-    def native_value(self) -> str:
-        try:
-            entity = self.coordinator.data[self._prop_key]
-            if entity is None:
-                return "Sensor Unavailable"
-            if self._sensor.value_lambda is None:
-                return entity["value"]
-            else:
-                return self._sensor.value_lambda(entity["value"])
-        except KeyError:
-            return None
+    def native_value(self) -> str | None:
+        """Return the value reported by the sensor."""
+        if (val := self._get_value(self.entity_description.field)) is not None:
+            return _fn(val) if (_fn := self.entity_description.value_lambda) else val
+        return STATE_UNAVAILABLE
 
     @property
     def extra_state_attributes(self) -> Mapping[str, Any] | None:
         """Return the state attributes of the device."""
         try:
-            entity = self.coordinator.data[self._prop_key]
+            entity = self.coordinator.data[self.entity_description.field]
             if entity is None:
                 return None
-            if self._sensor.value_lambda is None:
+            if self.entity_description.value_lambda is None:
                 return {
                     "last_update": entity["timeStamp"],
                 }

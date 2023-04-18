@@ -14,9 +14,7 @@ from homeassistant.const import (
 )
 
 from .data_classes import (
-    RivianBinarySensorEntity,
     RivianBinarySensorEntityDescription,
-    RivianSensorEntity,
     RivianSensorEntityDescription,
 )
 
@@ -68,121 +66,121 @@ CLOSURE_STATE_ENTITIES = {
 
 INVALID_SENSOR_STATES = {"fault", "signal_not_available", "undefined"}
 
-SENSORS: Final[dict[str, RivianSensorEntity]] = {
-    "batteryHvThermalEvent": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="Battery Thermal Status",
-            icon="mdi:battery-alert",
-            key=f"{DOMAIN}_dynamics_hv_battery_notifications_BMS_thermal_event",
-        ),
+SENSORS: Final[tuple[RivianSensorEntityDescription, ...]] = (
+    RivianSensorEntityDescription(
+        key="battery_thermal_status",
+        field="batteryHvThermalEvent",
+        name="Battery Thermal Status",
+        icon="mdi:battery-alert",
+        old_key=f"{DOMAIN}_dynamics_hv_battery_notifications_BMS_thermal_event",
         value_lambda=lambda v: v.replace("_", " ").title(),
     ),
-    "batteryHvThermalEventPropagation": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="Battery Thermal Runaway Propagation",
-            icon="mdi:battery-alert",
-            key=f"{DOMAIN}_energy_storage_icd_cid_notifications_b_pack_thermal_runaway_propagation",
-        )
+    RivianSensorEntityDescription(
+        key="battery_thermal_runaway_propagation",
+        field="batteryHvThermalEventPropagation",
+        name="Battery Thermal Runaway Propagation",
+        icon="mdi:battery-alert",
+        old_key=f"{DOMAIN}_energy_storage_icd_cid_notifications_b_pack_thermal_runaway_propagation",
     ),
-    "batteryLevel": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="Battery State of Charge",
-            key=f"{DOMAIN}_energy_storage_charger_adjusted_soc",
-            device_class=SensorDeviceClass.BATTERY,
-            native_unit_of_measurement=PERCENTAGE,
-            state_class=SensorStateClass.MEASUREMENT,
-            suggested_display_precision=1,
-        )
+    RivianSensorEntityDescription(
+        key="battery_level",
+        field="batteryLevel",
+        name="Battery State of Charge",
+        device_class=SensorDeviceClass.BATTERY,
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        old_key=f"{DOMAIN}_energy_storage_charger_adjusted_soc",
     ),
-    "batteryLimit": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="SOC Limit",
-            icon="mdi:battery-charging-80",
-            key=f"{DOMAIN}_energy_storage_mobile_soc_limit",
-            native_unit_of_measurement=PERCENTAGE,
-        )
+    RivianSensorEntityDescription(
+        key="battery_limit",
+        field="batteryLimit",
+        name="SOC Limit",
+        icon="mdi:battery-charging-80",
+        native_unit_of_measurement=PERCENTAGE,
+        old_key=f"{DOMAIN}_energy_storage_mobile_soc_limit",
     ),
-    "brakeFluidLow": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="Brake Fluid Level Low",
-            icon="mdi:car-brake-fluid-level",
-            key=f"{DOMAIN}_dynamics_powertrain_status_brake_fluid_level_low",
-        ),
+    RivianSensorEntityDescription(
+        key="brake_fluid_low",
+        field="brakeFluidLow",
+        name="Brake Fluid Level Low",
+        icon="mdi:car-brake-fluid-level",
+        old_key=f"{DOMAIN}_dynamics_powertrain_status_brake_fluid_level_low",
     ),
-    "cabinClimateDriverTemperature": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="Driver Temperature",
-            key=f"{DOMAIN}_thermal_hvac_cabin_control_driver_temperature",
-            device_class=SensorDeviceClass.TEMPERATURE,
-            native_unit_of_measurement=UnitOfTemperature.CELSIUS,
-            suggested_display_precision=1,
-            suggested_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
-        )
+    RivianSensorEntityDescription(
+        key="driver_temperature",
+        field="cabinClimateDriverTemperature",
+        name="Driver Temperature",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        suggested_display_precision=1,
+        suggested_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
+        old_key=f"{DOMAIN}_thermal_hvac_cabin_control_driver_temperature",
     ),
-    "cabinClimateInteriorTemperature": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="Cabin Temperature",
-            key=f"{DOMAIN}_thermal_hvac_cabin_control_cabin_temperature",
-            device_class=SensorDeviceClass.TEMPERATURE,
-            native_unit_of_measurement=UnitOfTemperature.CELSIUS,
-            state_class=SensorStateClass.MEASUREMENT,
-            suggested_display_precision=1,
-            suggested_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
-        )
+    RivianSensorEntityDescription(
+        key="cabin_temperature",
+        field="cabinClimateInteriorTemperature",
+        name="Cabin Temperature",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        suggested_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
+        old_key=f"{DOMAIN}_thermal_hvac_cabin_control_cabin_temperature",
     ),
-    "cabinPreconditioningType": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="Cabin Climate Preconditioning Type",
-            icon="mdi:thermostat",
-            key=f"{DOMAIN}_cabin_preconditioning_type",
-        ),
+    RivianSensorEntityDescription(
+        key="cabin_preconditioning_type",
+        field="cabinPreconditioningType",
+        name="Cabin Climate Preconditioning Type",
+        icon="mdi:thermostat",
+        old_key=f"{DOMAIN}_cabin_preconditioning_type",
         value_lambda=lambda v: v.replace("_", " ").title(),
     ),
-    "chargerDerateStatus": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="Charger Derate Status",
-            key=f"{DOMAIN}_charger_derate_status",
-            icon="mdi:ev-station",
-        )
+    RivianSensorEntityDescription(
+        key="charger_derate_status",
+        field="chargerDerateStatus",
+        name="Charger Derate Status",
+        icon="mdi:ev-station",
+        old_key=f"{DOMAIN}_charger_derate_status",
     ),
-    "closureLiftgateNextAction": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="Liftgate Next Action",
-            key=f"{DOMAIN}_closure_liftgate_next_action",
-            icon="mdi:gesture-tap-button",
-        )
+    RivianSensorEntityDescription(
+        key="liftgate_next_action",
+        field="closureLiftgateNextAction",
+        name="Liftgate Next Action",
+        icon="mdi:gesture-tap-button",
+        old_key=f"{DOMAIN}_closure_liftgate_next_action",
     ),
-    "distanceToEmpty": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="Estimated Vehicle Range",
-            icon="mdi:map-marker-distance",
-            key=f"{DOMAIN}_energy_storage_vehicle_energy_vehicle_range",
-            device_class=SensorDeviceClass.DISTANCE,
-            native_unit_of_measurement=UnitOfLength.KILOMETERS,
-            state_class=SensorStateClass.MEASUREMENT,
-            suggested_display_precision=1,
-            suggested_unit_of_measurement=UnitOfLength.MILES,
-        )
+    RivianSensorEntityDescription(
+        key="distance_to_empty",
+        field="distanceToEmpty",
+        name="Estimated Vehicle Range",
+        icon="mdi:map-marker-distance",
+        device_class=SensorDeviceClass.DISTANCE,
+        native_unit_of_measurement=UnitOfLength.KILOMETERS,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        suggested_unit_of_measurement=UnitOfLength.MILES,
+        old_key=f"{DOMAIN}_energy_storage_vehicle_energy_vehicle_range",
     ),
-    "driveMode": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="Drive Mode",
-            icon="mdi:car-speed-limiter",
-            key=f"{DOMAIN}_dynamics_modes_drive_mode",
-            device_class=SensorDeviceClass.ENUM,
-            options=[
-                "All-Purpose",
-                "Conserve",
-                "Snow",
-                "Sport",
-                "Towing",
-                "All-Terrain",
-                "Drift",
-                "Rally",
-                "Rock Crawl",
-                "Soft Sand",
-            ],
-        ),
+    RivianSensorEntityDescription(
+        key="drive_mode",
+        field="driveMode",
+        name="Drive Mode",
+        icon="mdi:car-speed-limiter",
+        device_class=SensorDeviceClass.ENUM,
+        options=[
+            "All-Purpose",
+            "Conserve",
+            "Snow",
+            "Sport",
+            "Towing",
+            "All-Terrain",
+            "Drift",
+            "Rally",
+            "Rock Crawl",
+            "Soft Sand",
+        ],
+        old_key=f"{DOMAIN}_dynamics_modes_drive_mode",
         value_lambda=lambda v: {
             "everyday": "All-Purpose",
             "sport": "Sport",
@@ -196,803 +194,758 @@ SENSORS: Final[dict[str, RivianSensorEntity]] = {
             "off_road_sport_drift": "Drift",
         }.get(v, v),
     ),
-    "gearStatus": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="Gear Selector",
-            icon="mdi:car-shift-pattern",
-            key=f"{DOMAIN}_dynamics_propulsion_status_prndl",
-            device_class=SensorDeviceClass.ENUM,
-            options=[
-                "Drive",
-                "Neutral",
-                "Park",
-                "Reverse",
-            ],
-        ),
+    RivianSensorEntityDescription(
+        key="gear_status",
+        field="gearStatus",
+        name="Gear Selector",
+        icon="mdi:car-shift-pattern",
+        device_class=SensorDeviceClass.ENUM,
+        options=[
+            "Drive",
+            "Neutral",
+            "Park",
+            "Reverse",
+        ],
+        old_key=f"{DOMAIN}_dynamics_propulsion_status_prndl",
         value_lambda=lambda v: v.title(),
     ),
-    "gearGuardVideoMode": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="Gear Guard Video Mode",
-            icon="mdi:cctv",
-            key=f"{DOMAIN}_gear_guard_video_mode",
-            device_class=SensorDeviceClass.ENUM,
-            options=[
-                "Away From Home",
-                "Everywhere",
-            ],
-        ),
+    RivianSensorEntityDescription(
+        key="gear_guard_video_mode",
+        field="gearGuardVideoMode",
+        name="Gear Guard Video Mode",
+        icon="mdi:cctv",
+        device_class=SensorDeviceClass.ENUM,
+        options=[
+            "Away From Home",
+            "Everywhere",
+        ],
+        old_key=f"{DOMAIN}_gear_guard_video_mode",
         value_lambda=lambda v: v.replace("_", " ").title(),
     ),
-    "gearGuardVideoStatus": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="Gear Guard Video Status",
-            icon="mdi:cctv",
-            key=f"{DOMAIN}_gear_guard_video_status",
-            device_class=SensorDeviceClass.ENUM,
-            options=[
-                "Disabled",
-                "Enabled",
-                "Engaged",
-            ],
-        ),
+    RivianSensorEntityDescription(
+        key="gear_guard_video_status",
+        field="gearGuardVideoStatus",
+        name="Gear Guard Video Status",
+        icon="mdi:cctv",
+        device_class=SensorDeviceClass.ENUM,
+        options=[
+            "Disabled",
+            "Enabled",
+            "Engaged",
+        ],
+        old_key=f"{DOMAIN}_gear_guard_video_status",
         value_lambda=lambda v: v.replace("_", " ").title(),
     ),
-    "gearGuardVideoTermsAccepted": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="Gear Guard Video Terms Accepted",
-            icon="mdi:cctv",
-            key=f"{DOMAIN}_gear_guard_video_terms_accepted",
-            entity_category=EntityCategory.DIAGNOSTIC,
-            entity_registry_enabled_default=False,
-        ),
+    RivianSensorEntityDescription(
+        key="gear_guard_video_terms_accepted",
+        field="gearGuardVideoTermsAccepted",
+        name="Gear Guard Video Terms Accepted",
+        icon="mdi:cctv",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        old_key=f"{DOMAIN}_gear_guard_video_terms_accepted",
         value_lambda=lambda v: v.replace("_", " ").title(),
     ),
-    "otaAvailableVersion": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="Software OTA - Available Version",
-            icon="mdi:package",
-            key=f"{DOMAIN}_telematics_ota_status_available_version",
-            entity_category=EntityCategory.DIAGNOSTIC,
-            entity_registry_enabled_default=False,
-        )
+    RivianSensorEntityDescription(
+        key="ota_available_version",
+        field="otaAvailableVersion",
+        name="Software OTA - Available Version",
+        icon="mdi:package",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        old_key=f"{DOMAIN}_telematics_ota_status_available_version",
     ),
-    "otaAvailableVersionGitHash": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="Software OTA - Available Version Git Hash",
-            icon="mdi:source-commit",
-            key=f"{DOMAIN}_telematics_ota_status_available_version_git_hash",
-            entity_category=EntityCategory.DIAGNOSTIC,
-            entity_registry_enabled_default=False,
-        )
+    RivianSensorEntityDescription(
+        key="ota_available_version_git_hash",
+        field="otaAvailableVersionGitHash",
+        name="Software OTA - Available Version Git Hash",
+        icon="mdi:source-commit",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        old_key=f"{DOMAIN}_telematics_ota_status_available_version_git_hash",
     ),
-    "otaAvailableVersionNumber": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="Software OTA - Available Version Number",
-            icon="mdi:numeric",
-            key=f"{DOMAIN}_telematics_ota_status_available_version_number",
-            entity_category=EntityCategory.DIAGNOSTIC,
-            entity_registry_enabled_default=False,
-        )
+    RivianSensorEntityDescription(
+        key="ota_available_version_number",
+        field="otaAvailableVersionNumber",
+        name="Software OTA - Available Version Number",
+        icon="mdi:numeric",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        old_key=f"{DOMAIN}_telematics_ota_status_available_version_number",
     ),
-    "otaAvailableVersionWeek": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="Software OTA - Available Version Week",
-            icon="mdi:calendar-week",
-            key=f"{DOMAIN}_telematics_ota_status_available_version_week",
-            entity_category=EntityCategory.DIAGNOSTIC,
-            entity_registry_enabled_default=False,
-        )
+    RivianSensorEntityDescription(
+        key="ota_available_version_week",
+        field="otaAvailableVersionWeek",
+        name="Software OTA - Available Version Week",
+        icon="mdi:calendar-week",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        old_key=f"{DOMAIN}_telematics_ota_status_available_version_week",
     ),
-    "otaAvailableVersionYear": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="Software OTA - Available Version Year",
-            icon="mdi:calendar",
-            key=f"{DOMAIN}_telematics_ota_status_available_version_year",
-            entity_category=EntityCategory.DIAGNOSTIC,
-            entity_registry_enabled_default=False,
-        )
+    RivianSensorEntityDescription(
+        key="ota_available_version_year",
+        field="otaAvailableVersionYear",
+        name="Software OTA - Available Version Year",
+        icon="mdi:calendar",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        old_key=f"{DOMAIN}_telematics_ota_status_available_version_year",
     ),
-    "otaCurrentStatus": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="Software OTA - Status Current",
-            icon="mdi:package",
-            key=f"{DOMAIN}_telematics_ota_status_status_current",
-        ),
+    RivianSensorEntityDescription(
+        key="ota_current_status",
+        field="otaCurrentStatus",
+        name="Software OTA - Status Current",
+        icon="mdi:package",
+        old_key=f"{DOMAIN}_telematics_ota_status_status_current",
         value_lambda=lambda v: v.replace("_", " ").title(),
     ),
-    "otaCurrentVersion": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="Software OTA - Current Version",
-            icon="mdi:package",
-            key=f"{DOMAIN}_telematics_ota_status_current_version",
-            entity_category=EntityCategory.DIAGNOSTIC,
-            entity_registry_enabled_default=False,
-        )
+    RivianSensorEntityDescription(
+        key="ota_current_version",
+        field="otaCurrentVersion",
+        name="Software OTA - Current Version",
+        icon="mdi:package",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        old_key=f"{DOMAIN}_telematics_ota_status_current_version",
     ),
-    "otaCurrentVersionGitHash": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="Software OTA - Current Version Git Hash",
-            icon="mdi:source-commit",
-            key=f"{DOMAIN}_telematics_ota_status_current_version_git_hash",
-            entity_category=EntityCategory.DIAGNOSTIC,
-            entity_registry_enabled_default=False,
-        )
+    RivianSensorEntityDescription(
+        key="ota_current_version_git_hash",
+        field="otaCurrentVersionGitHash",
+        name="Software OTA - Current Version Git Hash",
+        icon="mdi:source-commit",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        old_key=f"{DOMAIN}_telematics_ota_status_current_version_git_hash",
     ),
-    "otaCurrentVersionNumber": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="Software OTA - Current Version Number",
-            icon="mdi:numeric",
-            key=f"{DOMAIN}_telematics_ota_status_current_version_number",
-            entity_category=EntityCategory.DIAGNOSTIC,
-            entity_registry_enabled_default=False,
-        )
+    RivianSensorEntityDescription(
+        key="ota_current_version_number",
+        field="otaCurrentVersionNumber",
+        name="Software OTA - Current Version Number",
+        icon="mdi:numeric",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        old_key=f"{DOMAIN}_telematics_ota_status_current_version_number",
     ),
-    "otaCurrentVersionWeek": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="Software OTA - Current Version Week",
-            icon="mdi:calendar-week",
-            key=f"{DOMAIN}_telematics_ota_status_current_version_week",
-            entity_category=EntityCategory.DIAGNOSTIC,
-            entity_registry_enabled_default=False,
-        )
+    RivianSensorEntityDescription(
+        key="ota_current_version_week",
+        field="otaCurrentVersionWeek",
+        name="Software OTA - Current Version Week",
+        icon="mdi:calendar-week",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        old_key=f"{DOMAIN}_telematics_ota_status_current_version_week",
     ),
-    "otaCurrentVersionYear": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="Software OTA - Current Version Year",
-            icon="mdi:calendar",
-            key=f"{DOMAIN}_telematics_ota_status_current_version_year",
-            entity_category=EntityCategory.DIAGNOSTIC,
-            entity_registry_enabled_default=False,
-        )
+    RivianSensorEntityDescription(
+        key="ota_current_version_year",
+        field="otaCurrentVersionYear",
+        name="Software OTA - Current Version Year",
+        icon="mdi:calendar",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        old_key=f"{DOMAIN}_telematics_ota_status_current_version_year",
     ),
-    "otaDownloadProgress": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="Software OTA - Download Progress",
-            icon="mdi:progress-download",
-            key=f"{DOMAIN}_telematics_ota_status_download_progress",
-        )
+    RivianSensorEntityDescription(
+        key="ota_download_progress",
+        field="otaDownloadProgress",
+        name="Software OTA - Download Progress",
+        icon="mdi:progress-download",
+        old_key=f"{DOMAIN}_telematics_ota_status_download_progress",
     ),
-    "otaInstallDuration": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="Software OTA - Install Duration",
-            icon="mdi:wrench-clock",
-            key=f"{DOMAIN}_telematics_ota_status_install_duration",
-        )
+    RivianSensorEntityDescription(
+        key="ota_install_duration",
+        field="otaInstallDuration",
+        name="Software OTA - Install Duration",
+        icon="mdi:wrench-clock",
+        old_key=f"{DOMAIN}_telematics_ota_status_install_duration",
     ),
-    "otaInstallProgress": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="Software OTA - Install Progress",
-            icon="mdi:progress-clock",
-            key=f"{DOMAIN}_telematics_ota_status_install_progress",
-            entity_category=EntityCategory.DIAGNOSTIC,
-            entity_registry_enabled_default=False,
-        )
+    RivianSensorEntityDescription(
+        key="ota_install_progress",
+        field="otaInstallProgress",
+        name="Software OTA - Install Progress",
+        icon="mdi:progress-clock",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        old_key=f"{DOMAIN}_telematics_ota_status_install_progress",
     ),
-    "otaInstallReady": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="CGM OTA Install - Install Ready",
-            icon="mdi:progress-check",
-            key=f"{DOMAIN}_core_ota_status_cgm_ota_install_ready",
-        ),
+    RivianSensorEntityDescription(
+        key="ota_install_ready",
+        field="otaInstallReady",
+        name="Software OTA - Install Ready",
+        icon="mdi:progress-check",
+        old_key=f"{DOMAIN}_core_ota_status_cgm_ota_install_ready",
         value_lambda=lambda v: v.replace("_", " ").title().replace("Ota", "OTA"),
     ),
-    "otaInstallTime": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="Software OTA - Install Time",
-            icon="mdi:clock",
-            key=f"{DOMAIN}_telematics_ota_status_install_time",
-        )
+    RivianSensorEntityDescription(
+        key="ota_install_time",
+        field="otaInstallTime",
+        name="Software OTA - Install Time",
+        icon="mdi:clock",
+        old_key=f"{DOMAIN}_telematics_ota_status_install_time",
     ),
-    "otaInstallType": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="Software OTA - Install Type",
-            icon="mdi:package",
-            key=f"{DOMAIN}_telematics_ota_status_install_type",
-        )
+    RivianSensorEntityDescription(
+        key="ota_install_type",
+        field="otaInstallType",
+        name="Software OTA - Install Type",
+        icon="mdi:package",
+        old_key=f"{DOMAIN}_telematics_ota_status_install_type",
     ),
-    "otaStatus": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="Software OTA - Status",
-            icon="mdi:package",
-            key=f"{DOMAIN}_telematics_ota_status_status",
-            device_class=SensorDeviceClass.ENUM,
-            options=[
-                "Idle",
-                "Ready To Download",
-                "Downloading",
-                "Preparing",
-                "Ready To Install",
-                "Install Countdown",
-                "Awaiting Install",
-                "Installing",
-                "Connection Lost",
-            ],
-        ),
+    RivianSensorEntityDescription(
+        key="ota_status",
+        field="otaStatus",
+        name="Software OTA - Status",
+        icon="mdi:package",
+        device_class=SensorDeviceClass.ENUM,
+        options=[
+            "Idle",
+            "Ready To Download",
+            "Downloading",
+            "Preparing",
+            "Ready To Install",
+            "Install Countdown",
+            "Awaiting Install",
+            "Installing",
+            "Connection Lost",
+        ],
+        old_key=f"{DOMAIN}_telematics_ota_status_status",
         value_lambda=lambda v: v.replace("_", " ").title(),
     ),
-    "petModeTemperatureStatus": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="Pet Mode Temperature Status",
-            icon="mdi:dog-side",
-            key=f"{DOMAIN}_thermal_hvac_settings_pet_mode_temperature_status",
-        ),
+    RivianSensorEntityDescription(
+        key="pet_mode_temperature_status",
+        field="petModeTemperatureStatus",
+        name="Pet Mode Temperature Status",
+        icon="mdi:dog-side",
+        old_key=f"{DOMAIN}_thermal_hvac_settings_pet_mode_temperature_status",
         value_lambda=lambda v: v.replace("_", " ").title(),
     ),
-    "powerState": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="Power State",
-            icon="mdi:power",
-            key=f"{DOMAIN}_core_power_modes_power_state",
-            device_class=SensorDeviceClass.ENUM,
-            options=[
-                "Go",
-                "Ready",
-                "Sleep",
-                "Standby",
-            ],
-        ),
+    RivianSensorEntityDescription(
+        key="power_tate",
+        field="powerState",
+        name="Power State",
+        icon="mdi:power",
+        device_class=SensorDeviceClass.ENUM,
+        options=[
+            "Go",
+            "Ready",
+            "Sleep",
+            "Standby",
+        ],
+        old_key=f"{DOMAIN}_core_power_modes_power_state",
         value_lambda=lambda v: v.title(),
     ),
-    "rangeThreshold": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="Range Threshold",
-            icon="mdi:map-marker-distance",
-            key=f"{DOMAIN}_energy_storage_icd_cid_notifications_range_threshold",
-        ),
+    RivianSensorEntityDescription(
+        key="range_threshold",
+        field="rangeThreshold",
+        name="Range Threshold",
+        icon="mdi:map-marker-distance",
+        old_key=f"{DOMAIN}_energy_storage_icd_cid_notifications_range_threshold",
         value_lambda=lambda v: v.replace("_", " ").title(),
     ),
-    "remoteChargingAvailable": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="Remote Charging Available",
-            icon="mdi:battery-charging-wireless-80",
-            key=f"{DOMAIN}_energy_storage_mobile_remote_charging_available",
-        )
+    RivianSensorEntityDescription(
+        key="remote_charging_available",
+        field="remoteChargingAvailable",
+        name="Remote Charging Available",
+        icon="mdi:battery-charging-wireless-80",
+        old_key=f"{DOMAIN}_energy_storage_mobile_remote_charging_available",
     ),
-    "serviceMode": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="Service Mode",
-            key=f"{DOMAIN}_service_mode",
-            icon="mdi:account-wrench",
-        )
+    RivianSensorEntityDescription(
+        key="service_mode",
+        field="serviceMode",
+        name="Service Mode",
+        icon="mdi:account-wrench",
+        old_key=f"{DOMAIN}_service_mode",
     ),
-    "timeToEndOfCharge": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="Charging Time Remaining",
-            key=f"{DOMAIN}_energy_storage_charger_EMS_charger_remaining_time_min_1",
-            device_class=SensorDeviceClass.DURATION,
-            native_unit_of_measurement=UnitOfTime.MINUTES,
-            state_class=SensorStateClass.MEASUREMENT,
-        )
+    RivianSensorEntityDescription(
+        key="time_to_end_of_charge",
+        field="timeToEndOfCharge",
+        name="Charging Time Remaining",
+        device_class=SensorDeviceClass.DURATION,
+        native_unit_of_measurement=UnitOfTime.MINUTES,
+        state_class=SensorStateClass.MEASUREMENT,
+        old_key=f"{DOMAIN}_energy_storage_charger_EMS_charger_remaining_time_min_1",
     ),
-    "tirePressureStatusFrontLeft": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="Tire Pressure Front Left",
-            key=f"{DOMAIN}_dynamics_tires_tire_FL_pressure_status",
-            icon="mdi:tire",
-        )
+    RivianSensorEntityDescription(
+        key="tire_pressure_status_front_left",
+        field="tirePressureStatusFrontLeft",
+        name="Tire Pressure Front Left",
+        icon="mdi:tire",
+        old_key=f"{DOMAIN}_dynamics_tires_tire_FL_pressure_status",
     ),
-    "tirePressureStatusFrontRight": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="Tire Pressure Front Right",
-            key=f"{DOMAIN}_dynamics_tires_tire_FR_pressure_status",
-            icon="mdi:tire",
-        )
+    RivianSensorEntityDescription(
+        key="tire_pressure_status_front_right",
+        field="tirePressureStatusFrontRight",
+        name="Tire Pressure Front Right",
+        icon="mdi:tire",
+        old_key=f"{DOMAIN}_dynamics_tires_tire_FR_pressure_status",
     ),
-    "tirePressureStatusRearLeft": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="Tire Pressure Rear Left",
-            key=f"{DOMAIN}_dynamics_tires_tire_RL_pressure_status",
-            icon="mdi:tire",
-        )
+    RivianSensorEntityDescription(
+        key="tire_pressure_status_rear_left",
+        field="tirePressureStatusRearLeft",
+        name="Tire Pressure Rear Left",
+        icon="mdi:tire",
+        old_key=f"{DOMAIN}_dynamics_tires_tire_RL_pressure_status",
     ),
-    "tirePressureStatusRearRight": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="Tire Pressure Rear Right",
-            key=f"{DOMAIN}_dynamics_tires_tire_RR_pressure_status",
-            icon="mdi:tire",
-        )
+    RivianSensorEntityDescription(
+        key="tire_pressure_status_rear_right",
+        field="tirePressureStatusRearRight",
+        name="Tire Pressure Rear Right",
+        icon="mdi:tire",
+        old_key=f"{DOMAIN}_dynamics_tires_tire_RR_pressure_status",
     ),
-    "vehicleMileage": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="Odometer",
-            icon="mdi:counter",
-            key=f"{DOMAIN}_dynamics_odometer_value",
-            device_class=SensorDeviceClass.DISTANCE,
-            native_unit_of_measurement=UnitOfLength.METERS,
-            state_class=SensorStateClass.TOTAL_INCREASING,
-            suggested_display_precision=1,
-            suggested_unit_of_measurement=UnitOfLength.MILES,
-        )
+    RivianSensorEntityDescription(
+        key="vehicle_mileage",
+        field="vehicleMileage",
+        name="Odometer",
+        icon="mdi:counter",
+        device_class=SensorDeviceClass.DISTANCE,
+        native_unit_of_measurement=UnitOfLength.METERS,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        suggested_display_precision=1,
+        suggested_unit_of_measurement=UnitOfLength.MILES,
+        old_key=f"{DOMAIN}_dynamics_odometer_value",
     ),
-    "windowFrontLeftCalibrated": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="Window Calibration Front Left State",
-            key=f"{DOMAIN}_body_closures_window_calibration_FL_state",
-            icon="mdi:window-closed",
-            entity_category=EntityCategory.DIAGNOSTIC,
-        )
+    RivianSensorEntityDescription(
+        key="window_front_left_calibrated",
+        field="windowFrontLeftCalibrated",
+        name="Window Calibration Front Left State",
+        icon="mdi:window-closed",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        old_key=f"{DOMAIN}_body_closures_window_calibration_FL_state",
     ),
-    "windowFrontRightCalibrated": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="Window Calibration Front Right State",
-            key=f"{DOMAIN}_body_closures_window_calibration_FR_state",
-            icon="mdi:window-closed",
-            entity_category=EntityCategory.DIAGNOSTIC,
-        )
+    RivianSensorEntityDescription(
+        key="window_front_right_calibrated",
+        field="windowFrontRightCalibrated",
+        name="Window Calibration Front Right State",
+        icon="mdi:window-closed",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        old_key=f"{DOMAIN}_body_closures_window_calibration_FR_state",
     ),
-    "windowRearLeftCalibrated": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="Window Calibration Rear Left State",
-            key=f"{DOMAIN}_body_closures_window_calibration_RL_state",
-            icon="mdi:window-closed",
-            entity_category=EntityCategory.DIAGNOSTIC,
-        )
+    RivianSensorEntityDescription(
+        key="window_rear_left_calibrated",
+        field="windowRearLeftCalibrated",
+        name="Window Calibration Rear Left State",
+        icon="mdi:window-closed",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        old_key=f"{DOMAIN}_body_closures_window_calibration_RL_state",
     ),
-    "windowRearRightCalibrated": RivianSensorEntity(
-        entity_description=RivianSensorEntityDescription(
-            name="Window Calibration Rear Right State",
-            key=f"{DOMAIN}_body_closures_window_calibration_RR_state",
-            icon="mdi:window-closed",
-            entity_category=EntityCategory.DIAGNOSTIC,
-        )
+    RivianSensorEntityDescription(
+        key="window_rear_right_calibrated",
+        field="windowRearRightCalibrated",
+        name="Window Calibration Rear Right State",
+        icon="mdi:window-closed",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        old_key=f"{DOMAIN}_body_closures_window_calibration_RR_state",
     ),
-    # "core/ota_status/cgm_ota_install_fast_charging": RivianSensorEntity(
-    #     entity_description=RivianSensorEntityDescription(
-    #         name="CGM OTA Install - Fast Charging",
-    #         key=f"{DOMAIN}_core_ota_status_cgm_ota_install_fast_charging",
-    #     )
-    # ),
-    # "core/ota_status/cgm_ota_install_hv_batt_low": RivianSensorEntity(
-    #     entity_description=RivianSensorEntityDescription(
-    #         name="CGM OTA Install - HV Battery Low",
-    #         key=f"{DOMAIN}_core_ota_status_cgm_ota_install_hv_batt_low",
-    #     )
-    # ),
-    # "core/ota_status/cgm_ota_install_not_parked": RivianSensorEntity(
-    #     entity_description=RivianSensorEntityDescription(
-    #         name="CGM OTA Install - Not Parked",
-    #         key=f"{DOMAIN}_core_ota_status_cgm_ota_install_not_parked",
-    #     )
-    # ),
-    # "energy_storage/vehicle_efficiency/lifetime_wh_per_km": RivianSensorEntity(
-    #     entity_description=RivianSensorEntityDescription(
-    #         name="Lifetime Efficiency (Wh/mi)",
-    #         key=f"{DOMAIN}_energy_storage_vehicle_efficiency_lifetime_wh_per_km",
-    #     ),
-    #     value_lambda=lambda v: round(DistanceConverter.convert(v, UnitOfLength.MILES, UnitOfLength.KILOMETERS), 1),
-    # ),
-    # "telematics/ota_status/pending_reason_active_mode": RivianSensorEntity(
-    #     entity_description=RivianSensorEntityDescription(
-    #         name="Software OTA - Pending Reason Active Mode",
-    #         key=f"{DOMAIN}_telematics_ota_status_pending_reason_active_mode",
-    #     )
-    # ),
-    # "telematics/ota_status/pending_reason_lv_batt": RivianSensorEntity(
-    #     entity_description=RivianSensorEntityDescription(
-    #         name="Software OTA - Pending Reason LV Battery",
-    #         key=f"{DOMAIN}_telematics_ota_status_pending_reason_lv_batt",
-    #     )
-    # ),
-    # "telematics/ota_status/pending_reason_other": RivianSensorEntity(
-    #     entity_description=RivianSensorEntityDescription(
-    #         name="Software OTA - Pending Reason Other",
-    #         key=f"{DOMAIN}_telematics_ota_status_pending_reason_other",
-    #     )
-    # ),
-    # "energy_storage/charger/EMS_charger_evse_type": RivianSensorEntity(
-    #     entity_description=RivianSensorEntityDescription(
-    #         name="EMS Charger EVSE Type",
-    #         key=f"{DOMAIN}_energy_storage_charger_EMS_charger_evse_type",
-    #     )
-    # ),
-    # "telematics/privacy/offline_mode_enabled": RivianSensorEntity(
-    #     entity_description=RivianSensorEntityDescription(
-    #         name="Offline Mode Enabled",
-    #         key=f"{DOMAIN}_telematics_privacy_offline_mode_enabled",
-    #     )
-    # ),
-    # "thermal/hvac_mobile_status/estimated_cabin_temp_mobile": RivianSensorEntity(
-    #     entity_description=RivianSensorEntityDescription(
-    #         name="Estimated Cabin Temperature",
-    #         icon="mdi:thermometer",
-    #         key=f"{DOMAIN}_thermal_hvac_mobile_status_estimated_cabin_temp_mobile",
-    #         native_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
-    #     ),
-    #     value_lambda=lambda v: round(
-    #         TemperatureConverter.convert(v, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT), 1
-    #     ),
-    # ),
-    # "thermal/hvac_mobile_status/set_temp_status_mobile": RivianSensorEntity(
-    #     entity_description=RivianSensorEntityDescription(
-    #         name="Set Temperature Mobile Status",
-    #         icon="mdi:thermometer",
-    #         key=f"{DOMAIN}_thermal_hvac_mobile_status_set_temp_status_mobile",
-    #         native_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
-    #     ),
-    #     value_lambda=lambda v: round(
-    #         TemperatureConverter.convert(v, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT), 1
-    #     ),
-    # ),
-}
+)
 
-BINARY_SENSORS: Final[dict[str, RivianBinarySensorEntity]] = {
-    "alarmSoundStatus": RivianBinarySensorEntity(
-        entity_description=RivianBinarySensorEntityDescription(
-            name="Gear Guard Alarm",
-            key=f"{DOMAIN}_body_alarm_sound_alarm",
-            device_class=BinarySensorDeviceClass.TAMPER,
-            on_value="true",
-        )
+BINARY_SENSORS: Final[tuple[RivianBinarySensorEntityDescription, ...]] = (
+    RivianBinarySensorEntityDescription(
+        key="alarm_sound_status",
+        field="alarmSoundStatus",
+        name="Gear Guard Alarm",
+        old_key=f"{DOMAIN}_body_alarm_sound_alarm",
+        device_class=BinarySensorDeviceClass.TAMPER,
+        on_value="true",
     ),
-    "cabinPreconditioningStatus": RivianBinarySensorEntity(
-        entity_description=RivianBinarySensorEntityDescription(
-            name="Cabin Climate Preconditioning",
-            key=f"{DOMAIN}_thermal_tmm_status_cabin_precondition_state",
-            device_class=BinarySensorDeviceClass.RUNNING,
-            on_value=["undefined", "unavailable"],
-            negate=True,
-        )
+    RivianBinarySensorEntityDescription(
+        key="cabin_preconditioning_status",
+        field="cabinPreconditioningStatus",
+        name="Cabin Climate Preconditioning",
+        old_key=f"{DOMAIN}_thermal_tmm_status_cabin_precondition_state",
+        device_class=BinarySensorDeviceClass.RUNNING,
+        on_value=["undefined", "unavailable"],
+        negate=True,
     ),
-    "chargerState": RivianBinarySensorEntity(
-        entity_description=RivianBinarySensorEntityDescription(
-            name="Charging Status",
-            key=f"{DOMAIN}_energy_storage_charger_vehicle_charger_state",
-            device_class=BinarySensorDeviceClass.BATTERY_CHARGING,
-            on_value=["charging_active", "charging_connecting"],
-        )
+    RivianBinarySensorEntityDescription(
+        key="charger_state",
+        field="chargerState",
+        name="Charging Status",
+        old_key=f"{DOMAIN}_energy_storage_charger_vehicle_charger_state",
+        device_class=BinarySensorDeviceClass.BATTERY_CHARGING,
+        on_value=["charging_active", "charging_connecting"],
     ),
-    "chargerStatus": RivianBinarySensorEntity(
-        entity_description=RivianBinarySensorEntityDescription(
-            name="Charger Connection",
-            key=f"{DOMAIN}_energy_storage_charger_status_vehicle_charger_status",
-            device_class=BinarySensorDeviceClass.PLUG,
-            on_value="chrgr_sts_not_connected",
-            negate=True,
-        )
+    RivianBinarySensorEntityDescription(
+        key="charger_status",
+        field="chargerStatus",
+        name="Charger Connection",
+        old_key=f"{DOMAIN}_energy_storage_charger_status_vehicle_charger_status",
+        device_class=BinarySensorDeviceClass.PLUG,
+        on_value="chrgr_sts_not_connected",
+        negate=True,
     ),
-    "closureFrunkClosed": RivianBinarySensorEntity(
-        entity_description=RivianBinarySensorEntityDescription(
-            name="Front Trunk",
-            key=f"{DOMAIN}_body_closures_frunk_state",
-            device_class=BinarySensorDeviceClass.DOOR,
-            on_value="open",
-        )
+    RivianBinarySensorEntityDescription(
+        key="closure_frunk_closed",
+        field="closureFrunkClosed",
+        name="Front Trunk",
+        old_key=f"{DOMAIN}_body_closures_frunk_state",
+        device_class=BinarySensorDeviceClass.DOOR,
+        on_value="open",
     ),
-    "closureFrunkLocked": RivianBinarySensorEntity(
-        entity_description=RivianBinarySensorEntityDescription(
-            name="Front Trunk",
-            key=f"{DOMAIN}_body_closures_frunk_locked_state",
-            device_class=BinarySensorDeviceClass.LOCK,
-            on_value="unlocked",
-        )
+    RivianBinarySensorEntityDescription(
+        key="closure_frunk_locked",
+        field="closureFrunkLocked",
+        name="Front Trunk Lock",
+        old_key=f"{DOMAIN}_body_closures_frunk_locked_state",
+        device_class=BinarySensorDeviceClass.LOCK,
+        on_value="unlocked",
     ),
-    "closureLiftgateClosed": RivianBinarySensorEntity(
-        entity_description=RivianBinarySensorEntityDescription(
-            name="Liftgate",
-            key=f"{DOMAIN}_body_closures_liftgate_state",
-            device_class=BinarySensorDeviceClass.DOOR,
-            on_value="open",
-        )
+    RivianBinarySensorEntityDescription(
+        key="closure_liftgate_closed",
+        field="closureLiftgateClosed",
+        name="Liftgate",
+        old_key=f"{DOMAIN}_body_closures_liftgate_state",
+        device_class=BinarySensorDeviceClass.DOOR,
+        on_value="open",
     ),
-    "closureLiftgateLocked": RivianBinarySensorEntity(
-        entity_description=RivianBinarySensorEntityDescription(
-            name="Liftgate",
-            key=f"{DOMAIN}_body_closures_liftgate_locked_state",
-            device_class=BinarySensorDeviceClass.LOCK,
-            on_value="unlocked",
-        )
+    RivianBinarySensorEntityDescription(
+        key="closure_liftgate_locked",
+        field="closureLiftgateLocked",
+        name="Liftgate Lock",
+        old_key=f"{DOMAIN}_body_closures_liftgate_locked_state",
+        device_class=BinarySensorDeviceClass.LOCK,
+        on_value="unlocked",
     ),
-    "closureSideBinLeftClosed": RivianBinarySensorEntity(
-        entity_description=RivianBinarySensorEntityDescription(
-            name="Gear Tunnel Left",
-            key=f"{DOMAIN}_body_closures_sidebin_L_state",
-            device_class=BinarySensorDeviceClass.DOOR,
-            on_value="open",
-        )
+    RivianBinarySensorEntityDescription(
+        key="closure_side_bin_left_closed",
+        field="closureSideBinLeftClosed",
+        name="Gear Tunnel Left",
+        old_key=f"{DOMAIN}_body_closures_sidebin_L_state",
+        device_class=BinarySensorDeviceClass.DOOR,
+        on_value="open",
     ),
-    "closureSideBinLeftLocked": RivianBinarySensorEntity(
-        entity_description=RivianBinarySensorEntityDescription(
-            name="Gear Tunnel Left",
-            key=f"{DOMAIN}_body_closures_sidebin_L_locked_state",
-            device_class=BinarySensorDeviceClass.LOCK,
-            on_value="unlocked",
-        )
+    RivianBinarySensorEntityDescription(
+        key="closure_side_bin_left_locked",
+        field="closureSideBinLeftLocked",
+        name="Gear Tunnel Left Lock",
+        old_key=f"{DOMAIN}_body_closures_sidebin_L_locked_state",
+        device_class=BinarySensorDeviceClass.LOCK,
+        on_value="unlocked",
     ),
-    "closureSideBinRightClosed": RivianBinarySensorEntity(
-        entity_description=RivianBinarySensorEntityDescription(
-            name="Gear Tunnel Right",
-            key=f"{DOMAIN}_body_closures_sidebin_R_state",
-            device_class=BinarySensorDeviceClass.DOOR,
-            on_value="open",
-        )
+    RivianBinarySensorEntityDescription(
+        key="closure_side_bin_right_closed",
+        field="closureSideBinRightClosed",
+        name="Gear Tunnel Right",
+        old_key=f"{DOMAIN}_body_closures_sidebin_R_state",
+        device_class=BinarySensorDeviceClass.DOOR,
+        on_value="open",
     ),
-    "closureSideBinRightLocked": RivianBinarySensorEntity(
-        entity_description=RivianBinarySensorEntityDescription(
-            name="Gear Tunnel Right",
-            key=f"{DOMAIN}_body_closures_sidebin_R_locked_state",
-            device_class=BinarySensorDeviceClass.LOCK,
-            on_value="unlocked",
-        )
+    RivianBinarySensorEntityDescription(
+        key="closure_side_bin_right_locked",
+        field="closureSideBinRightLocked",
+        name="Gear Tunnel Right Lock",
+        old_key=f"{DOMAIN}_body_closures_sidebin_R_locked_state",
+        device_class=BinarySensorDeviceClass.LOCK,
+        on_value="unlocked",
     ),
-    "closureTailgateClosed": RivianBinarySensorEntity(
-        entity_description=RivianBinarySensorEntityDescription(
-            name="Tailgate",
-            key=f"{DOMAIN}_body_closures_tailgate_state",
-            device_class=BinarySensorDeviceClass.DOOR,
-            on_value="open",
-        )
+    RivianBinarySensorEntityDescription(
+        key="closure_tailgate_closed",
+        field="closureTailgateClosed",
+        name="Tailgate",
+        old_key=f"{DOMAIN}_body_closures_tailgate_state",
+        device_class=BinarySensorDeviceClass.DOOR,
+        on_value="open",
     ),
-    "closureTailgateLocked": RivianBinarySensorEntity(
-        entity_description=RivianBinarySensorEntityDescription(
-            name="Tailgate",
-            key=f"{DOMAIN}_body_closures_tailgate_locked_state",
-            device_class=BinarySensorDeviceClass.LOCK,
-            on_value="unlocked",
-        )
+    RivianBinarySensorEntityDescription(
+        key="closure_tailgate_locked",
+        field="closureTailgateLocked",
+        name="Tailgate Lock",
+        old_key=f"{DOMAIN}_body_closures_tailgate_locked_state",
+        device_class=BinarySensorDeviceClass.LOCK,
+        on_value="unlocked",
     ),
-    "closureTonneauClosed": RivianBinarySensorEntity(
-        entity_description=RivianBinarySensorEntityDescription(
-            name="Tonneau",
-            key=f"{DOMAIN}_body_closures_tonneau_state",
-            device_class=BinarySensorDeviceClass.DOOR,
-            on_value="open",
-        )
+    RivianBinarySensorEntityDescription(
+        key="closure_tonneau_closed",
+        field="closureTonneauClosed",
+        name="Tonneau",
+        old_key=f"{DOMAIN}_body_closures_tonneau_state",
+        device_class=BinarySensorDeviceClass.DOOR,
+        on_value="open",
     ),
-    "closureTonneauLocked": RivianBinarySensorEntity(
-        entity_description=RivianBinarySensorEntityDescription(
-            name="Tonneau",
-            key=f"{DOMAIN}_body_closures_tonneau_locked_state",
-            device_class=BinarySensorDeviceClass.LOCK,
-            on_value="unlocked",
-        )
+    RivianBinarySensorEntityDescription(
+        key="closure_tonneau_locked",
+        field="closureTonneauLocked",
+        name="Tonneau Lock",
+        old_key=f"{DOMAIN}_body_closures_tonneau_locked_state",
+        device_class=BinarySensorDeviceClass.LOCK,
+        on_value="unlocked",
     ),
-    "defrostDefogStatus": RivianBinarySensorEntity(
-        entity_description=RivianBinarySensorEntityDescription(
-            name="Defrost/Defog",
-            icon="mdi:car-defrost-front",
-            key=f"{DOMAIN}_thermal_hvac_mobile_status_defrost_defog_status",
-            device_class=BinarySensorDeviceClass.RUNNING,
-            on_value="Off",
-            negate=True,
-        )
+    RivianBinarySensorEntityDescription(
+        key="defrost_defog_status",
+        field="defrostDefogStatus",
+        name="Defrost/Defog",
+        icon="mdi:car-defrost-front",
+        old_key=f"{DOMAIN}_thermal_hvac_mobile_status_defrost_defog_status",
+        device_class=BinarySensorDeviceClass.RUNNING,
+        on_value="Off",
+        negate=True,
     ),
-    "doorFrontLeftClosed": RivianBinarySensorEntity(
-        entity_description=RivianBinarySensorEntityDescription(
-            name="Door Front Left",
-            key=f"{DOMAIN}_body_closures_door_FL_state",
-            device_class=BinarySensorDeviceClass.DOOR,
-            on_value="open",
-        )
+    RivianBinarySensorEntityDescription(
+        key="door_front_left_closed",
+        field="doorFrontLeftClosed",
+        name="Door Front Left",
+        old_key=f"{DOMAIN}_body_closures_door_FL_state",
+        device_class=BinarySensorDeviceClass.DOOR,
+        on_value="open",
     ),
-    "doorFrontLeftLocked": RivianBinarySensorEntity(
-        entity_description=RivianBinarySensorEntityDescription(
-            name="Door Front Left",
-            key=f"{DOMAIN}_body_closures_door_FL_locked_state",
-            device_class=BinarySensorDeviceClass.LOCK,
-            on_value="unlocked",
-        )
+    RivianBinarySensorEntityDescription(
+        key="door_front_left_locked",
+        field="doorFrontLeftLocked",
+        name="Door Front Left Lock",
+        old_key=f"{DOMAIN}_body_closures_door_FL_locked_state",
+        device_class=BinarySensorDeviceClass.LOCK,
+        on_value="unlocked",
     ),
-    "doorFrontRightClosed": RivianBinarySensorEntity(
-        entity_description=RivianBinarySensorEntityDescription(
-            name="Door Front Right",
-            key=f"{DOMAIN}_body_closures_door_FR_state",
-            device_class=BinarySensorDeviceClass.DOOR,
-            on_value="open",
-        )
+    RivianBinarySensorEntityDescription(
+        key="door_front_right_closed",
+        field="doorFrontRightClosed",
+        name="Door Front Right",
+        old_key=f"{DOMAIN}_body_closures_door_FR_state",
+        device_class=BinarySensorDeviceClass.DOOR,
+        on_value="open",
     ),
-    "doorFrontRightLocked": RivianBinarySensorEntity(
-        entity_description=RivianBinarySensorEntityDescription(
-            name="Door Front Right",
-            key=f"{DOMAIN}_body_closures_door_FR_locked_state",
-            device_class=BinarySensorDeviceClass.LOCK,
-            on_value="unlocked",
-        )
+    RivianBinarySensorEntityDescription(
+        key="door_front_right_locked",
+        field="doorFrontRightLocked",
+        name="Door Front Right Lock",
+        old_key=f"{DOMAIN}_body_closures_door_FR_locked_state",
+        device_class=BinarySensorDeviceClass.LOCK,
+        on_value="unlocked",
     ),
-    "doorRearLeftClosed": RivianBinarySensorEntity(
-        entity_description=RivianBinarySensorEntityDescription(
-            name="Door Rear Left",
-            key=f"{DOMAIN}_body_closures_door_RL_state",
-            device_class=BinarySensorDeviceClass.DOOR,
-            on_value="open",
-        )
+    RivianBinarySensorEntityDescription(
+        key="door_rear_left_closed",
+        field="doorRearLeftClosed",
+        name="Door Rear Left",
+        old_key=f"{DOMAIN}_body_closures_door_RL_state",
+        device_class=BinarySensorDeviceClass.DOOR,
+        on_value="open",
     ),
-    "doorRearLeftLocked": RivianBinarySensorEntity(
-        entity_description=RivianBinarySensorEntityDescription(
-            name="Door Rear Left",
-            key=f"{DOMAIN}_body_closures_door_RL_locked_state",
-            device_class=BinarySensorDeviceClass.LOCK,
-            on_value="unlocked",
-        )
+    RivianBinarySensorEntityDescription(
+        key="door_rear_left_locked",
+        field="doorRearLeftLocked",
+        name="Door Rear Left Lock",
+        old_key=f"{DOMAIN}_body_closures_door_RL_locked_state",
+        device_class=BinarySensorDeviceClass.LOCK,
+        on_value="unlocked",
     ),
-    "doorRearRightClosed": RivianBinarySensorEntity(
-        entity_description=RivianBinarySensorEntityDescription(
-            name="Door Rear Right",
-            key=f"{DOMAIN}_body_closures_door_RR_state",
-            device_class=BinarySensorDeviceClass.DOOR,
-            on_value="open",
-        )
+    RivianBinarySensorEntityDescription(
+        key="door_rear_right_closed",
+        field="doorRearRightClosed",
+        name="Door Rear Right",
+        old_key=f"{DOMAIN}_body_closures_door_RR_state",
+        device_class=BinarySensorDeviceClass.DOOR,
+        on_value="open",
     ),
-    "doorRearRightLocked": RivianBinarySensorEntity(
-        entity_description=RivianBinarySensorEntityDescription(
-            name="Door Rear Right",
-            key=f"{DOMAIN}_body_closures_door_RR_locked_state",
-            device_class=BinarySensorDeviceClass.LOCK,
-            on_value="unlocked",
-        )
+    RivianBinarySensorEntityDescription(
+        key="door_rear_right_locked",
+        field="doorRearRightLocked",
+        name="Door Rear Right Lock",
+        old_key=f"{DOMAIN}_body_closures_door_RR_locked_state",
+        device_class=BinarySensorDeviceClass.LOCK,
+        on_value="unlocked",
     ),
-    "gearGuardLocked": RivianBinarySensorEntity(
-        entity_description=RivianBinarySensorEntityDescription(
-            name="Gear Guard",
-            key=f"{DOMAIN}_body_closures_gear_guard_locked_state",
-            device_class=BinarySensorDeviceClass.LOCK,
-            on_value="unlocked",
-        )
+    RivianBinarySensorEntityDescription(
+        key="gear_guard_locked",
+        field="gearGuardLocked",
+        name="Gear Guard",
+        old_key=f"{DOMAIN}_body_closures_gear_guard_locked_state",
+        device_class=BinarySensorDeviceClass.LOCK,
+        on_value="unlocked",
     ),
-    "petModeStatus": RivianBinarySensorEntity(
-        entity_description=RivianBinarySensorEntityDescription(
-            name="Pet Mode",
-            key=f"{DOMAIN}_thermal_hvac_settings_pet_mode_status",
-            device_class=BinarySensorDeviceClass.RUNNING,
-            on_value="On",
-        )
+    RivianBinarySensorEntityDescription(
+        key="pet_mode_status",
+        field="petModeStatus",
+        name="Pet Mode",
+        old_key=f"{DOMAIN}_thermal_hvac_settings_pet_mode_status",
+        device_class=BinarySensorDeviceClass.RUNNING,
+        on_value="On",
     ),
-    "seatFrontLeftHeat": RivianBinarySensorEntity(
-        entity_description=RivianBinarySensorEntityDescription(
-            name="Heated Seat Front Left",
-            icon="mdi:car-seat-heater",
-            key=f"{DOMAIN}_thermal_hvac_mobile_status_left_seat_heat_status",
-            device_class=BinarySensorDeviceClass.RUNNING,
-            on_value=["Level_1", "Level_2", "Level_3"],
-        )
+    RivianBinarySensorEntityDescription(
+        key="seat_front_left_heat",
+        field="seatFrontLeftHeat",
+        name="Heated Seat Front Left",
+        icon="mdi:car-seat-heater",
+        old_key=f"{DOMAIN}_thermal_hvac_mobile_status_left_seat_heat_status",
+        device_class=BinarySensorDeviceClass.RUNNING,
+        on_value=["Level_1", "Level_2", "Level_3"],
     ),
-    "seatFrontLeftVent": RivianBinarySensorEntity(
-        entity_description=RivianBinarySensorEntityDescription(
-            name="Vented Seat Front Left",
-            icon="mdi:car-seat-cooler",
-            key=f"{DOMAIN}_thermal_hvac_mobile_status_left_seat_vent_status",
-            device_class=BinarySensorDeviceClass.RUNNING,
-            on_value=["Level_1", "Level_2", "Level_3"],
-        )
+    RivianBinarySensorEntityDescription(
+        key="seat_front_left_vent",
+        field="seatFrontLeftVent",
+        name="Vented Seat Front Left",
+        icon="mdi:car-seat-cooler",
+        old_key=f"{DOMAIN}_thermal_hvac_mobile_status_left_seat_vent_status",
+        device_class=BinarySensorDeviceClass.RUNNING,
+        on_value=["Level_1", "Level_2", "Level_3"],
     ),
-    "seatFrontRightHeat": RivianBinarySensorEntity(
-        entity_description=RivianBinarySensorEntityDescription(
-            name="Heated Seat Front Right",
-            icon="mdi:car-seat-heater",
-            key=f"{DOMAIN}_thermal_hvac_mobile_status_right_seat_heat_status",
-            device_class=BinarySensorDeviceClass.RUNNING,
-            on_value=["Level_1", "Level_2", "Level_3"],
-        )
+    RivianBinarySensorEntityDescription(
+        key="seat_front_right_heat",
+        field="seatFrontRightHeat",
+        name="Heated Seat Front Right",
+        icon="mdi:car-seat-heater",
+        old_key=f"{DOMAIN}_thermal_hvac_mobile_status_right_seat_heat_status",
+        device_class=BinarySensorDeviceClass.RUNNING,
+        on_value=["Level_1", "Level_2", "Level_3"],
     ),
-    "seatFrontRightVent": RivianBinarySensorEntity(
-        entity_description=RivianBinarySensorEntityDescription(
-            name="Vented Seat Front Right",
-            icon="mdi:car-seat-cooler",
-            key=f"{DOMAIN}_thermal_hvac_mobile_status_right_seat_vent_status",
-            device_class=BinarySensorDeviceClass.RUNNING,
-            on_value=["Level_1", "Level_2", "Level_3"],
-        )
+    RivianBinarySensorEntityDescription(
+        key="seat_front_right_vent",
+        field="seatFrontRightVent",
+        name="Vented Seat Front Right",
+        icon="mdi:car-seat-cooler",
+        old_key=f"{DOMAIN}_thermal_hvac_mobile_status_right_seat_vent_status",
+        device_class=BinarySensorDeviceClass.RUNNING,
+        on_value=["Level_1", "Level_2", "Level_3"],
     ),
-    "seatRearLeftHeat": RivianBinarySensorEntity(
-        entity_description=RivianBinarySensorEntityDescription(
-            name="Heated Seat Rear Left",
-            icon="mdi:car-seat-heater",
-            key=f"{DOMAIN}_thermal_hvac_mobile_status_rear_left_seat_heat_status",
-            device_class=BinarySensorDeviceClass.RUNNING,
-            on_value=["Level_1", "Level_2", "Level_3"],
-        )
+    RivianBinarySensorEntityDescription(
+        key="seat_rear_left_heat",
+        field="seatRearLeftHeat",
+        name="Heated Seat Rear Left",
+        icon="mdi:car-seat-heater",
+        old_key=f"{DOMAIN}_thermal_hvac_mobile_status_rear_left_seat_heat_status",
+        device_class=BinarySensorDeviceClass.RUNNING,
+        on_value=["Level_1", "Level_2", "Level_3"],
     ),
-    "seatRearRightHeat": RivianBinarySensorEntity(
-        entity_description=RivianBinarySensorEntityDescription(
-            name="Heated Seat Rear Right",
-            icon="mdi:car-seat-heater",
-            key=f"{DOMAIN}_thermal_hvac_mobile_status_rear_right_seat_heat_status",
-            device_class=BinarySensorDeviceClass.RUNNING,
-            on_value=["Level_1", "Level_2", "Level_3"],
-        )
+    RivianBinarySensorEntityDescription(
+        key="seat_rear_right_heat",
+        field="seatRearRightHeat",
+        name="Heated Seat Rear Right",
+        icon="mdi:car-seat-heater",
+        old_key=f"{DOMAIN}_thermal_hvac_mobile_status_rear_right_seat_heat_status",
+        device_class=BinarySensorDeviceClass.RUNNING,
+        on_value=["Level_1", "Level_2", "Level_3"],
     ),
-    "seatThirdRowLeftHeat": RivianBinarySensorEntity(
-        entity_description=RivianBinarySensorEntityDescription(
-            name="Heated Seat 3rd Row Left",
-            icon="mdi:car-seat-heater",
-            key=f"{DOMAIN}_thermal_hvac_mobile_status_3rd_row_left_seat_heat_status",
-            device_class=BinarySensorDeviceClass.RUNNING,
-            on_value=["Level_1", "Level_2", "Level_3"],
-        )
+    RivianBinarySensorEntityDescription(
+        key="seat_third_row_left_heat",
+        field="seatThirdRowLeftHeat",
+        name="Heated Seat 3rd Row Left",
+        icon="mdi:car-seat-heater",
+        old_key=f"{DOMAIN}_thermal_hvac_mobile_status_3rd_row_left_seat_heat_status",
+        device_class=BinarySensorDeviceClass.RUNNING,
+        on_value=["Level_1", "Level_2", "Level_3"],
     ),
-    "seatThirdRowRightHeat": RivianBinarySensorEntity(
-        entity_description=RivianBinarySensorEntityDescription(
-            name="Heated Seat 3rd Row Right",
-            icon="mdi:car-seat-heater",
-            key=f"{DOMAIN}_thermal_hvac_mobile_status_3rd_row_right_seat_heat_status",
-            device_class=BinarySensorDeviceClass.RUNNING,
-            on_value=["Level_1", "Level_2", "Level_3"],
-        )
+    RivianBinarySensorEntityDescription(
+        key="seat_third_row_right_heat",
+        field="seatThirdRowRightHeat",
+        name="Heated Seat 3rd Row Right",
+        icon="mdi:car-seat-heater",
+        old_key=f"{DOMAIN}_thermal_hvac_mobile_status_3rd_row_right_seat_heat_status",
+        device_class=BinarySensorDeviceClass.RUNNING,
+        on_value=["Level_1", "Level_2", "Level_3"],
     ),
-    "steeringWheelHeat": RivianBinarySensorEntity(
-        entity_description=RivianBinarySensorEntityDescription(
-            name="Heated Steering Wheel",
-            icon="mdi:steering",  # mdi:steering-heater, https://github.com/Templarian/MaterialDesign/issues/6925
-            key=f"{DOMAIN}_thermal_hvac_mobile_status_steering_wheel_heat_status",
-            device_class=BinarySensorDeviceClass.RUNNING,
-            on_value="Level_1",
-        )
+    RivianBinarySensorEntityDescription(
+        key="steering_wheel_heat",
+        field="steeringWheelHeat",
+        name="Heated Steering Wheel",
+        icon="mdi:steering",  # mdi:steering-heater, https://github.com/Templarian/MaterialDesign/issues/6925
+        old_key=f"{DOMAIN}_thermal_hvac_mobile_status_steering_wheel_heat_status",
+        device_class=BinarySensorDeviceClass.RUNNING,
+        on_value="Level_1",
     ),
-    "tirePressureStatusValidFrontLeft": RivianBinarySensorEntity(
-        entity_description=RivianBinarySensorEntityDescription(
-            name="Tire Pressure Front Left Validity",
-            key=f"{DOMAIN}_dynamics_tires_tire_FL_pressure_status_valid",
-            device_class=BinarySensorDeviceClass.PROBLEM,
-            on_value="invalid",
-        )
+    RivianBinarySensorEntityDescription(
+        key="tire_pressure_status_valid_front_left",
+        field="tirePressureStatusValidFrontLeft",
+        name="Tire Pressure Front Left Validity",
+        old_key=f"{DOMAIN}_dynamics_tires_tire_FL_pressure_status_valid",
+        device_class=BinarySensorDeviceClass.PROBLEM,
+        on_value="invalid",
     ),
-    "tirePressureStatusValidFrontRight": RivianBinarySensorEntity(
-        entity_description=RivianBinarySensorEntityDescription(
-            name="Tire Pressure Front Right Validity",
-            key=f"{DOMAIN}_dynamics_tires_tire_FR_pressure_status_valid",
-            device_class=BinarySensorDeviceClass.PROBLEM,
-            on_value="invalid",
-        )
+    RivianBinarySensorEntityDescription(
+        key="tire_pressure_status_valid_front_right",
+        field="tirePressureStatusValidFrontRight",
+        name="Tire Pressure Front Right Validity",
+        old_key=f"{DOMAIN}_dynamics_tires_tire_FR_pressure_status_valid",
+        device_class=BinarySensorDeviceClass.PROBLEM,
+        on_value="invalid",
     ),
-    "tirePressureStatusValidRearLeft": RivianBinarySensorEntity(
-        entity_description=RivianBinarySensorEntityDescription(
-            name="Tire Pressure Rear Left Validity",
-            key=f"{DOMAIN}_dynamics_tires_tire_RL_pressure_status_valid",
-            device_class=BinarySensorDeviceClass.PROBLEM,
-            on_value="invalid",
-        )
+    RivianBinarySensorEntityDescription(
+        key="tire_pressure_status_valid_rear_left",
+        field="tirePressureStatusValidRearLeft",
+        name="Tire Pressure Rear Left Validity",
+        old_key=f"{DOMAIN}_dynamics_tires_tire_RL_pressure_status_valid",
+        device_class=BinarySensorDeviceClass.PROBLEM,
+        on_value="invalid",
     ),
-    "tirePressureStatusValidRearRight": RivianBinarySensorEntity(
-        entity_description=RivianBinarySensorEntityDescription(
-            name="Tire Pressure Rear Right Validity",
-            key=f"{DOMAIN}_dynamics_tires_tire_RR_pressure_status_valid",
-            device_class=BinarySensorDeviceClass.PROBLEM,
-            on_value="invalid",
-        )
+    RivianBinarySensorEntityDescription(
+        key="tire_pressure_status_valid_rear_right",
+        field="tirePressureStatusValidRearRight",
+        name="Tire Pressure Rear Right Validity",
+        old_key=f"{DOMAIN}_dynamics_tires_tire_RR_pressure_status_valid",
+        device_class=BinarySensorDeviceClass.PROBLEM,
+        on_value="invalid",
     ),
-    "windowFrontLeftClosed": RivianBinarySensorEntity(
-        entity_description=RivianBinarySensorEntityDescription(
-            name="Window Front Left",
-            key=f"{DOMAIN}_body_closures_front_left_window_state",
-            device_class=BinarySensorDeviceClass.WINDOW,
-            on_value="open",
-        )
+    RivianBinarySensorEntityDescription(
+        key="window_front_left_closed",
+        field="windowFrontLeftClosed",
+        name="Window Front Left",
+        old_key=f"{DOMAIN}_body_closures_front_left_window_state",
+        device_class=BinarySensorDeviceClass.WINDOW,
+        on_value="open",
     ),
-    "windowFrontRightClosed": RivianBinarySensorEntity(
-        entity_description=RivianBinarySensorEntityDescription(
-            name="Window Front Right",
-            key=f"{DOMAIN}_body_closures_front_right_window_state",
-            device_class=BinarySensorDeviceClass.WINDOW,
-            on_value="open",
-        )
+    RivianBinarySensorEntityDescription(
+        key="window_front_right_closed",
+        field="windowFrontRightClosed",
+        name="Window Front Right",
+        old_key=f"{DOMAIN}_body_closures_front_right_window_state",
+        device_class=BinarySensorDeviceClass.WINDOW,
+        on_value="open",
     ),
-    "windowRearLeftClosed": RivianBinarySensorEntity(
-        entity_description=RivianBinarySensorEntityDescription(
-            name="Window Rear Left",
-            key=f"{DOMAIN}_body_closures_rear_left_window_state",
-            device_class=BinarySensorDeviceClass.WINDOW,
-            on_value="open",
-        )
+    RivianBinarySensorEntityDescription(
+        key="window_rear_left_closed",
+        field="windowRearLeftClosed",
+        name="Window Rear Left",
+        old_key=f"{DOMAIN}_body_closures_rear_left_window_state",
+        device_class=BinarySensorDeviceClass.WINDOW,
+        on_value="open",
     ),
-    "windowRearRightClosed": RivianBinarySensorEntity(
-        entity_description=RivianBinarySensorEntityDescription(
-            name="Window Rear Right",
-            key=f"{DOMAIN}_body_closures_rear_right_window_state",
-            device_class=BinarySensorDeviceClass.WINDOW,
-            on_value="open",
-        )
+    RivianBinarySensorEntityDescription(
+        key="window_rear_right_closed",
+        field="windowRearRightClosed",
+        name="Window Rear Right",
+        old_key=f"{DOMAIN}_body_closures_rear_right_window_state",
+        device_class=BinarySensorDeviceClass.WINDOW,
+        on_value="open",
     ),
-    "wiperFluidState": RivianBinarySensorEntity(
-        entity_description=RivianBinarySensorEntityDescription(
-            name="Wiper Fluid Level",
-            icon="mdi:wiper-wash",
-            key=f"{DOMAIN}_body_wipers_fluid_state",
-            device_class=BinarySensorDeviceClass.PROBLEM,
-            on_value="normal",
-            negate=True,
-        )
+    RivianBinarySensorEntityDescription(
+        key="wiper_fluid_state",
+        field="wiperFluidState",
+        name="Wiper Fluid Level",
+        icon="mdi:wiper-wash",
+        old_key=f"{DOMAIN}_body_wipers_fluid_state",
+        device_class=BinarySensorDeviceClass.PROBLEM,
+        on_value="normal",
+        negate=True,
     ),
-}
+    RivianBinarySensorEntityDescription(
+        key="locked_state",
+        field=LOCK_STATE_ENTITIES,
+        name="Locked State",
+        device_class=BinarySensorDeviceClass.LOCK,
+        old_key=f"{DOMAIN}_locked_state",
+        on_value="unlocked",
+    ),
+    RivianBinarySensorEntityDescription(
+        key="door_state",
+        field=DOOR_STATE_ENTITIES,
+        name="Door State",
+        device_class=BinarySensorDeviceClass.DOOR,
+        old_key=f"{DOMAIN}_door_state",
+        on_value="open",
+    ),
+    RivianBinarySensorEntityDescription(
+        key="closure_state",
+        field=CLOSURE_STATE_ENTITIES,
+        name="Closure State",
+        device_class=BinarySensorDeviceClass.DOOR,
+        old_key=f"{DOMAIN}_closure_state",
+        on_value="open",
+    ),
+    RivianBinarySensorEntityDescription(
+        key="use_state",
+        field={"powerState"},
+        name="In Use State",
+        device_class=BinarySensorDeviceClass.MOVING,
+        old_key=f"{DOMAIN}_use_state",
+        on_value="go",
+    ),
+)
 
 UPDATE_SENSOR_FIELDS: Final[set[str]] = {
     "otaCurrentVersion",

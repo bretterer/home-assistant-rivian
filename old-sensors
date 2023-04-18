@@ -1,0 +1,77 @@
+# "core/ota_status/cgm_ota_install_fast_charging": RivianSensorEntity(
+#     entity_description=RivianSensorEntityDescription(
+#         name="CGM OTA Install - Fast Charging",
+#         key=f"{DOMAIN}_core_ota_status_cgm_ota_install_fast_charging",
+#     )
+# ),
+# "core/ota_status/cgm_ota_install_hv_batt_low": RivianSensorEntity(
+#     entity_description=RivianSensorEntityDescription(
+#         name="CGM OTA Install - HV Battery Low",
+#         key=f"{DOMAIN}_core_ota_status_cgm_ota_install_hv_batt_low",
+#     )
+# ),
+# "core/ota_status/cgm_ota_install_not_parked": RivianSensorEntity(
+#     entity_description=RivianSensorEntityDescription(
+#         name="CGM OTA Install - Not Parked",
+#         key=f"{DOMAIN}_core_ota_status_cgm_ota_install_not_parked",
+#     )
+# ),
+# "energy_storage/vehicle_efficiency/lifetime_wh_per_km": RivianSensorEntity(
+#     entity_description=RivianSensorEntityDescription(
+#         name="Lifetime Efficiency (Wh/mi)",
+#         key=f"{DOMAIN}_energy_storage_vehicle_efficiency_lifetime_wh_per_km",
+#     ),
+#     value_lambda=lambda v: round(DistanceConverter.convert(v, UnitOfLength.MILES, UnitOfLength.KILOMETERS), 1),
+# ),
+# "telematics/ota_status/pending_reason_active_mode": RivianSensorEntity(
+#     entity_description=RivianSensorEntityDescription(
+#         name="Software OTA - Pending Reason Active Mode",
+#         key=f"{DOMAIN}_telematics_ota_status_pending_reason_active_mode",
+#     )
+# ),
+# "telematics/ota_status/pending_reason_lv_batt": RivianSensorEntity(
+#     entity_description=RivianSensorEntityDescription(
+#         name="Software OTA - Pending Reason LV Battery",
+#         key=f"{DOMAIN}_telematics_ota_status_pending_reason_lv_batt",
+#     )
+# ),
+# "telematics/ota_status/pending_reason_other": RivianSensorEntity(
+#     entity_description=RivianSensorEntityDescription(
+#         name="Software OTA - Pending Reason Other",
+#         key=f"{DOMAIN}_telematics_ota_status_pending_reason_other",
+#     )
+# ),
+# "energy_storage/charger/EMS_charger_evse_type": RivianSensorEntity(
+#     entity_description=RivianSensorEntityDescription(
+#         name="EMS Charger EVSE Type",
+#         key=f"{DOMAIN}_energy_storage_charger_EMS_charger_evse_type",
+#     )
+# ),
+# "telematics/privacy/offline_mode_enabled": RivianSensorEntity(
+#     entity_description=RivianSensorEntityDescription(
+#         name="Offline Mode Enabled",
+#         key=f"{DOMAIN}_telematics_privacy_offline_mode_enabled",
+#     )
+# ),
+# "thermal/hvac_mobile_status/estimated_cabin_temp_mobile": RivianSensorEntity(
+#     entity_description=RivianSensorEntityDescription(
+#         name="Estimated Cabin Temperature",
+#         icon="mdi:thermometer",
+#         key=f"{DOMAIN}_thermal_hvac_mobile_status_estimated_cabin_temp_mobile",
+#         native_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
+#     ),
+#     value_lambda=lambda v: round(
+#         TemperatureConverter.convert(v, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT), 1
+#     ),
+# ),
+# "thermal/hvac_mobile_status/set_temp_status_mobile": RivianSensorEntity(
+#     entity_description=RivianSensorEntityDescription(
+#         name="Set Temperature Mobile Status",
+#         icon="mdi:thermometer",
+#         key=f"{DOMAIN}_thermal_hvac_mobile_status_set_temp_status_mobile",
+#         native_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
+#     ),
+#     value_lambda=lambda v: round(
+#         TemperatureConverter.convert(v, UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT), 1
+#     ),
+# ),

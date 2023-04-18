@@ -4,14 +4,22 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from homeassistant.components.device_tracker import SourceType, TrackerEntity
+from homeassistant.components.device_tracker import (
+    DOMAIN as PLATFORM,
+    SourceType,
+    TrackerEntity,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity import EntityDescription
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from . import RivianDataUpdateCoordinator, RivianEntity
 from .const import ATTR_COORDINATOR, CONF_VIN, DOMAIN
+from .data_classes import RivianTrackerEntityDescription
+from .entity import RivianDataUpdateCoordinator, RivianEntity, async_update_unique_id
+
+LOCATION_DESCRIPTION = RivianTrackerEntityDescription(
+    key="location", name="Location", old_key="Rivian Location"
+)
 
 
 async def async_setup_entry(
@@ -19,35 +27,31 @@ async def async_setup_entry(
 ) -> None:
     """Set up the Rivain binary_sensors by config_entry."""
     coordinator = hass.data[DOMAIN][entry.entry_id][ATTR_COORDINATOR]
-    async_add_entities([RivianDeviceEntity(coordinator, entry, "gnssLocation")], True)
+    vin = entry.data.get(CONF_VIN)
+
+    entities = [RivianDeviceEntity(coordinator, entry, LOCATION_DESCRIPTION, vin)]
+
+    # Migrate unique ids for future support of multiple VIN
+    async_update_unique_id(hass, PLATFORM, entities)
+    async_add_entities(entities, True)
 
 
 class RivianDeviceEntity(RivianEntity, TrackerEntity):
     """A class representing a Rivian device."""
 
-    _attr_has_entity_name = True
-    _attr_name = "Location"
+    entity_description: RivianTrackerEntityDescription
 
     def __init__(
         self,
         coordinator: RivianDataUpdateCoordinator,
         config_entry: ConfigEntry,
-        attribute: str,
+        description: RivianTrackerEntityDescription,
+        vin: str,
     ) -> None:
         """Create a Rivian device tracker entity."""
-        super().__init__(coordinator, config_entry)
-        self._attribute = attribute
+        super().__init__(coordinator, config_entry, description, vin)
+        self._attribute = "gnssLocation"
         self._tracker_data = coordinator.data[self._attribute]
-        self.entity_id = f"device_tracker.{DOMAIN}_telematics_gnss_position"
-        self.entity_description = EntityDescription(
-            name="Rivian", key=f"{DOMAIN}_telematics_gnss_position"
-        )
-        self._vin = config_entry.data.get(CONF_VIN)
-
-    @property
-    def unique_id(self) -> str:
-        """Return a unique ID to use for this entity."""
-        return f"{DOMAIN}_Rivian {self._attr_name}_{self._config_entry.entry_id}"
 
     @property
     def force_update(self) -> bool:

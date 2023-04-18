@@ -4,40 +4,52 @@ from __future__ import annotations
 from ast import Expression
 from dataclasses import dataclass
 
-from homeassistant.components.binary_sensor import (
-    BinarySensorEntity,
-    BinarySensorEntityDescription,
-)
-from homeassistant.components.sensor import SensorEntity, SensorEntityDescription
+from homeassistant.components.binary_sensor import BinarySensorEntityDescription
+from homeassistant.components.sensor import SensorEntityDescription
+from homeassistant.helpers.entity import EntityDescription
 
 
 @dataclass
-class RivianSensorEntity(SensorEntity):
-    """Rivian Specific Sensor Entity"""
+class RivianSensorRequiredKeysMixin:
+    """A class that describes Rivian sensor required keys."""
 
-    entity_description: SensorEntityDescription
-    value_lambda: Expression | None = None
+    field: str
 
 
 @dataclass
-class RivianSensorEntityDescription(SensorEntityDescription):
+class RivianSensorEntityDescription(
+    SensorEntityDescription, RivianSensorRequiredKeysMixin
+):
     """Rivian Sensor Entity Description"""
 
+    value_lambda: Expression | None = None
+    old_key: str | None = None
+
 
 @dataclass
-class RivianBinarySensorEntityDescription(BinarySensorEntityDescription):
+class RivianBinarySensorRequiredKeysMixin:
+    """A class that describes Rivian binary sensor required keys."""
+
+    field: str | set[str]
+
+
+@dataclass
+class RivianBinarySensorEntityDescription(
+    BinarySensorEntityDescription, RivianBinarySensorRequiredKeysMixin
+):
     """Describes a Rivian binary sensor."""
 
     # Value to consider binary sensor to be "on"
-    on_value: bool | float | int | str = True
+    on_value: bool | float | int | str | list[str] = True
     negate: bool = False
+    old_key: str | None = None
 
 
 @dataclass
-class RivianBinarySensorEntity(BinarySensorEntity):
-    """Rivian Specific Sensor Entity"""
+class RivianTrackerEntityDescription(EntityDescription):
+    """Rivian tracker entity Description."""
 
-    entity_description: RivianBinarySensorEntityDescription
+    old_key: str | None = None
 
 
 @dataclass

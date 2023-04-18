@@ -5,24 +5,17 @@ from collections.abc import Mapping
 from typing import Any
 
 from homeassistant.components.binary_sensor import (
-    BinarySensorDeviceClass,
+    DOMAIN as PLATFORM,
     BinarySensorEntity,
 )
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from . import RivianDataUpdateCoordinator, RivianEntity
-from .const import (
-    ATTR_COORDINATOR,
-    BINARY_SENSORS,
-    CLOSURE_STATE_ENTITIES,
-    CONF_VIN,
-    DOMAIN,
-    DOOR_STATE_ENTITIES,
-    LOCK_STATE_ENTITIES,
-)
-from .data_classes import RivianBinarySensorEntity, RivianBinarySensorEntityDescription
+from .const import ATTR_COORDINATOR, BINARY_SENSORS, CONF_VIN, DOMAIN
+from .data_classes import RivianBinarySensorEntityDescription
+from .entity import RivianDataUpdateCoordinator, RivianEntity, async_update_unique_id
 
 
 async def async_setup_entry(
@@ -30,159 +23,60 @@ async def async_setup_entry(
 ) -> None:
     """Set up the sensor entities"""
     coordinator = hass.data[DOMAIN][entry.entry_id][ATTR_COORDINATOR]
+    vin = entry.data.get(CONF_VIN)
 
-    entities = []
-    for _, value in enumerate(BINARY_SENSORS):
-        entities.append(
-            RivianBinarySensor(
-                coordinator=coordinator,
-                config_entry=entry,
-                sensor=BINARY_SENSORS[value],
-                prop_key=value,
-            )
-        )
-
-    # custom aggregate entities
-    entities.append(
-        RivianAggregateBinarySensor(
+    entities = [
+        RivianBinarySensorEntity(
             coordinator=coordinator,
             config_entry=entry,
-            sensor=RivianBinarySensorEntity(
-                entity_description=RivianBinarySensorEntityDescription(
-                    name="Rivian Locked State",
-                    key=f"{DOMAIN}_locked_state",
-                    device_class=BinarySensorDeviceClass.LOCK,
-                    on_value="unlocked",
-                )
-            ),
-            prop_key_set=LOCK_STATE_ENTITIES,
+            description=description,
+            vin=vin,
         )
-    )
-    entities.append(
-        RivianAggregateBinarySensor(
-            coordinator=coordinator,
-            config_entry=entry,
-            sensor=RivianBinarySensorEntity(
-                entity_description=RivianBinarySensorEntityDescription(
-                    name="Rivian Door State",
-                    key=f"{DOMAIN}_door_state",
-                    device_class=BinarySensorDeviceClass.DOOR,
-                    on_value="open",
-                )
-            ),
-            prop_key_set=DOOR_STATE_ENTITIES,
-        )
-    )
-    entities.append(
-        RivianAggregateBinarySensor(
-            coordinator=coordinator,
-            config_entry=entry,
-            sensor=RivianBinarySensorEntity(
-                entity_description=RivianBinarySensorEntityDescription(
-                    name="Rivian Closure State",
-                    key=f"{DOMAIN}_closure_state",
-                    device_class=BinarySensorDeviceClass.DOOR,
-                    on_value="open",
-                )
-            ),
-            prop_key_set=CLOSURE_STATE_ENTITIES,
-        )
-    )
-    entities.append(
-        RivianAggregateBinarySensor(
-            coordinator=coordinator,
-            config_entry=entry,
-            sensor=RivianBinarySensorEntity(
-                entity_description=RivianBinarySensorEntityDescription(
-                    name="Rivian In Use State",
-                    key=f"{DOMAIN}_use_state",
-                    device_class=BinarySensorDeviceClass.MOVING,
-                    on_value="go",
-                )
-            ),
-            prop_key_set={"powerState"},
-        )
-    )
-
+        for description in BINARY_SENSORS
+    ]
+    # Migrate unique ids for future support of multiple VIN
+    async_update_unique_id(hass, PLATFORM, entities)
     async_add_entities(entities, True)
 
 
-class RivianAggregateBinarySensor(RivianEntity, BinarySensorEntity):
-    """Rivian Aggregate Binary Sensor Entity - OR the value of different entities and report as new entity"""
-
-    def __init__(
-        self,
-        coordinator: RivianDataUpdateCoordinator,
-        config_entry: ConfigEntry,
-        sensor: RivianBinarySensorEntity,
-        prop_key_set: set(str),
-    ) -> None:
-        """Create a Rivian aggregate binary sensor."""
-        super().__init__(coordinator, config_entry)
-        self._sensor = sensor
-        self.entity_description = sensor.entity_description
-        self._name = self.entity_description.key
-        self._prop_key_set = prop_key_set
-        self.entity_id = f"binary_sensor.{self.entity_description.key}"
-        self._vin = config_entry.data.get(CONF_VIN)
-
-    @property
-    def unique_id(self) -> str:
-        """Return a unique ID to use for this entity."""
-        return f"{DOMAIN}_{self._name}_{self._config_entry.entry_id}"
-
-    @property
-    def is_on(self) -> bool:
-        """Return true if sensor is on."""
-        return self.entity_description.on_value in (
-            self.coordinator.data.get(entity_key, {}).get("value")
-            for entity_key in self._prop_key_set
-        )
-
-
-class RivianBinarySensor(RivianEntity, BinarySensorEntity):
+class RivianBinarySensorEntity(RivianEntity, BinarySensorEntity):
     """Rivian Binary Sensor Entity."""
 
+    entity_description: RivianBinarySensorEntityDescription
+
     def __init__(
         self,
         coordinator: RivianDataUpdateCoordinator,
         config_entry: ConfigEntry,
-        sensor: RivianBinarySensorEntity,
-        prop_key: str,
+        description: RivianBinarySensorEntityDescription,
+        vin: str,
     ) -> None:
         """Create a Rivian binary sensor."""
-        super().__init__(coordinator, config_entry)
-        self._sensor = sensor
-        self.entity_description = sensor.entity_description
-        self._name = self.entity_description.key
-        self._prop_key = prop_key
-        self.entity_id = f"binary_sensor.{self.entity_description.key}"
-        self._vin = config_entry.data.get(CONF_VIN)
-
-    @property
-    def unique_id(self) -> str:
-        """Return a unique ID to use for this entity."""
-        return f"{DOMAIN}_{self._name}_{self._config_entry.entry_id}"
+        super().__init__(coordinator, config_entry, description, vin)
+        self._aggregate = isinstance(self.entity_description.field, set)
 
     @property
     def is_on(self) -> bool:
         """Return true if sensor is on."""
-        try:
-            entity = self.coordinator.data[self._prop_key]
-            if entity is None:
-                return "Binary Sensor Unavailable"
+        fields = self.entity_description.field
+        if self._aggregate:
+            return self.entity_description.on_value in (
+                self._get_value(entity_key) for entity_key in fields
+            )
+        if (val := self._get_value(fields)) is not None:
             values = self.entity_description.on_value
             values = [values] if isinstance(values, str) else values
-            result = entity["value"] in values
+            result = val in values
             return result if not self.entity_description.negate else not result
-        except KeyError:
-            return None
+        return STATE_UNAVAILABLE
 
     @property
     def extra_state_attributes(self) -> Mapping[str, Any] | None:
         """Return the state attributes of the device."""
+        if self._aggregate:
+            return None
         try:
-            entity = self.coordinator.data[self._prop_key]
+            entity = self.coordinator.data[self.entity_description.field]
             if entity is None:
                 return "Binary Sensor Unavailable"
             return {
