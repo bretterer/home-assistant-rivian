@@ -29,8 +29,9 @@ async def async_setup_entry(
     entities = [
         RivianBinarySensorEntity(coordinator, entry, description, vin)
         for vin, vehicle in coordinator.vehicles.items()
-        for model in (vehicle["model"], vehicle["model"][:2])
-        for description in BINARY_SENSORS.get(model, ())
+        for model in BINARY_SENSORS
+        if model in vehicle["model"]
+        for description in BINARY_SENSORS[model]
     ]
 
     # Migrate unique ids to support multiple VIN
