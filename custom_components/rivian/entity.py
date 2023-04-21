@@ -67,6 +67,12 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):
         """Return the wallboxes."""
         return self._wallboxes or []
 
+    async def process_new_data(self, vin: str, data: dict[str, Any]) -> None:
+        """Process new data."""
+        if self.data:
+            self.data[vin] = self._build_vehicle_info_dict(vin, data["payload"])
+            self.async_update_listeners()
+
     async def _update_api_data(self):
         """Update data via api."""
         try:
@@ -93,6 +99,14 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):
 
             if self._vehicles is None:
                 await self._fetch_vehicles()
+
+                # set up subscriptions
+                for vin in self._vehicles:
+                    await self._api.subscribe_for_vehicle_updates(
+                        vin,
+                        properties=VEHICLE_STATE_API_FIELDS,
+                        callback=lambda data: self.process_new_data(vin, data),
+                    )
 
             # fetch vehicle sensor data
             vehicle_states: dict[str, Any] = {}
@@ -164,7 +178,11 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):
         if not (prev_items := (self.data or {}).get(vin) or items) or not items:
             return prev_items
 
-        for i in filter(lambda x: items[x] is not None, items):
+        for i in items:
+            if not items[i]:
+                items[i] = prev_items.get(i)
+            if not items[i]:
+                continue
             if i == "gnssLocation":
                 continue
             value = items[i]["value"]
