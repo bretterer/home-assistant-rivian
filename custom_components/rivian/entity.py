@@ -14,6 +14,7 @@ from rivian.exceptions import RivianExpiredTokenError
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant, callback
+import homeassistant.helpers.device_registry as dr
 from homeassistant.helpers.entity import DeviceInfo, EntityDescription
 import homeassistant.helpers.entity_registry as er
 from homeassistant.helpers.update_coordinator import (
@@ -297,3 +298,11 @@ def async_update_unique_id(
         if entity_id := ent_reg.async_get_entity_id(domain, DOMAIN, old_unique_id):
             new_unique_id = f"{entity._vin}-{entity.entity_description.key}"  # pylint: disable=protected-access
             ent_reg.async_update_entity(entity_id, new_unique_id=new_unique_id)
+
+    dev_reg = dr.async_get(hass)
+    old_identifier = (DOMAIN, f"{DOMAIN}:{entity._config_entry.entry_id}")
+    device = dev_reg.async_get_device({old_identifier})
+    if device:
+        new_identifiers = device.identifiers
+        new_identifiers.remove(old_identifier)
+        dev_reg.async_update_device(device.id, new_identifiers=new_identifiers)
