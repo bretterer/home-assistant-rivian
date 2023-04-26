@@ -30,7 +30,6 @@ ATTR_COORDINATOR = "rivian_coordinator"
 
 # Config properties
 CONF_OTP = "otp"
-CONF_VIN = "vin"
 CONF_ACCESS_TOKEN = "access_token"
 CONF_REFRESH_TOKEN = "refresh_token"
 CONF_USER_SESSION_TOKEN = "user_session_token"

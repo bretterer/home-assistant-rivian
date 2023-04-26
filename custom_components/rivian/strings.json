@@ -1,39 +1,35 @@
 {
-    "config": {
-        "title": "Rivian (Unofficial)",
-        "abort": {
-            "already_configured": "Device is already configured"
-        },
-        "error": {
-            "cannot_connect": "Failed to connect",
-            "invalid_auth": "Invalid authentication",
-            "unknown": "Unexpected error"
-        },
-        "step": {
-            "user": {
-                "data": {
-                    "password": "Password",
-                    "username": "Username",
-                    "client_id": "Client ID",
-                    "client_secret": "Client Secret",
-                    "otp": "Verification Code",
-                    "vehicle_id": "Vehicle Identification",
-                    "vin": "Vehicle Identification"
-                },
-                "title": "Setup your Rivian Integration"
-            }
-        }
+  "config": {
+    "title": "Rivian (Unofficial)",
+    "abort": {
+      "already_configured": "Device is already configured"
     },
-    "entity": {
-      "sensor": {
-        "charging_status": {
-          "state": {
-            "available": "Available",
-            "disconnected": "[%key:common::state::disconnected%]",
-            "plugged_in": "Plugged in",
-            "charging": "Charging"
-          }
+    "error": {
+      "cannot_connect": "Failed to connect",
+      "invalid_auth": "Invalid authentication",
+      "unknown": "Unexpected error"
+    },
+    "step": {
+      "user": {
+        "data": {
+          "password": "Password",
+          "username": "Username",
+          "otp": "Verification Code"
+        },
+        "title": "Setup your Rivian Integration"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "charging_status": {
+        "state": {
+          "available": "Available",
+          "disconnected": "[%key:common::state::disconnected%]",
+          "plugged_in": "Plugged in",
+          "charging": "Charging"
         }
       }
     }
+  }
 }
