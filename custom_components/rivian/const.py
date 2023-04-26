@@ -399,6 +399,7 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
                 "Awaiting Install",
                 "Installing",
                 "Connection Lost",
+                "unavailable",
             ],
             old_key=f"{DOMAIN}_telematics_ota_status_status",
             value_lambda=lambda v: v.replace("_", " ").title(),

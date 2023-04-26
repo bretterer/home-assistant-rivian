@@ -76,7 +76,7 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):
         vehicle_info = self._build_vehicle_info_dict(vin, data["payload"])
         self._vehicles[vin]["info"] = vehicle_info
         if self.data:
-            self.data = {vin: data.get("info") for vin, data in self._vehicles.items()}
+            self.data = {vin: vhcl.get("info") for vin, vhcl in self._vehicles.items()}
             self.async_update_listeners()
 
     async def _update_api_data(self):
@@ -107,7 +107,7 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):
                 await self._fetch_vehicles()
 
                 # set up subscriptions
-                for vin in self._vehicles:
+                for vin in self.vehicles:
                     await self._api.subscribe_for_vehicle_updates(
                         vin,
                         properties=VEHICLE_STATE_API_FIELDS,
@@ -116,12 +116,8 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):
 
                 # wait for initial data
                 async with async_timeout.timeout(10):
-                    while not all(data.get("info") for data in self._vehicles.values()):
+                    while not all(data.get("info") for data in self.vehicles.values()):
                         await asyncio.sleep(0.1)
-
-            vehicle_states: dict[str, Any] = {
-                vin: data.get("info") for vin, data in self._vehicles.items()
-            }
 
             self._login_attempts = 0
 
@@ -132,7 +128,7 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):
                     _LOGGER.debug(wbjson)
                     self._wallboxes = wbjson["data"]["getRegisteredWallboxes"]
 
-            return vehicle_states
+            return {vin: data.get("info") for vin, data in self.vehicles.items()}
         except (
             RivianExpiredTokenError
         ):  # graphql is always 200 - no exception parsing yet
