@@ -218,16 +218,13 @@ class RivianEntity(CoordinatorEntity[RivianDataUpdateCoordinator]):
 
         self._available = True
 
-        manufacturer = "Rivian"
         model = coordinator.vehicles[vin]["model"]
         model_year = coordinator.vehicles[vin]["modelYear"]
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, vin)},
-            name=f"{manufacturer} {model}" if model else manufacturer,
-            manufacturer=manufacturer,
-            model=f"{model_year} {manufacturer} {model}"
-            if model and model_year
-            else None,
+            name=model,
+            manufacturer="Rivian",
+            model=f"{model_year} {model}",
             sw_version=self._get_value("otaCurrentVersion"),
         )
 
