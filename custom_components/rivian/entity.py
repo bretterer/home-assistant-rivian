@@ -1,11 +1,13 @@
 """Rivian entities."""
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Iterable
 from datetime import timedelta
 import logging
 from typing import Any
 
+import async_timeout
 from rivian import Rivian
 from rivian.exceptions import RivianExpiredTokenError
 
@@ -42,6 +44,8 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):
         self._api = client
         self._entry = entry
         self._login_attempts = 0
+        # self._attempt = 0
+        # self._next_attempt = None
         self._vehicles: dict[str, dict[str, Any]] | None = None
         self._wallboxes: list[dict[str, Any]] | None = None
 
@@ -67,10 +71,12 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):
         """Return the wallboxes."""
         return self._wallboxes or []
 
-    async def process_new_data(self, vin: str, data: dict[str, Any]) -> None:
+    def process_new_data(self, vin: str, data: dict[str, Any]) -> None:
         """Process new data."""
+        vehicle_info = self._build_vehicle_info_dict(vin, data["payload"])
+        self._vehicles[vin]["info"] = vehicle_info
         if self.data:
-            self.data[vin] = self._build_vehicle_info_dict(vin, data["payload"])
+            self.data = {vin: data.get("info") for vin, data in self._vehicles.items()}
             self.async_update_listeners()
 
     async def _update_api_data(self):
@@ -105,17 +111,18 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):
                     await self._api.subscribe_for_vehicle_updates(
                         vin,
                         properties=VEHICLE_STATE_API_FIELDS,
-                        callback=lambda data: self.process_new_data(vin, data),
+                        callback=lambda data, vin=vin: self.process_new_data(vin, data),
                     )
 
-            # fetch vehicle sensor data
-            vehicle_states: dict[str, Any] = {}
-            for vin in self._vehicles:
-                vehicle_info = await self._api.get_vehicle_state(
-                    vin=vin, properties=VEHICLE_STATE_API_FIELDS
-                )
-                vijson = await vehicle_info.json()
-                vehicle_states[vin] = self._build_vehicle_info_dict(vin, vijson)
+                # wait for initial data
+                async with async_timeout.timeout(10):
+                    while not all(data.get("info") for data in self._vehicles.values()):
+                        await asyncio.sleep(0.1)
+
+            vehicle_states: dict[str, Any] = {
+                vin: data.get("info") for vin, data in self._vehicles.items()
+            }
+
             self._login_attempts = 0
 
             if self._wallboxes or self._wallboxes is None:
@@ -172,26 +179,27 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):
         self, vin: str, vijson: dict
     ) -> dict[str, dict[str, Any]]:
         """Take the json output of vehicle_info and build a dictionary."""
-        _LOGGER.debug("VIN: %s, data: %s", vin, vijson)
-        items = vijson["data"]["vehicleState"]
+        items = {
+            k: v | ({"history": {v["value"]}} if "value" in v else {})
+            for k, v in vijson["data"]["vehicleState"].items()
+            if v
+        }
 
-        if not (prev_items := (self.data or {}).get(vin) or items) or not items:
+        _LOGGER.debug("VIN: %s, updated: %s", vin, items)
+
+        if not (prev_items := (self.data or {}).get(vin, {})):
+            return items
+        if not items or prev_items == items:
             return prev_items
 
-        for i in items:
-            if not items[i]:
-                items[i] = prev_items.get(i)
-            if not items[i]:
-                continue
-            if i == "gnssLocation":
-                continue
-            value = items[i]["value"]
-            prev_value = prev_items[i]["value"]
-            prev_items[i].setdefault("history", set()).add(value)
-            if str(value).lower() in INVALID_SENSOR_STATES and value != prev_value:
-                items[i] = prev_items[i]
-            items[i]["history"] = prev_items[i]["history"]
-        return items
+        new_data = prev_items | items
+        for key in filter(lambda i: i != "gnssLocation", items):
+            value = items[key]["value"]
+            if str(value).lower() in INVALID_SENSOR_STATES:
+                new_data[key] = prev_items[key]
+            new_data[key]["history"] |= prev_items[key]["history"]
+
+        return new_data
 
 
 class RivianEntity(CoordinatorEntity[RivianDataUpdateCoordinator]):

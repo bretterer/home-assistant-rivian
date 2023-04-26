@@ -23,7 +23,7 @@ DOMAIN = "rivian"
 VERSION = "0.0.1-alpha.2"
 ISSUE_URL = "https://github.com/bretterer/home-assistant-rivian/issues"
 COORDINATOR = "rivian_coordinator"
-UPDATE_INTERVAL = 60
+UPDATE_INTERVAL = 15
 
 # Attributes
 ATTR_COORDINATOR = "rivian_coordinator"
