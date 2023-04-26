@@ -223,7 +223,7 @@ class RivianEntity(CoordinatorEntity[RivianDataUpdateCoordinator]):
         model = coordinator.vehicles[vin]["model"]
         model_year = coordinator.vehicles[vin]["modelYear"]
         self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, vin), get_device_identifier(config_entry)},
+            identifiers={(DOMAIN, vin)},
             name=f"{manufacturer} {model}" if model else manufacturer,
             manufacturer=manufacturer,
             model=f"{model_year} {manufacturer} {model}"
@@ -283,15 +283,6 @@ class RivianWallboxEntity(CoordinatorEntity[RivianDataUpdateCoordinator]):
         if self.wallbox != wallbox:
             self.wallbox = wallbox
             self.async_write_ha_state()
-
-
-def get_device_identifier(
-    entry: ConfigEntry, name: str | None = None
-) -> tuple[str, str]:
-    """Get a device identifier."""
-    if name:
-        return (DOMAIN, f"{entry.entry_id}:{DOMAIN}:{slugify(name)}")
-    return (DOMAIN, f"{DOMAIN}:{entry.entry_id}")
 
 
 def async_update_unique_id(
