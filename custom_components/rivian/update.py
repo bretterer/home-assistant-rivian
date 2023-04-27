@@ -7,6 +7,7 @@ from typing import Any
 from homeassistant.components.update import (
     UpdateDeviceClass,
     UpdateEntity,
+    UpdateEntityDescription,
     UpdateEntityFeature as Feature,
 )
 from homeassistant.config_entries import ConfigEntry
@@ -14,39 +15,37 @@ from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from . import RivianDataUpdateCoordinator, RivianEntity
-from .const import ATTR_COORDINATOR, CONF_VIN, DOMAIN
+from .const import ATTR_COORDINATOR, DOMAIN
+from .entity import RivianDataUpdateCoordinator, RivianEntity
 
 INSTALLING_STATUS = ("Install_Countdown", "Awaiting_Install", "Installing")
+
+UPDATE_DESCRIPTION = UpdateEntityDescription(
+    key="software_ota",
+    name="Software",
+    device_class=UpdateDeviceClass.FIRMWARE,
+    entity_category=EntityCategory.DIAGNOSTIC,
+)
 
 
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     """Set up the sensor entities"""
-    coordinator = hass.data[DOMAIN][entry.entry_id][ATTR_COORDINATOR]
-    vin = entry.data.get(CONF_VIN)
-    async_add_entities(
-        [RivianUpdateEntity(coordinator=coordinator, vin=vin, entry=entry)], True
-    )
+    coordinator: RivianDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][
+        ATTR_COORDINATOR
+    ]
+    entities = [
+        RivianUpdateEntity(coordinator, entry, UPDATE_DESCRIPTION, vin)
+        for vin in coordinator.vehicles
+    ]
+    async_add_entities(entities, True)
 
 
 class RivianUpdateEntity(RivianEntity, UpdateEntity):
     """Rivian Update Entity."""
 
-    _attr_has_entity_name = True
-    _attr_name = "Software"
-    _attr_device_class = UpdateDeviceClass.FIRMWARE
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_supported_features = Feature.PROGRESS
-
-    def __init__(
-        self, coordinator: RivianDataUpdateCoordinator, vin: str, entry: ConfigEntry
-    ) -> None:
-        """Create a Rivian update entity."""
-        super().__init__(coordinator, entry)
-        self._vin = vin
-        self._attr_unique_id = f"{vin}-software_ota"
 
     @property
     def installed_version(self) -> str:
