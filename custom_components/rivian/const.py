@@ -556,8 +556,7 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             name="Cabin Climate Preconditioning",
             old_key=f"{DOMAIN}_thermal_tmm_status_cabin_precondition_state",
             device_class=BinarySensorDeviceClass.RUNNING,
-            on_value=["undefined", "unavailable"],
-            negate=True,
+            on_value=["active"],
         ),
         RivianBinarySensorEntityDescription(
             key="charger_state",
