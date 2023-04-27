@@ -360,6 +360,7 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             name="Software OTA - Install Progress",
             icon="mdi:progress-clock",
             entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
             old_key=f"{DOMAIN}_telematics_ota_status_install_progress",
         ),
         RivianSensorEntityDescription(
