@@ -289,6 +289,8 @@ def async_update_unique_id(
     for entity in entities:
         if not (old_key := getattr(entity.entity_description, "old_key")):
             continue
+        if entity._config_entry.data.get("vin") != entity._vin:
+            continue
         old_unique_id = f"{DOMAIN}_{old_key}_{entity._config_entry.entry_id}"  # pylint: disable=protected-access
         if entity_id := ent_reg.async_get_entity_id(domain, DOMAIN, old_unique_id):
             new_unique_id = f"{entity._vin}-{entity.entity_description.key}"  # pylint: disable=protected-access
