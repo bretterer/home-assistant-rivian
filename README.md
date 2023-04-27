@@ -10,7 +10,7 @@ An unofficial Rivian integration for Home Assistant, installed through [HACS](ht
 To use this extension, you'll need the following information
  - Rivian Username
  - Rivian Password
- - VIN
+ - (optional) Rivian Account's MFA/OTP Device
 
 Your vehicle must be in delivered status and possession for this integration to function.
 
@@ -49,9 +49,6 @@ The configuration flow is as follows:
    - For the integration to work, we require a username and password to a Rivian account with an active *driver profile* for the vehicle you wish to monitor remotely. 
 2. **OTP/MFA (optional)**
    - If OTP is enabled on the account provided, you will receive a text from Rivian with a one-time use passcode entered at this step.
-3. Vehicle VIN (required)
-   - Type the interested vehicle's identification number (VIN) as found on the [Rivian Account website](https://rivian.com/account/home)
-   - We only poll for a single vehicle's sensor data; track https://github.com/bretterer/home-assistant-rivian/issues/20 for multiple VIN support to come later.
 
 *Developers and Maintainers of this project take no personal responsibility for misconfiguration or misuse of the code provided by this integration. Account security is entirely the sole responsibility of the owner configuring this integration. Accounts may become locked/quarantined due to this unofficial integration.
 
