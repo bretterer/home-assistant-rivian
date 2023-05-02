@@ -289,6 +289,7 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             field="otaCurrentStatus",
             name="Software OTA - Status Current",
             icon="mdi:package",
+            entity_category=EntityCategory.DIAGNOSTIC,
             old_key=f"{DOMAIN}_telematics_ota_status_status_current",
             value_lambda=lambda v: v.replace("_", " ").title(),
         ),
@@ -342,6 +343,7 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             field="otaDownloadProgress",
             name="Software OTA - Download Progress",
             icon="mdi:progress-download",
+            entity_category=EntityCategory.DIAGNOSTIC,
             old_key=f"{DOMAIN}_telematics_ota_status_download_progress",
         ),
         RivianSensorEntityDescription(
@@ -349,6 +351,7 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             field="otaInstallDuration",
             name="Software OTA - Install Duration",
             icon="mdi:wrench-clock",
+            entity_category=EntityCategory.DIAGNOSTIC,
             old_key=f"{DOMAIN}_telematics_ota_status_install_duration",
         ),
         RivianSensorEntityDescription(
@@ -365,6 +368,7 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             field="otaInstallReady",
             name="Software OTA - Install Ready",
             icon="mdi:progress-check",
+            entity_category=EntityCategory.DIAGNOSTIC,
             old_key=f"{DOMAIN}_core_ota_status_cgm_ota_install_ready",
             value_lambda=lambda v: v.replace("_", " ").title().replace("Ota", "OTA"),
         ),
@@ -373,6 +377,7 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             field="otaInstallTime",
             name="Software OTA - Install Time",
             icon="mdi:clock",
+            entity_category=EntityCategory.DIAGNOSTIC,
             old_key=f"{DOMAIN}_telematics_ota_status_install_time",
         ),
         RivianSensorEntityDescription(
@@ -380,6 +385,7 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             field="otaInstallType",
             name="Software OTA - Install Type",
             icon="mdi:package",
+            entity_category=EntityCategory.DIAGNOSTIC,
             old_key=f"{DOMAIN}_telematics_ota_status_install_type",
         ),
         RivianSensorEntityDescription(
@@ -400,6 +406,7 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
                 "Connection Lost",
                 "unavailable",
             ],
+            entity_category=EntityCategory.DIAGNOSTIC,
             old_key=f"{DOMAIN}_telematics_ota_status_status",
             value_lambda=lambda v: v.replace("_", " ").title(),
         ),
