@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import logging
 from typing import Any
 
 from homeassistant.components.sensor import (
@@ -33,6 +34,8 @@ from .entity import (
     RivianWallboxEntity,
     async_update_unique_id,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(
@@ -73,7 +76,17 @@ class RivianSensorEntity(RivianEntity, SensorEntity):
     def native_value(self) -> str | None:
         """Return the value reported by the sensor."""
         if (val := self._get_value(self.entity_description.field)) is not None:
-            return _fn(val) if (_fn := self.entity_description.value_lambda) else val
+            rval = _fn(val) if (_fn := self.entity_description.value_lambda) else val
+            if self.device_class == SensorDeviceClass.ENUM and rval not in self.options:
+                _LOGGER.error(
+                    "Sensor %s provides state value '%s', which is not in the list of known options. Please consider opening an issue at https://github.com/bretterer/home-assistant-rivian/issues with the following info: 'field: \"%s\" / value: \"%s\"'",
+                    self.name,
+                    rval,
+                    self.entity_description.field,
+                    val,
+                )
+                self.options.append(rval)
+            return rval
         return STATE_UNAVAILABLE
 
     @property

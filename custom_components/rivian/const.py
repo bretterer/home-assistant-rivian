@@ -65,6 +65,21 @@ CLOSURE_STATE_ENTITIES = {
 
 INVALID_SENSOR_STATES = {"fault", "signal_not_available", "undefined"}
 
+
+DRIVE_MODE_MAP = {
+    "everyday": "All-Purpose",
+    "sport": "Sport",
+    "distance": "Conserve",
+    "winter": "Snow",
+    "towing": "Towing",
+    "off_road_auto": "All-Terrain",
+    "off_road_sand": "Soft Sand",
+    "off_road_rocks": "Rock Crawl",
+    "off_road_sport_auto": "Rally",
+    "off_road_sport_drift": "Drift",
+}
+
+
 SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
     "R1": (
         RivianSensorEntityDescription(
@@ -161,31 +176,9 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             name="Drive Mode",
             icon="mdi:car-speed-limiter",
             device_class=SensorDeviceClass.ENUM,
-            options=[
-                "All-Purpose",
-                "Conserve",
-                "Snow",
-                "Sport",
-                "Towing",
-                "All-Terrain",
-                "Drift",
-                "Rally",
-                "Rock Crawl",
-                "Soft Sand",
-            ],
+            options=list(DRIVE_MODE_MAP.values()),
             old_key=f"{DOMAIN}_dynamics_modes_drive_mode",
-            value_lambda=lambda v: {
-                "everyday": "All-Purpose",
-                "sport": "Sport",
-                "distance": "Conserve",
-                "winter": "Snow",
-                "towing": "Towing",
-                "off_road_auto": "All-Terrain",
-                "off_road_sand": "Soft Sand",
-                "off_road_rocks": "Rock Crawl",
-                "off_road_sport_auto": "Rally",
-                "off_road_sport_drift": "Drift",
-            }.get(v, v),
+            value_lambda=lambda v: DRIVE_MODE_MAP.get(v, v),
         ),
         RivianSensorEntityDescription(
             key="gear_status",
@@ -397,6 +390,7 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
                 "Install Countdown",
                 "Awaiting Install",
                 "Installing",
+                "Install Success",
                 "Connection Lost",
                 "unavailable",
             ],
