@@ -164,7 +164,7 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):
         _LOGGER.debug(uijson)
         if uijson:
             self._vehicles = {
-                vehicle["vin"]: vehicle["vehicle"]
+                vehicle["vin"]: vehicle["vehicle"] | {"name": vehicle["name"]}
                 for vehicle in uijson["data"]["currentUser"]["vehicles"]
             }
         else:
@@ -218,11 +218,12 @@ class RivianEntity(CoordinatorEntity[RivianDataUpdateCoordinator]):
 
         self._available = True
 
+        name = coordinator.vehicles[vin]["name"]
         model = coordinator.vehicles[vin]["model"]
         model_year = coordinator.vehicles[vin]["modelYear"]
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, vin)},
-            name=model,
+            name=name if name else model,
             manufacturer="Rivian",
             model=f"{model_year} {model}",
             sw_version=self._get_value("otaCurrentVersion"),
