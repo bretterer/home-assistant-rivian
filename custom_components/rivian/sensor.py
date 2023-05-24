@@ -2,13 +2,16 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
+from datetime import datetime
 import logging
-from typing import Any
+from typing import Any, Final
 
 from homeassistant.components.sensor import (
     DOMAIN as PLATFORM,
     SensorDeviceClass,
     SensorEntity,
+    SensorEntityDescription,
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
@@ -17,19 +20,24 @@ from homeassistant.const import (
     EntityCategory,
     UnitOfElectricCurrent,
     UnitOfElectricPotential,
+    UnitOfEnergy,
+    UnitOfLength,
     UnitOfPower,
+    UnitOfSpeed,
+    UnitOfTime,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import StateType
 
-from .const import ATTR_COORDINATOR, DOMAIN, SENSORS
+from .const import ATTR_CHARGING, ATTR_COORDINATOR, ATTR_VEHICLE, DOMAIN, SENSORS
+from .coordinator import ChargingDataUpdateCoordinator, RivianDataUpdateCoordinator
 from .data_classes import (
     RivianSensorEntityDescription,
     RivianWallboxSensorEntityDescription,
 )
 from .entity import (
-    RivianDataUpdateCoordinator,
+    RivianChargingEntity,
     RivianEntity,
     RivianWallboxEntity,
     async_update_unique_id,
@@ -37,21 +45,90 @@ from .entity import (
 
 _LOGGER = logging.getLogger(__name__)
 
+RIVIAN_TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%S.%f%z"
+
+CHARGING_SENSORS: Final[tuple[RivianSensorEntityDescription, ...]] = (
+    RivianSensorEntityDescription(
+        key="charging_session_cost",
+        field="currentPrice",
+        name="Charging session cost",
+        device_class=SensorDeviceClass.MONETARY,
+        state_class=SensorStateClass.TOTAL,
+    ),
+    RivianSensorEntityDescription(
+        key="charging_session_power",
+        field="power",
+        name="Charging session power",
+        device_class=SensorDeviceClass.POWER,
+        native_unit_of_measurement=UnitOfPower.KILO_WATT,
+        state_class=SensorStateClass.MEASUREMENT,
+    ),
+    RivianSensorEntityDescription(
+        key="charging_session_range_added",
+        field="rangeAddedThisSession",
+        name="Charging session range added",
+        device_class=SensorDeviceClass.DISTANCE,
+        native_unit_of_measurement=UnitOfLength.KILOMETERS,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        suggested_unit_of_measurement=UnitOfLength.MILES,
+    ),
+    RivianSensorEntityDescription(
+        key="charging_session_range_speed",
+        field="kilometersChargedPerHour",
+        name="Charging session range speed",
+        device_class=SensorDeviceClass.SPEED,
+        native_unit_of_measurement=UnitOfSpeed.KILOMETERS_PER_HOUR,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_unit_of_measurement=UnitOfSpeed.MILES_PER_HOUR,
+    ),
+    RivianSensorEntityDescription(
+        key="charging_session_start_time",
+        field="startTime",
+        name="Charging session start time",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        value_lambda=lambda val: datetime.strptime(val, RIVIAN_TIMESTAMP_FORMAT),
+    ),
+    RivianSensorEntityDescription(
+        key="charging_session_time_elapsed",
+        field="timeElapsed",
+        name="Charging session time elapsed",
+        device_class=SensorDeviceClass.DURATION,
+        native_unit_of_measurement=UnitOfTime.SECONDS,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+    ),
+    RivianSensorEntityDescription(
+        key="charging_session_time_remaining",
+        field="timeRemaining",
+        name="Charging session time remaining",
+        device_class=SensorDeviceClass.DURATION,
+        native_unit_of_measurement=UnitOfTime.SECONDS,
+        state_class=SensorStateClass.MEASUREMENT,
+    ),
+    RivianSensorEntityDescription(
+        key="charging_session_total_charged_energy",
+        field="totalChargedEnergy",
+        name="Charging session total charged energy",
+        device_class=SensorDeviceClass.ENERGY,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        suggested_display_precision=1,
+    ),
+)
+
 
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     """Set up the sensor entities"""
-    coordinator: RivianDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][
-        ATTR_COORDINATOR
-    ]
+    coordinators = hass.data[DOMAIN][entry.entry_id][ATTR_COORDINATOR]
+    coordinator: RivianDataUpdateCoordinator = coordinators[ATTR_VEHICLE]
 
     entities = [
         RivianSensorEntity(coordinator, entry, description, vin)
         for vin, vehicle in coordinator.vehicles.items()
-        for model in SENSORS
+        for model, descriptions in SENSORS.items()
         if model in vehicle["model"]
-        for description in SENSORS[model]
+        for description in descriptions
     ]
 
     # Migrate unique ids to support multiple VIN
@@ -64,7 +141,42 @@ async def async_setup_entry(
         for description in WALLBOX_SENSORS
     )
 
+    # Add charging session entities
+    charging_coordinators: dict[str, ChargingDataUpdateCoordinator] = coordinators[
+        ATTR_CHARGING
+    ]
+    entities.extend(
+        RivianChargingSensorEntity(
+            coordinator=charging_coordinators[vin], description=description, vin=vin
+        )
+        for vin in coordinator.vehicles
+        for description in CHARGING_SENSORS
+    )
+
     async_add_entities(entities, True)
+
+
+class RivianChargingSensorEntity(RivianChargingEntity, SensorEntity):
+    """Representation of a Rivian charging sensor entity."""
+
+    entity_description: RivianSensorEntityDescription
+
+    @property
+    def native_value(self) -> str | float | None:
+        """Return the value reported by the sensor."""
+        val = self.coordinator.data.get(self.entity_description.field)
+        if isinstance(val, dict):
+            val = val["value"]
+        if value_fn := self.entity_description.value_lambda:
+            return value_fn(val)
+        return val
+
+    @property
+    def native_unit_of_measurement(self) -> str | None:
+        """Return the unit of measurement of the sensor, if any."""
+        if self.entity_description.field == "currentPrice":
+            return self.coordinator.data.get("currentCurrency")
+        return super().native_unit_of_measurement
 
 
 class RivianSensorEntity(RivianEntity, SensorEntity):

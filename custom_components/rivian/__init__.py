@@ -12,7 +12,9 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 
 from .const import (
+    ATTR_CHARGING,
     ATTR_COORDINATOR,
+    ATTR_VEHICLE,
     CONF_ACCESS_TOKEN,
     CONF_REFRESH_TOKEN,
     CONF_USER_SESSION_TOKEN,
@@ -20,7 +22,7 @@ from .const import (
     ISSUE_URL,
     VERSION,
 )
-from .entity import RivianDataUpdateCoordinator
+from .coordinator import ChargingDataUpdateCoordinator, RivianDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS: list[Platform] = [
@@ -58,7 +60,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     except RivianUnauthenticated as err:
         raise ConfigEntryAuthFailed from err
 
-    hass.data[DOMAIN][entry.entry_id] = {ATTR_COORDINATOR: coordinator}
+    charging_coordinators: dict[str, ChargingDataUpdateCoordinator] = {}
+    for vin in coordinator.vehicles:
+        coor = ChargingDataUpdateCoordinator(hass=hass, client=client, vin=vin)
+        await coor.async_config_entry_first_refresh()
+        charging_coordinators[vin] = coor
+
+    hass.data[DOMAIN][entry.entry_id] = {
+        ATTR_COORDINATOR: {
+            ATTR_VEHICLE: coordinator,
+            ATTR_CHARGING: charging_coordinators,
+        }
+    }
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 

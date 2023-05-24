@@ -13,9 +13,10 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import ATTR_COORDINATOR, DOMAIN
+from .const import ATTR_COORDINATOR, ATTR_VEHICLE, DOMAIN
+from .coordinator import RivianDataUpdateCoordinator
 from .data_classes import RivianTrackerEntityDescription
-from .entity import RivianDataUpdateCoordinator, RivianEntity, async_update_unique_id
+from .entity import RivianEntity, async_update_unique_id
 
 LOCATION_DESCRIPTION = RivianTrackerEntityDescription(
     key="location", name="Location", old_key="Rivian Location"
@@ -28,7 +29,7 @@ async def async_setup_entry(
     """Set up the Rivain binary_sensors by config_entry."""
     coordinator: RivianDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][
         ATTR_COORDINATOR
-    ]
+    ][ATTR_VEHICLE]
 
     entities = [
         RivianDeviceEntity(coordinator, entry, LOCATION_DESCRIPTION, vin)

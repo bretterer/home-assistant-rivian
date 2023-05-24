@@ -13,9 +13,10 @@ from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import ATTR_COORDINATOR, BINARY_SENSORS, DOMAIN
+from .const import ATTR_COORDINATOR, ATTR_VEHICLE, BINARY_SENSORS, DOMAIN
+from .coordinator import RivianDataUpdateCoordinator
 from .data_classes import RivianBinarySensorEntityDescription
-from .entity import RivianDataUpdateCoordinator, RivianEntity, async_update_unique_id
+from .entity import RivianEntity, async_update_unique_id
 
 
 async def async_setup_entry(
@@ -24,7 +25,7 @@ async def async_setup_entry(
     """Set up the sensor entities"""
     coordinator: RivianDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][
         ATTR_COORDINATOR
-    ]
+    ][ATTR_VEHICLE]
 
     entities = [
         RivianBinarySensorEntity(coordinator, entry, description, vin)
