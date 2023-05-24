@@ -167,7 +167,7 @@ async def async_setup_entry(
         for description in WALLBOX_SENSORS
     )
 
-    async_add_entities(entities, True)
+    async_add_entities(entities)
 
 
 class RivianChargingSensorEntity(RivianChargingEntity, SensorEntity):

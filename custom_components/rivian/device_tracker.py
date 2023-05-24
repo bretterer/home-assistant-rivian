@@ -39,7 +39,7 @@ async def async_setup_entry(
     # Migrate unique ids to support multiple VIN
     async_update_unique_id(hass, PLATFORM, entities)
 
-    async_add_entities(entities, True)
+    async_add_entities(entities)
 
 
 class RivianDeviceEntity(RivianEntity, TrackerEntity):

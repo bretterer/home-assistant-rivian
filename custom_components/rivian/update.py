@@ -40,7 +40,7 @@ async def async_setup_entry(
         RivianUpdateEntity(coordinator, entry, UPDATE_DESCRIPTION, vin)
         for vin in coordinator.vehicles
     ]
-    async_add_entities(entities, True)
+    async_add_entities(entities)
 
 
 class RivianUpdateEntity(RivianEntity, UpdateEntity):
