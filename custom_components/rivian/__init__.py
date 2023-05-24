@@ -15,6 +15,7 @@ from .const import (
     ATTR_CHARGING,
     ATTR_COORDINATOR,
     ATTR_VEHICLE,
+    ATTR_WALLBOX,
     CONF_ACCESS_TOKEN,
     CONF_REFRESH_TOKEN,
     CONF_USER_SESSION_TOKEN,
@@ -22,7 +23,11 @@ from .const import (
     ISSUE_URL,
     VERSION,
 )
-from .coordinator import ChargingDataUpdateCoordinator, RivianDataUpdateCoordinator
+from .coordinator import (
+    ChargingDataUpdateCoordinator,
+    RivianDataUpdateCoordinator,
+    WallboxDataUpdateCoordinator,
+)
 
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS: list[Platform] = [
@@ -66,10 +71,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await coor.async_config_entry_first_refresh()
         charging_coordinators[vin] = coor
 
+    wallbox_coordinator = WallboxDataUpdateCoordinator(hass=hass, client=client)
+    await wallbox_coordinator.async_config_entry_first_refresh()
+
     hass.data[DOMAIN][entry.entry_id] = {
         ATTR_COORDINATOR: {
             ATTR_VEHICLE: coordinator,
             ATTR_CHARGING: charging_coordinators,
+            ATTR_WALLBOX: wallbox_coordinator,
         }
     }
 

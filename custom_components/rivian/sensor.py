@@ -30,8 +30,19 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import StateType
 
-from .const import ATTR_CHARGING, ATTR_COORDINATOR, ATTR_VEHICLE, DOMAIN, SENSORS
-from .coordinator import ChargingDataUpdateCoordinator, RivianDataUpdateCoordinator
+from .const import (
+    ATTR_CHARGING,
+    ATTR_COORDINATOR,
+    ATTR_VEHICLE,
+    ATTR_WALLBOX,
+    DOMAIN,
+    SENSORS,
+)
+from .coordinator import (
+    ChargingDataUpdateCoordinator,
+    RivianDataUpdateCoordinator,
+    WallboxDataUpdateCoordinator,
+)
 from .data_classes import (
     RivianSensorEntityDescription,
     RivianWallboxSensorEntityDescription,
@@ -134,13 +145,6 @@ async def async_setup_entry(
     # Migrate unique ids to support multiple VIN
     async_update_unique_id(hass, PLATFORM, entities)
 
-    # Add wallbox entities
-    entities.extend(
-        RivianWallboxSensorEntity(coordinator, description, wallbox)
-        for wallbox in coordinator.wallboxes
-        for description in WALLBOX_SENSORS
-    )
-
     # Add charging session entities
     charging_coordinators: dict[str, ChargingDataUpdateCoordinator] = coordinators[
         ATTR_CHARGING
@@ -151,6 +155,16 @@ async def async_setup_entry(
         )
         for vin in coordinator.vehicles
         for description in CHARGING_SENSORS
+    )
+
+    # Add wallbox entities
+    wallbox_coordinator: WallboxDataUpdateCoordinator = coordinators[ATTR_WALLBOX]
+    entities.extend(
+        RivianWallboxSensorEntity(
+            coordinator=wallbox_coordinator, description=description, wallbox=wallbox
+        )
+        for wallbox in wallbox_coordinator.data
+        for description in WALLBOX_SENSORS
     )
 
     async_add_entities(entities, True)

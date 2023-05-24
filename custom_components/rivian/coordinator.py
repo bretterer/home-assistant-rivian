@@ -90,6 +90,18 @@ class ChargingDataUpdateCoordinator(RivianBaseDataUpdateCoordinator[dict[str, An
         )
 
 
+class WallboxDataUpdateCoordinator(
+    RivianBaseDataUpdateCoordinator[list[dict[str, Any]]]
+):
+    """Wallbox data update coordinator for Rivian."""
+
+    key = "getRegisteredWallboxes"
+
+    async def _fetch_data(self) -> ClientResponse:
+        """Fetch the data."""
+        return await self.api.get_registered_wallboxes()
+
+
 class RivianDataUpdateCoordinator(DataUpdateCoordinator):
     """Class to manage fetching data from the API."""
 
@@ -102,7 +114,6 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):
         # self._attempt = 0
         # self._next_attempt = None
         self._vehicles: dict[str, dict[str, Any]] | None = None
-        self._wallboxes: list[dict[str, Any]] | None = None
 
         # sync tokens from initial configuration
         self._api._access_token = entry.data.get(CONF_ACCESS_TOKEN)
@@ -120,11 +131,6 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):
     def vehicles(self) -> dict[str, dict[str, Any]]:
         """Return the vehicles."""
         return self._vehicles or {}
-
-    @property
-    def wallboxes(self) -> list[dict[str, Any]]:
-        """Return the wallboxes."""
-        return self._wallboxes or []
 
     def process_new_data(self, vin: str, data: dict[str, Any]) -> None:
         """Process new data."""
@@ -175,13 +181,6 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):
                         await asyncio.sleep(0.1)
 
             self._login_attempts = 0
-
-            if self._wallboxes or self._wallboxes is None:
-                resp = await self._api.get_registered_wallboxes()
-                if resp.status == 200:
-                    wbjson = await resp.json()
-                    _LOGGER.debug(wbjson)
-                    self._wallboxes = wbjson["data"]["getRegisteredWallboxes"]
 
             return {vin: data.get("info") for vin, data in self.vehicles.items()}
         except (

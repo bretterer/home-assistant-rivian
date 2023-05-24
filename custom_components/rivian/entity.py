@@ -17,7 +17,11 @@ import homeassistant.helpers.entity_registry as er
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
-from .coordinator import ChargingDataUpdateCoordinator, RivianDataUpdateCoordinator
+from .coordinator import (
+    ChargingDataUpdateCoordinator,
+    RivianDataUpdateCoordinator,
+    WallboxDataUpdateCoordinator,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -86,14 +90,14 @@ class RivianChargingEntity(CoordinatorEntity[ChargingDataUpdateCoordinator]):
         self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, vin)})
 
 
-class RivianWallboxEntity(CoordinatorEntity[RivianDataUpdateCoordinator]):
+class RivianWallboxEntity(CoordinatorEntity[WallboxDataUpdateCoordinator]):
     """Base class for Rivian wallbox entities."""
 
     _attr_has_entity_name = True
 
     def __init__(
         self,
-        coordinator: RivianDataUpdateCoordinator,
+        coordinator: WallboxDataUpdateCoordinator,
         description: EntityDescription,
         wallbox: dict[str, Any],
     ) -> None:
@@ -117,7 +121,7 @@ class RivianWallboxEntity(CoordinatorEntity[RivianDataUpdateCoordinator]):
         wallbox = next(
             (
                 wallbox
-                for wallbox in self.coordinator.wallboxes
+                for wallbox in self.coordinator.data
                 if wallbox["wallboxId"] == self.wallbox["wallboxId"]
             ),
             self.wallbox,

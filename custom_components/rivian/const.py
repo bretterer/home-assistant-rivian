@@ -28,6 +28,7 @@ UPDATE_INTERVAL = 15
 ATTR_COORDINATOR = "coordinator"
 ATTR_CHARGING = "charging"
 ATTR_VEHICLE = "vehicle"
+ATTR_WALLBOX = "wallbox"
 
 # Config properties
 CONF_OTP = "otp"
