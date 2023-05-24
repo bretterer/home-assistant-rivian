@@ -337,6 +337,7 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             name="Software OTA - Download Progress",
             icon="mdi:progress-download",
             entity_category=EntityCategory.DIAGNOSTIC,
+            native_unit_of_measurement=PERCENTAGE,
             old_key=f"{DOMAIN}_telematics_ota_status_download_progress",
         ),
         RivianSensorEntityDescription(
@@ -344,7 +345,9 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             field="otaInstallDuration",
             name="Software OTA - Install Duration",
             icon="mdi:wrench-clock",
+            device_class=SensorDeviceClass.DURATION,
             entity_category=EntityCategory.DIAGNOSTIC,
+            native_unit_of_measurement=UnitOfTime.MINUTES,
             old_key=f"{DOMAIN}_telematics_ota_status_install_duration",
         ),
         RivianSensorEntityDescription(
@@ -354,6 +357,7 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             icon="mdi:progress-clock",
             entity_category=EntityCategory.DIAGNOSTIC,
             entity_registry_enabled_default=False,
+            native_unit_of_measurement=PERCENTAGE,
             old_key=f"{DOMAIN}_telematics_ota_status_install_progress",
         ),
         RivianSensorEntityDescription(
@@ -370,7 +374,9 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             field="otaInstallTime",
             name="Software OTA - Install Time",
             icon="mdi:clock",
+            device_class=SensorDeviceClass.DURATION,
             entity_category=EntityCategory.DIAGNOSTIC,
+            native_unit_of_measurement=UnitOfTime.MINUTES,
             old_key=f"{DOMAIN}_telematics_ota_status_install_time",
         ),
         RivianSensorEntityDescription(
@@ -398,7 +404,6 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
                 "Installing",
                 "Install Success",
                 "Connection Lost",
-                "unavailable",
             ],
             entity_category=EntityCategory.DIAGNOSTIC,
             old_key=f"{DOMAIN}_telematics_ota_status_status",
