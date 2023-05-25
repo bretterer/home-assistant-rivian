@@ -99,7 +99,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
     """Vehicle data update coordinator for Rivian."""
 
     key = "vehicleState"
-    update_interval = 15 * 3600  # 15 minutes
+    update_interval = 15 * 60  # 15 minutes
     initial = asyncio.Event()
 
     def __init__(self, hass: HomeAssistant, client: Rivian, vin: str) -> None:
