@@ -52,6 +52,112 @@ _LOGGER = logging.getLogger(__name__)
 
 RIVIAN_TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%S.%f%z"
 
+
+async def async_setup_entry(
+    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+) -> None:
+    """Set up the sensor entities"""
+    data: dict[str, Any] = hass.data[DOMAIN][entry.entry_id]
+    vehicles: dict[str, Any] = data[ATTR_VEHICLE]
+    coordinators: dict[str, Any] = data[ATTR_COORDINATOR]
+
+    # Add vehicle entities
+    vehicle_coordinators: dict[str, VehicleCoordinator] = coordinators[ATTR_VEHICLE]
+    entities = [
+        RivianSensorEntity(vehicle_coordinators[vin], entry, description, vehicle)
+        for vin, vehicle in vehicles.items()
+        for model, descriptions in SENSORS.items()
+        if model in vehicle["model"]
+        for description in descriptions
+    ]
+
+    # Migrate unique ids to support multiple VIN
+    async_update_unique_id(hass, PLATFORM, entities)
+
+    # Add charging entities
+    charging_coordinators: dict[str, ChargingCoordinator] = coordinators[ATTR_CHARGING]
+    entities.extend(
+        RivianChargingSensorEntity(charging_coordinators[vin], description, vin)
+        for vin in vehicles
+        for description in CHARGING_SENSORS
+    )
+
+    # Add wallbox entities
+    wallbox_coordinator: WallboxCoordinator = coordinators[ATTR_WALLBOX]
+    entities.extend(
+        RivianWallboxSensorEntity(wallbox_coordinator, description, wallbox)
+        for wallbox in wallbox_coordinator.data
+        for description in WALLBOX_SENSORS
+    )
+
+    async_add_entities(entities)
+
+
+class RivianSensorEntity(RivianVehicleEntity, SensorEntity):
+    """Representation of a Rivian sensor entity."""
+
+    entity_description: RivianSensorEntityDescription
+
+    @property
+    def native_value(self) -> str | None:
+        """Return the value reported by the sensor."""
+        if (val := self._get_value(self.entity_description.field)) is not None:
+            rval = _fn(val) if (_fn := self.entity_description.value_lambda) else val
+            if self.device_class == SensorDeviceClass.ENUM and rval not in self.options:
+                _LOGGER.error(
+                    "Sensor %s provides state value '%s', which is not in the list of known options. Please consider opening an issue at https://github.com/bretterer/home-assistant-rivian/issues with the following info: 'field: \"%s\" / value: \"%s\"'",
+                    self.name,
+                    rval,
+                    self.entity_description.field,
+                    val,
+                )
+                self.options.append(rval)
+            return rval
+        return STATE_UNAVAILABLE
+
+    @property
+    def extra_state_attributes(self) -> Mapping[str, Any] | None:
+        """Return the state attributes of the device."""
+        try:
+            entity = self.coordinator.data[self._vin][self.entity_description.field]
+            if entity is None:
+                return None
+            if self.entity_description.value_lambda is None:
+                return {
+                    "last_update": entity["timeStamp"],
+                }
+            return {
+                "native_value": entity["value"],
+                "last_update": entity["timeStamp"],
+                "history": str(entity["history"]),
+            }
+        except KeyError:
+            return None
+
+
+class RivianChargingSensorEntity(RivianChargingEntity, SensorEntity):
+    """Representation of a Rivian charging sensor entity."""
+
+    entity_description: RivianSensorEntityDescription
+
+    @property
+    def native_value(self) -> str | float | None:
+        """Return the value reported by the sensor."""
+        val = self.coordinator.data.get(self.entity_description.field)
+        if isinstance(val, dict):
+            val = val["value"]
+        if value_fn := self.entity_description.value_lambda:
+            return value_fn(val)
+        return val
+
+    @property
+    def native_unit_of_measurement(self) -> str | None:
+        """Return the unit of measurement of the sensor, if any."""
+        if self.entity_description.field == "currentPrice":
+            return self.coordinator.data.get("currentCurrency")
+        return super().native_unit_of_measurement
+
+
 CHARGING_SENSORS: Final[tuple[RivianSensorEntityDescription, ...]] = (
     RivianSensorEntityDescription(
         key="charging_cost",
@@ -113,111 +219,6 @@ CHARGING_SENSORS: Final[tuple[RivianSensorEntityDescription, ...]] = (
         state_class=SensorStateClass.TOTAL_INCREASING,
     ),
 )
-
-
-async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
-) -> None:
-    """Set up the sensor entities"""
-    data: dict[str, Any] = hass.data[DOMAIN][entry.entry_id]
-    vehicles: dict[str, Any] = data[ATTR_VEHICLE]
-    coordinators: dict[str, Any] = data[ATTR_COORDINATOR]
-
-    # Add vehicle entities
-    vehicle_coordinators: dict[str, VehicleCoordinator] = coordinators[ATTR_VEHICLE]
-    entities = [
-        RivianSensorEntity(vehicle_coordinators[vin], entry, description, vehicle)
-        for vin, vehicle in vehicles.items()
-        for model, descriptions in SENSORS.items()
-        if model in vehicle["model"]
-        for description in descriptions
-    ]
-
-    # Migrate unique ids to support multiple VIN
-    async_update_unique_id(hass, PLATFORM, entities)
-
-    # Add charging entities
-    charging_coordinators: dict[str, ChargingCoordinator] = coordinators[ATTR_CHARGING]
-    entities.extend(
-        RivianChargingSensorEntity(charging_coordinators[vin], description, vin)
-        for vin in vehicles
-        for description in CHARGING_SENSORS
-    )
-
-    # Add wallbox entities
-    wallbox_coordinator: WallboxCoordinator = coordinators[ATTR_WALLBOX]
-    entities.extend(
-        RivianWallboxSensorEntity(wallbox_coordinator, description, wallbox)
-        for wallbox in wallbox_coordinator.data
-        for description in WALLBOX_SENSORS
-    )
-
-    async_add_entities(entities)
-
-
-class RivianChargingSensorEntity(RivianChargingEntity, SensorEntity):
-    """Representation of a Rivian charging sensor entity."""
-
-    entity_description: RivianSensorEntityDescription
-
-    @property
-    def native_value(self) -> str | float | None:
-        """Return the value reported by the sensor."""
-        val = self.coordinator.data.get(self.entity_description.field)
-        if isinstance(val, dict):
-            val = val["value"]
-        if value_fn := self.entity_description.value_lambda:
-            return value_fn(val)
-        return val
-
-    @property
-    def native_unit_of_measurement(self) -> str | None:
-        """Return the unit of measurement of the sensor, if any."""
-        if self.entity_description.field == "currentPrice":
-            return self.coordinator.data.get("currentCurrency")
-        return super().native_unit_of_measurement
-
-
-class RivianSensorEntity(RivianVehicleEntity, SensorEntity):
-    """Representation of a Rivian sensor entity."""
-
-    entity_description: RivianSensorEntityDescription
-
-    @property
-    def native_value(self) -> str | None:
-        """Return the value reported by the sensor."""
-        if (val := self._get_value(self.entity_description.field)) is not None:
-            rval = _fn(val) if (_fn := self.entity_description.value_lambda) else val
-            if self.device_class == SensorDeviceClass.ENUM and rval not in self.options:
-                _LOGGER.error(
-                    "Sensor %s provides state value '%s', which is not in the list of known options. Please consider opening an issue at https://github.com/bretterer/home-assistant-rivian/issues with the following info: 'field: \"%s\" / value: \"%s\"'",
-                    self.name,
-                    rval,
-                    self.entity_description.field,
-                    val,
-                )
-                self.options.append(rval)
-            return rval
-        return STATE_UNAVAILABLE
-
-    @property
-    def extra_state_attributes(self) -> Mapping[str, Any] | None:
-        """Return the state attributes of the device."""
-        try:
-            entity = self.coordinator.data[self._vin][self.entity_description.field]
-            if entity is None:
-                return None
-            if self.entity_description.value_lambda is None:
-                return {
-                    "last_update": entity["timeStamp"],
-                }
-            return {
-                "native_value": entity["value"],
-                "last_update": entity["timeStamp"],
-                "history": str(entity["history"]),
-            }
-        except KeyError:
-            return None
 
 
 class RivianWallboxSensorEntity(RivianWallboxEntity, SensorEntity):
