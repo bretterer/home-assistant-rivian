@@ -60,69 +60,61 @@ RIVIAN_TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%S.%f%z"
 
 CHARGING_SENSORS: Final[tuple[RivianSensorEntityDescription, ...]] = (
     RivianSensorEntityDescription(
-        key="charging_session_cost",
+        key="charging_cost",
         field="currentPrice",
-        name="Charging session cost",
+        name="Charging cost",
         device_class=SensorDeviceClass.MONETARY,
         state_class=SensorStateClass.TOTAL,
     ),
     RivianSensorEntityDescription(
-        key="charging_session_power",
-        field="power",
-        name="Charging session power",
-        device_class=SensorDeviceClass.POWER,
-        native_unit_of_measurement=UnitOfPower.KILO_WATT,
-        state_class=SensorStateClass.MEASUREMENT,
+        key="charging_energy_delivered",
+        field="totalChargedEnergy",
+        name="Charging energy delivered",
+        device_class=SensorDeviceClass.ENERGY,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        suggested_display_precision=1,
     ),
     RivianSensorEntityDescription(
-        key="charging_session_range_added",
+        key="charging_range_added",
         field="rangeAddedThisSession",
-        name="Charging session range added",
+        name="Charging range added",
         device_class=SensorDeviceClass.DISTANCE,
         native_unit_of_measurement=UnitOfLength.KILOMETERS,
         state_class=SensorStateClass.TOTAL_INCREASING,
         suggested_unit_of_measurement=UnitOfLength.MILES,
     ),
     RivianSensorEntityDescription(
-        key="charging_session_range_speed",
+        key="charging_rate",
         field="kilometersChargedPerHour",
-        name="Charging session range speed",
+        name="Charging rate",
         device_class=SensorDeviceClass.SPEED,
         native_unit_of_measurement=UnitOfSpeed.KILOMETERS_PER_HOUR,
         state_class=SensorStateClass.MEASUREMENT,
         suggested_unit_of_measurement=UnitOfSpeed.MILES_PER_HOUR,
     ),
     RivianSensorEntityDescription(
-        key="charging_session_start_time",
+        key="charging_speed",
+        field="power",
+        name="Charging speed",
+        device_class=SensorDeviceClass.POWER,
+        native_unit_of_measurement=UnitOfPower.KILO_WATT,
+        state_class=SensorStateClass.MEASUREMENT,
+    ),
+    RivianSensorEntityDescription(
+        key="charging_start_time",
         field="startTime",
-        name="Charging session start time",
+        name="Charging start time",
         device_class=SensorDeviceClass.TIMESTAMP,
         value_lambda=lambda val: datetime.strptime(val, RIVIAN_TIMESTAMP_FORMAT),
     ),
     RivianSensorEntityDescription(
-        key="charging_session_time_elapsed",
+        key="charging_time_elapsed",
         field="timeElapsed",
-        name="Charging session time elapsed",
+        name="Charging time elapsed",
         device_class=SensorDeviceClass.DURATION,
         native_unit_of_measurement=UnitOfTime.SECONDS,
         state_class=SensorStateClass.TOTAL_INCREASING,
-    ),
-    RivianSensorEntityDescription(
-        key="charging_session_time_remaining",
-        field="timeRemaining",
-        name="Charging session time remaining",
-        device_class=SensorDeviceClass.DURATION,
-        native_unit_of_measurement=UnitOfTime.SECONDS,
-        state_class=SensorStateClass.MEASUREMENT,
-    ),
-    RivianSensorEntityDescription(
-        key="charging_session_total_charged_energy",
-        field="totalChargedEnergy",
-        name="Charging session total charged energy",
-        device_class=SensorDeviceClass.ENERGY,
-        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
-        state_class=SensorStateClass.TOTAL_INCREASING,
-        suggested_display_precision=1,
     ),
 )
 
@@ -145,7 +137,7 @@ async def async_setup_entry(
     # Migrate unique ids to support multiple VIN
     async_update_unique_id(hass, PLATFORM, entities)
 
-    # Add charging session entities
+    # Add charging entities
     charging_coordinators: dict[str, ChargingDataUpdateCoordinator] = coordinators[
         ATTR_CHARGING
     ]
