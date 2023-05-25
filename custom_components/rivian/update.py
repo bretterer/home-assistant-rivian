@@ -16,8 +16,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import ATTR_COORDINATOR, ATTR_VEHICLE, DOMAIN
-from .coordinator import RivianDataUpdateCoordinator
-from .entity import RivianEntity
+from .coordinator import VehicleCoordinator
+from .entity import RivianVehicleEntity
 
 INSTALLING_STATUS = ("Install_Countdown", "Awaiting_Install", "Installing")
 
@@ -33,17 +33,18 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     """Set up the sensor entities"""
-    coordinator: RivianDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][
-        ATTR_COORDINATOR
-    ][ATTR_VEHICLE]
+    data: dict[str, Any] = hass.data[DOMAIN][entry.entry_id]
+    vehicles: dict[str, Any] = data[ATTR_VEHICLE]
+    coordinators: dict[str, VehicleCoordinator] = data[ATTR_COORDINATOR][ATTR_VEHICLE]
+
     entities = [
-        RivianUpdateEntity(coordinator, entry, UPDATE_DESCRIPTION, vin)
-        for vin in coordinator.vehicles
+        RivianUpdateEntity(coordinators[vin], entry, UPDATE_DESCRIPTION, vehicle)
+        for vin, vehicle in vehicles.items()
     ]
     async_add_entities(entities)
 
 
-class RivianUpdateEntity(RivianEntity, UpdateEntity):
+class RivianUpdateEntity(RivianVehicleEntity, UpdateEntity):
     """Rivian Update Entity."""
 
     _attr_supported_features = Feature.PROGRESS

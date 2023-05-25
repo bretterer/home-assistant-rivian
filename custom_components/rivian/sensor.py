@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
 from datetime import datetime
 import logging
 from typing import Any, Final
@@ -11,7 +10,6 @@ from homeassistant.components.sensor import (
     DOMAIN as PLATFORM,
     SensorDeviceClass,
     SensorEntity,
-    SensorEntityDescription,
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
@@ -38,18 +36,14 @@ from .const import (
     DOMAIN,
     SENSORS,
 )
-from .coordinator import (
-    ChargingDataUpdateCoordinator,
-    RivianDataUpdateCoordinator,
-    WallboxDataUpdateCoordinator,
-)
+from .coordinator import ChargingCoordinator, VehicleCoordinator, WallboxCoordinator
 from .data_classes import (
     RivianSensorEntityDescription,
     RivianWallboxSensorEntityDescription,
 )
 from .entity import (
     RivianChargingEntity,
-    RivianEntity,
+    RivianVehicleEntity,
     RivianWallboxEntity,
     async_update_unique_id,
 )
@@ -106,7 +100,9 @@ CHARGING_SENSORS: Final[tuple[RivianSensorEntityDescription, ...]] = (
         field="startTime",
         name="Charging start time",
         device_class=SensorDeviceClass.TIMESTAMP,
-        value_lambda=lambda val: datetime.strptime(val, RIVIAN_TIMESTAMP_FORMAT),
+        value_lambda=lambda val: datetime.strptime(val, RIVIAN_TIMESTAMP_FORMAT)
+        if val
+        else val,
     ),
     RivianSensorEntityDescription(
         key="charging_time_elapsed",
@@ -123,12 +119,15 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     """Set up the sensor entities"""
-    coordinators = hass.data[DOMAIN][entry.entry_id][ATTR_COORDINATOR]
-    coordinator: RivianDataUpdateCoordinator = coordinators[ATTR_VEHICLE]
+    data: dict[str, Any] = hass.data[DOMAIN][entry.entry_id]
+    vehicles: dict[str, Any] = data[ATTR_VEHICLE]
+    coordinators: dict[str, Any] = data[ATTR_COORDINATOR]
 
+    # Add vehicle entities
+    vehicle_coordinators: dict[str, VehicleCoordinator] = coordinators[ATTR_VEHICLE]
     entities = [
-        RivianSensorEntity(coordinator, entry, description, vin)
-        for vin, vehicle in coordinator.vehicles.items()
+        RivianSensorEntity(vehicle_coordinators[vin], entry, description, vehicle)
+        for vin, vehicle in vehicles.items()
         for model, descriptions in SENSORS.items()
         if model in vehicle["model"]
         for description in descriptions
@@ -138,23 +137,17 @@ async def async_setup_entry(
     async_update_unique_id(hass, PLATFORM, entities)
 
     # Add charging entities
-    charging_coordinators: dict[str, ChargingDataUpdateCoordinator] = coordinators[
-        ATTR_CHARGING
-    ]
+    charging_coordinators: dict[str, ChargingCoordinator] = coordinators[ATTR_CHARGING]
     entities.extend(
-        RivianChargingSensorEntity(
-            coordinator=charging_coordinators[vin], description=description, vin=vin
-        )
-        for vin in coordinator.vehicles
+        RivianChargingSensorEntity(charging_coordinators[vin], description, vin)
+        for vin in vehicles
         for description in CHARGING_SENSORS
     )
 
     # Add wallbox entities
-    wallbox_coordinator: WallboxDataUpdateCoordinator = coordinators[ATTR_WALLBOX]
+    wallbox_coordinator: WallboxCoordinator = coordinators[ATTR_WALLBOX]
     entities.extend(
-        RivianWallboxSensorEntity(
-            coordinator=wallbox_coordinator, description=description, wallbox=wallbox
-        )
+        RivianWallboxSensorEntity(wallbox_coordinator, description, wallbox)
         for wallbox in wallbox_coordinator.data
         for description in WALLBOX_SENSORS
     )
@@ -185,7 +178,7 @@ class RivianChargingSensorEntity(RivianChargingEntity, SensorEntity):
         return super().native_unit_of_measurement
 
 
-class RivianSensorEntity(RivianEntity, SensorEntity):
+class RivianSensorEntity(RivianVehicleEntity, SensorEntity):
     """Representation of a Rivian sensor entity."""
 
     entity_description: RivianSensorEntityDescription

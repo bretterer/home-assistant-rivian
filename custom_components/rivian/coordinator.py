@@ -12,30 +12,25 @@ import async_timeout
 from rivian import Rivian
 from rivian.exceptions import RivianExpiredTokenError
 
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import (
     CHARGING_API_FIELDS,
-    CONF_ACCESS_TOKEN,
-    CONF_REFRESH_TOKEN,
-    CONF_USER_SESSION_TOKEN,
     DOMAIN,
     INVALID_SENSOR_STATES,
-    UPDATE_INTERVAL,
     VEHICLE_STATE_API_FIELDS,
 )
 
 _LOGGER = logging.getLogger(__name__)
-T = TypeVar("T", bound=dict[str, Any] | ClientResponse)
+T = TypeVar("T", bound=dict[str, Any] | list[dict[str, Any]])
 
 
-class RivianBaseDataUpdateCoordinator(DataUpdateCoordinator[T], Generic[T], ABC):
+class RivianDataUpdateCoordinator(DataUpdateCoordinator[T], Generic[T], ABC):
     """Data update coordinator for the Rivian integration."""
 
     key: str
+    update_interval: int = 30
 
     def __init__(self, hass: HomeAssistant, client: Rivian) -> None:
         """Initialize the coordinator."""
@@ -43,7 +38,7 @@ class RivianBaseDataUpdateCoordinator(DataUpdateCoordinator[T], Generic[T], ABC)
             hass=hass,
             logger=_LOGGER,
             name=DOMAIN,
-            update_interval=timedelta(seconds=30),
+            update_interval=timedelta(seconds=self.update_interval),
         )
         self.api = client
 
@@ -73,7 +68,7 @@ class RivianBaseDataUpdateCoordinator(DataUpdateCoordinator[T], Generic[T], ABC)
         raise NotImplementedError
 
 
-class ChargingDataUpdateCoordinator(RivianBaseDataUpdateCoordinator[dict[str, Any]]):
+class ChargingCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
     """Charging data update coordinator for Rivian."""
 
     key = "getLiveSessionData"
@@ -90,154 +85,72 @@ class ChargingDataUpdateCoordinator(RivianBaseDataUpdateCoordinator[dict[str, An
         )
 
 
-class WallboxDataUpdateCoordinator(
-    RivianBaseDataUpdateCoordinator[list[dict[str, Any]]]
-):
-    """Wallbox data update coordinator for Rivian."""
+class UserCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
+    """User data update coordinator for Rivian."""
 
-    key = "getRegisteredWallboxes"
+    key = "currentUser"
 
     async def _fetch_data(self) -> ClientResponse:
         """Fetch the data."""
-        return await self.api.get_registered_wallboxes()
+        return await self.api.get_user_information()
 
 
-class RivianDataUpdateCoordinator(DataUpdateCoordinator):
-    """Class to manage fetching data from the API."""
+class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
+    """Vehicle data update coordinator for Rivian."""
 
-    def __init__(self, hass: HomeAssistant, client: Rivian, entry: ConfigEntry):
-        """Initialize."""
-        self._hass = hass
-        self._api = client
-        self._entry = entry
-        self._login_attempts = 0
-        # self._attempt = 0
-        # self._next_attempt = None
-        self._vehicles: dict[str, dict[str, Any]] | None = None
+    key = "vehicleState"
+    update_interval = 15 * 3600  # 15 minutes
+    initial = asyncio.Event()
 
-        # sync tokens from initial configuration
-        self._api._access_token = entry.data.get(CONF_ACCESS_TOKEN)
-        self._api._refresh_token = entry.data.get(CONF_REFRESH_TOKEN)
-        self._api._user_session_token = entry.data.get(CONF_USER_SESSION_TOKEN)
+    def __init__(self, hass: HomeAssistant, client: Rivian, vin: str) -> None:
+        """Initialize the coordinator."""
+        super().__init__(hass=hass, client=client)
+        self.vin = vin
 
-        super().__init__(
-            hass,
-            _LOGGER,
-            name=DOMAIN,
-            update_interval=timedelta(seconds=UPDATE_INTERVAL),
+    async def _async_update_data(self) -> dict[str, Any]:
+        """Get the latest data from Rivian."""
+        if not self.data or not self.last_update_success:
+            await self.api.subscribe_for_vehicle_updates(
+                vin=self.vin,
+                properties=VEHICLE_STATE_API_FIELDS,
+                callback=self._process_new_data,
+            )
+
+            try:
+                async with async_timeout.timeout(1):
+                    await self.initial.wait()
+            except asyncio.TimeoutError:
+                _LOGGER.warning("Didn't get subscription update quick enough")
+            else:
+                return self.data
+
+        data = await super()._async_update_data()
+        return self._build_vehicle_info_dict(data)
+
+    async def _fetch_data(self) -> ClientResponse:
+        """Fetch the data."""
+        return await self.api.get_vehicle_state(
+            vin=self.vin, properties=VEHICLE_STATE_API_FIELDS
         )
 
-    @property
-    def vehicles(self) -> dict[str, dict[str, Any]]:
-        """Return the vehicles."""
-        return self._vehicles or {}
-
-    def process_new_data(self, vin: str, data: dict[str, Any]) -> None:
+    @callback
+    def _process_new_data(self, data: dict[str, Any]) -> None:
         """Process new data."""
-        vehicle_info = self._build_vehicle_info_dict(vin, data["payload"])
-        self._vehicles[vin]["info"] = vehicle_info
-        if self.data:
-            self.data = {vin: vhcl.get("info") for vin, vhcl in self._vehicles.items()}
-            self.async_update_listeners()
+        vehicle_info = self._build_vehicle_info_dict(data["payload"]["data"][self.key])
+        self.async_set_updated_data(vehicle_info)
+        self.initial.set()
 
-    async def _update_api_data(self):
-        """Update data via api."""
-        try:
-            if self._login_attempts >= 5:
-                raise Exception("too many attempts to login - aborting")
-
-            # determine if we need to authenticate and/or refresh csrf
-            if not self._api._csrf_token:
-                _LOGGER.info("Rivian csrf token not set - creating")
-                await self._api.create_csrf_token()
-            if (
-                not self._api._app_session_token
-                or not self._api._user_session_token
-                or not self._api._refresh_token
-            ):
-                _LOGGER.info(
-                    "Rivian app_session_token, user_session_token or refresh_token not set - authenticating"
-                )
-                self._login_attempts += 1
-                await self._api.authenticate_graphql(
-                    self._entry.data.get(CONF_USERNAME),
-                    self._entry.data.get(CONF_PASSWORD),
-                )
-
-            if self._vehicles is None:
-                await self._fetch_vehicles()
-
-                # set up subscriptions
-                for vin in self.vehicles:
-                    await self._api.subscribe_for_vehicle_updates(
-                        vin,
-                        properties=VEHICLE_STATE_API_FIELDS,
-                        callback=lambda data, vin=vin: self.process_new_data(vin, data),
-                    )
-
-                # wait for initial data
-                async with async_timeout.timeout(10):
-                    while not all(data.get("info") for data in self.vehicles.values()):
-                        await asyncio.sleep(0.1)
-
-            self._login_attempts = 0
-
-            return {vin: data.get("info") for vin, data in self.vehicles.items()}
-        except (
-            RivianExpiredTokenError
-        ):  # graphql is always 200 - no exception parsing yet
-            _LOGGER.info("Rivian token expired, refreshing")
-
-            await self._api.create_csrf_token()
-            return await self._update_api_data()
-        except Exception as err:  # pylint: disable=broad-except
-            _LOGGER.error(
-                "Unknown Exception while updating Rivian data: %s", err, exc_info=1
-            )
-            raise Exception("Error communicating with API") from err
-
-    async def _async_update_data(self):
-        """Update data via library, refresh token if necessary."""
-        try:
-            return await self._update_api_data()
-        except (
-            RivianExpiredTokenError
-        ):  # graphql is always 200 - no exception parsing yet
-            _LOGGER.info("Rivian token expired, refreshing")
-            await self._api.create_csrf_token()
-            return await self._update_api_data()
-        except Exception as err:  # pylint: disable=broad-except
-            _LOGGER.error(
-                "Unknown Exception while updating Rivian data: %s", err, exc_info=1
-            )
-            raise Exception("Error communicating with API") from err
-
-    async def _fetch_vehicles(self) -> None:
-        """Fetch user's accessible vehicles."""
-        user_information = await self._api.get_user_information()
-        uijson = await user_information.json()
-        _LOGGER.debug(uijson)
-        if uijson:
-            self._vehicles = {
-                vehicle["vin"]: vehicle["vehicle"] | {"name": vehicle["name"]}
-                for vehicle in uijson["data"]["currentUser"]["vehicles"]
-            }
-        else:
-            self._vehicles = {}
-
-    def _build_vehicle_info_dict(
-        self, vin: str, vijson: dict
-    ) -> dict[str, dict[str, Any]]:
+    def _build_vehicle_info_dict(self, vijson: dict[str, Any]) -> dict[str, Any]:
         """Take the json output of vehicle_info and build a dictionary."""
         items = {
             k: v | ({"history": {v["value"]}} if "value" in v else {})
-            for k, v in vijson["data"]["vehicleState"].items()
+            for k, v in vijson.items()
             if v
         }
 
-        _LOGGER.debug("VIN: %s, updated: %s", vin, items)
+        _LOGGER.debug("VIN: %s, updated: %s", self.vin, items)
 
-        if not (prev_items := (self.data or {}).get(vin, {})):
+        if not (prev_items := (self.data or {})):
             return items
         if not items or prev_items == items:
             return prev_items
@@ -250,3 +163,13 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):
             new_data[key]["history"] |= prev_items[key]["history"]
 
         return new_data
+
+
+class WallboxCoordinator(RivianDataUpdateCoordinator[list[dict[str, Any]]]):
+    """Wallbox data update coordinator for Rivian."""
+
+    key = "getRegisteredWallboxes"
+
+    async def _fetch_data(self) -> ClientResponse:
+        """Fetch the data."""
+        return await self.api.get_registered_wallboxes()

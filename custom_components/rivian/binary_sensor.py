@@ -14,22 +14,22 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import ATTR_COORDINATOR, ATTR_VEHICLE, BINARY_SENSORS, DOMAIN
-from .coordinator import RivianDataUpdateCoordinator
+from .coordinator import VehicleCoordinator
 from .data_classes import RivianBinarySensorEntityDescription
-from .entity import RivianEntity, async_update_unique_id
+from .entity import RivianVehicleEntity, async_update_unique_id
 
 
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     """Set up the sensor entities"""
-    coordinator: RivianDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][
-        ATTR_COORDINATOR
-    ][ATTR_VEHICLE]
+    data: dict[str, Any] = hass.data[DOMAIN][entry.entry_id]
+    vehicles: dict[str, Any] = data[ATTR_VEHICLE]
+    coordinators: dict[str, VehicleCoordinator] = data[ATTR_COORDINATOR][ATTR_VEHICLE]
 
     entities = [
-        RivianBinarySensorEntity(coordinator, entry, description, vin)
-        for vin, vehicle in coordinator.vehicles.items()
+        RivianBinarySensorEntity(coordinators[vin], entry, description, vehicle)
+        for vin, vehicle in vehicles.items()
         for model in BINARY_SENSORS
         if model in vehicle["model"]
         for description in BINARY_SENSORS[model]
@@ -41,20 +41,20 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class RivianBinarySensorEntity(RivianEntity, BinarySensorEntity):
+class RivianBinarySensorEntity(RivianVehicleEntity, BinarySensorEntity):
     """Rivian Binary Sensor Entity."""
 
     entity_description: RivianBinarySensorEntityDescription
 
     def __init__(
         self,
-        coordinator: RivianDataUpdateCoordinator,
+        coordinator: VehicleCoordinator,
         config_entry: ConfigEntry,
         description: RivianBinarySensorEntityDescription,
-        vin: str,
+        vehicle: dict[str, Any],
     ) -> None:
         """Create a Rivian binary sensor."""
-        super().__init__(coordinator, config_entry, description, vin)
+        super().__init__(coordinator, config_entry, description, vehicle)
         self._aggregate = isinstance(self.entity_description.field, set)
 
     @property

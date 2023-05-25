@@ -14,9 +14,9 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import ATTR_COORDINATOR, ATTR_VEHICLE, DOMAIN
-from .coordinator import RivianDataUpdateCoordinator
+from .coordinator import VehicleCoordinator
 from .data_classes import RivianTrackerEntityDescription
-from .entity import RivianEntity, async_update_unique_id
+from .entity import RivianVehicleEntity, async_update_unique_id
 
 LOCATION_DESCRIPTION = RivianTrackerEntityDescription(
     key="location", name="Location", old_key="Rivian Location"
@@ -27,13 +27,13 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     """Set up the Rivain binary_sensors by config_entry."""
-    coordinator: RivianDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][
-        ATTR_COORDINATOR
-    ][ATTR_VEHICLE]
+    data: dict[str, Any] = hass.data[DOMAIN][entry.entry_id]
+    vehicles: dict[str, Any] = data[ATTR_VEHICLE]
+    coordinators: dict[str, VehicleCoordinator] = data[ATTR_COORDINATOR][ATTR_VEHICLE]
 
     entities = [
-        RivianDeviceEntity(coordinator, entry, LOCATION_DESCRIPTION, vin)
-        for vin in coordinator.vehicles
+        RivianDeviceEntity(coordinators[vin], entry, LOCATION_DESCRIPTION, vehicle)
+        for vin, vehicle in vehicles.items()
     ]
 
     # Migrate unique ids to support multiple VIN
@@ -42,22 +42,22 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class RivianDeviceEntity(RivianEntity, TrackerEntity):
+class RivianDeviceEntity(RivianVehicleEntity, TrackerEntity):
     """A class representing a Rivian device."""
 
     entity_description: RivianTrackerEntityDescription
 
     def __init__(
         self,
-        coordinator: RivianDataUpdateCoordinator,
+        coordinator: VehicleCoordinator,
         config_entry: ConfigEntry,
         description: RivianTrackerEntityDescription,
-        vin: str,
+        vehicle: dict[str, Any],
     ) -> None:
         """Create a Rivian device tracker entity."""
-        super().__init__(coordinator, config_entry, description, vin)
+        super().__init__(coordinator, config_entry, description, vehicle)
         self._attribute = "gnssLocation"
-        self._tracker_data = coordinator.data[vin][self._attribute]
+        self._tracker_data = coordinator.data[self._attribute]
 
     @property
     def force_update(self) -> bool:
@@ -93,7 +93,7 @@ class RivianDeviceEntity(RivianEntity, TrackerEntity):
     @callback
     def _handle_coordinator_update(self) -> None:
         """Respond to a DataUpdateCoordinator update."""
-        entity = self.coordinator.data[self._vin][self._attribute]
+        entity = self.coordinator.data[self._attribute]
         try:
             if entity["timeStamp"] != self._tracker_data["timeStamp"]:
                 self._tracker_data = entity

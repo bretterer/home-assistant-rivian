@@ -22,7 +22,6 @@ NAME = "Rivian (Unofficial)"
 DOMAIN = "rivian"
 VERSION = "0.0.1-alpha.2"
 ISSUE_URL = "https://github.com/bretterer/home-assistant-rivian/issues"
-UPDATE_INTERVAL = 15
 
 # Attributes
 ATTR_COORDINATOR = "coordinator"
@@ -993,6 +992,5 @@ CHARGING_API_FIELDS: Final[set[str]] = {
     "rangeAddedThisSession",
     "startTime",
     "timeElapsed",
-    "timeRemaining",
     "totalChargedEnergy",
 }

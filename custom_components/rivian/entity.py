@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 import logging
-from typing import Any
+from typing import Any, TypeVar
 
 import async_timeout
 from rivian import Rivian
@@ -18,38 +18,44 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 from .coordinator import (
-    ChargingDataUpdateCoordinator,
+    ChargingCoordinator,
     RivianDataUpdateCoordinator,
-    WallboxDataUpdateCoordinator,
+    VehicleCoordinator,
+    WallboxCoordinator,
 )
 
 _LOGGER = logging.getLogger(__name__)
+T = TypeVar("T", bound=RivianDataUpdateCoordinator)
 
 
-class RivianEntity(CoordinatorEntity[RivianDataUpdateCoordinator]):
+class RivianEntity(CoordinatorEntity[T]):
     """Base class for Rivian entities."""
 
     _attr_has_entity_name = True
 
+
+class RivianVehicleEntity(RivianEntity[VehicleCoordinator]):
+    """Base class for Rivian vehicle entities."""
+
     def __init__(
         self,
-        coordinator: RivianDataUpdateCoordinator,
+        coordinator: VehicleCoordinator,
         config_entry: ConfigEntry,
         description: EntityDescription,
-        vin: str,
+        vehicle: dict[str, Any],
     ) -> None:
         """Construct a RivianEntity."""
         super().__init__(coordinator)
         self._config_entry = config_entry
         self.entity_description = description
-        self._vin = vin
+        self._vin = (vin := vehicle["vin"])
         self._attr_unique_id = f"{vin}-{description.key}"
 
         self._available = True
 
-        name = coordinator.vehicles[vin]["name"]
-        model = coordinator.vehicles[vin]["model"]
-        model_year = coordinator.vehicles[vin]["modelYear"]
+        name = vehicle["name"]
+        model = vehicle["model"]
+        model_year = vehicle["modelYear"]
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, vin)},
             name=name if name else model,
@@ -65,19 +71,17 @@ class RivianEntity(CoordinatorEntity[RivianDataUpdateCoordinator]):
 
     def _get_value(self, key: str) -> Any | None:
         """Get a data value from the coordinator."""
-        if entity := self.coordinator.data[self._vin].get(key, {}):
+        if entity := self.coordinator.data.get(key, {}):
             return entity.get("value")
         return None
 
 
-class RivianChargingEntity(CoordinatorEntity[ChargingDataUpdateCoordinator]):
+class RivianChargingEntity(RivianEntity[ChargingCoordinator]):
     """Base class for Rivian charging entities."""
-
-    _attr_has_entity_name = True
 
     def __init__(
         self,
-        coordinator: ChargingDataUpdateCoordinator,
+        coordinator: ChargingCoordinator,
         description: EntityDescription,
         vin: str,
     ) -> None:
@@ -90,14 +94,12 @@ class RivianChargingEntity(CoordinatorEntity[ChargingDataUpdateCoordinator]):
         self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, vin)})
 
 
-class RivianWallboxEntity(CoordinatorEntity[WallboxDataUpdateCoordinator]):
+class RivianWallboxEntity(RivianEntity[WallboxCoordinator]):
     """Base class for Rivian wallbox entities."""
-
-    _attr_has_entity_name = True
 
     def __init__(
         self,
-        coordinator: WallboxDataUpdateCoordinator,
+        coordinator: WallboxCoordinator,
         description: EntityDescription,
         wallbox: dict[str, Any],
     ) -> None:
@@ -132,7 +134,7 @@ class RivianWallboxEntity(CoordinatorEntity[WallboxDataUpdateCoordinator]):
 
 
 def async_update_unique_id(
-    hass: HomeAssistant, domain: str, entities: Iterable[RivianEntity]
+    hass: HomeAssistant, domain: str, entities: Iterable[RivianVehicleEntity]
 ) -> None:
     """Update unique ID to be based on VIN and entity description key instead of name."""
     ent_reg = er.async_get(hass)
