@@ -78,7 +78,7 @@ class RivianBinarySensorEntity(RivianVehicleEntity, BinarySensorEntity):
         if self._aggregate:
             return None
         try:
-            entity = self.coordinator.data[self._vin][self.entity_description.field]
+            entity = self.coordinator.data[self.entity_description.field]
             if entity is None:
                 return "Binary Sensor Unavailable"
             return {

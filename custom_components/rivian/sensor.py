@@ -119,7 +119,7 @@ class RivianSensorEntity(RivianVehicleEntity, SensorEntity):
     def extra_state_attributes(self) -> Mapping[str, Any] | None:
         """Return the state attributes of the device."""
         try:
-            entity = self.coordinator.data[self._vin][self.entity_description.field]
+            entity = self.coordinator.data[self.entity_description.field]
             if entity is None:
                 return None
             if self.entity_description.value_lambda is None:

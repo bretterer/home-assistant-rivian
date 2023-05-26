@@ -123,7 +123,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
                 async with async_timeout.timeout(1):
                     await self.initial.wait()
             except asyncio.TimeoutError:
-                _LOGGER.warning("Didn't get subscription update quick enough")
+                pass  # we'll fetch it from the API
             else:
                 return self.data
 
