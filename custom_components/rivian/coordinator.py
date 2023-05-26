@@ -10,9 +10,10 @@ from typing import Any, Generic, TypeVar
 from aiohttp import ClientResponse
 import async_timeout
 from rivian import Rivian
-from rivian.exceptions import RivianExpiredTokenError
+from rivian.exceptions import RivianExpiredTokenError, RivianUnauthenticated
 
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import (
@@ -56,6 +57,8 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator[T], Generic[T], ABC):
             _LOGGER.info("Rivian token expired, refreshing")
             await self.api.create_csrf_token()
             return await self._async_update_data()
+        except RivianUnauthenticated as err:
+            raise ConfigEntryAuthFailed from err
         except Exception as ex:
             _LOGGER.error(
                 "Unknown Exception while updating Rivian data: %s", ex, exc_info=1
