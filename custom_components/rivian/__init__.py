@@ -14,6 +14,7 @@ from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from .const import (
     ATTR_CHARGING,
     ATTR_COORDINATOR,
+    ATTR_USER,
     ATTR_VEHICLE,
     ATTR_WALLBOX,
     CONF_ACCESS_TOKEN,
@@ -83,6 +84,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data[DOMAIN][entry.entry_id] = {
         ATTR_VEHICLE: vehicles,
         ATTR_COORDINATOR: {
+            ATTR_USER: coordinator,
             ATTR_VEHICLE: vehicle_coordinators,
             ATTR_CHARGING: charging_coordinators,
             ATTR_WALLBOX: wallbox_coordinator,
@@ -100,8 +102,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
-    # pylint: disable=protected-access
-    api: Rivian = hass.data[DOMAIN][entry.entry_id][ATTR_COORDINATOR]._api
+    api: Rivian = hass.data[DOMAIN][entry.entry_id][ATTR_COORDINATOR][ATTR_USER].api
     await api.close()
 
     if unload_ok:

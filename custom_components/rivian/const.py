@@ -24,8 +24,9 @@ VERSION = "0.0.1-alpha.2"
 ISSUE_URL = "https://github.com/bretterer/home-assistant-rivian/issues"
 
 # Attributes
-ATTR_COORDINATOR = "coordinator"
 ATTR_CHARGING = "charging"
+ATTR_COORDINATOR = "coordinator"
+ATTR_USER = "user"
 ATTR_VEHICLE = "vehicle"
 ATTR_WALLBOX = "wallbox"
 
