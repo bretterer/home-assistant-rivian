@@ -162,14 +162,14 @@ CHARGING_SENSORS: Final[tuple[RivianSensorEntityDescription, ...]] = (
     RivianSensorEntityDescription(
         key="charging_cost",
         field="currentPrice",
-        name="Charging cost",
+        name="Charging Cost",
         device_class=SensorDeviceClass.MONETARY,
         state_class=SensorStateClass.TOTAL,
     ),
     RivianSensorEntityDescription(
         key="charging_energy_delivered",
         field="totalChargedEnergy",
-        name="Charging energy delivered",
+        name="Charging Energy Delivered",
         device_class=SensorDeviceClass.ENERGY,
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         state_class=SensorStateClass.TOTAL_INCREASING,
@@ -178,7 +178,7 @@ CHARGING_SENSORS: Final[tuple[RivianSensorEntityDescription, ...]] = (
     RivianSensorEntityDescription(
         key="charging_range_added",
         field="rangeAddedThisSession",
-        name="Charging range added",
+        name="Charging Range Added",
         device_class=SensorDeviceClass.DISTANCE,
         native_unit_of_measurement=UnitOfLength.KILOMETERS,
         state_class=SensorStateClass.TOTAL_INCREASING,
@@ -187,7 +187,7 @@ CHARGING_SENSORS: Final[tuple[RivianSensorEntityDescription, ...]] = (
     RivianSensorEntityDescription(
         key="charging_rate",
         field="kilometersChargedPerHour",
-        name="Charging rate",
+        name="Charging Rate",
         device_class=SensorDeviceClass.SPEED,
         native_unit_of_measurement=UnitOfSpeed.KILOMETERS_PER_HOUR,
         state_class=SensorStateClass.MEASUREMENT,
@@ -196,7 +196,7 @@ CHARGING_SENSORS: Final[tuple[RivianSensorEntityDescription, ...]] = (
     RivianSensorEntityDescription(
         key="charging_speed",
         field="power",
-        name="Charging speed",
+        name="Charging Speed",
         device_class=SensorDeviceClass.POWER,
         native_unit_of_measurement=UnitOfPower.KILO_WATT,
         state_class=SensorStateClass.MEASUREMENT,
@@ -204,7 +204,7 @@ CHARGING_SENSORS: Final[tuple[RivianSensorEntityDescription, ...]] = (
     RivianSensorEntityDescription(
         key="charging_start_time",
         field="startTime",
-        name="Charging start time",
+        name="Charging Start Time",
         device_class=SensorDeviceClass.TIMESTAMP,
         value_lambda=lambda val: datetime.strptime(val, RIVIAN_TIMESTAMP_FORMAT)
         if val
@@ -213,7 +213,7 @@ CHARGING_SENSORS: Final[tuple[RivianSensorEntityDescription, ...]] = (
     RivianSensorEntityDescription(
         key="charging_time_elapsed",
         field="timeElapsed",
-        name="Charging time elapsed",
+        name="Charging Time Elapsed",
         device_class=SensorDeviceClass.DURATION,
         native_unit_of_measurement=UnitOfTime.SECONDS,
         state_class=SensorStateClass.TOTAL_INCREASING,
