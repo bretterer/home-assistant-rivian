@@ -63,6 +63,8 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator[T], Generic[T], ABC):
             _LOGGER.error(
                 "Unknown Exception while updating Rivian data: %s", ex, exc_info=1
             )
+            if self.data:
+                return self.data
             raise UpdateFailed("Error communicating with API") from ex
 
     @abstractmethod
