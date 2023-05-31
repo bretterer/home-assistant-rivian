@@ -9,11 +9,12 @@ from typing import Any
 
 import async_timeout
 from rivian import Rivian
-from rivian.exceptions import RivianExpiredTokenError
+from rivian.exceptions import RivianExpiredTokenError, RivianUnauthenticated
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.entity import DeviceInfo, EntityDescription
 import homeassistant.helpers.entity_registry as er
 from homeassistant.helpers.update_coordinator import (
@@ -135,6 +136,8 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):
 
             await self._api.create_csrf_token()
             return await self._update_api_data()
+        except RivianUnauthenticated as err:
+            raise err
         except Exception as err:  # pylint: disable=broad-except
             _LOGGER.error(
                 "Unknown Exception while updating Rivian data: %s", err, exc_info=1
@@ -151,6 +154,8 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator):
             _LOGGER.info("Rivian token expired, refreshing")
             await self._api.create_csrf_token()
             return await self._update_api_data()
+        except RivianUnauthenticated as err:
+            raise ConfigEntryAuthFailed("Unauthenticated") from err
         except Exception as err:  # pylint: disable=broad-except
             _LOGGER.error(
                 "Unknown Exception while updating Rivian data: %s", err, exc_info=1

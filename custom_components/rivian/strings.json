@@ -2,7 +2,8 @@
   "config": {
     "title": "Rivian (Unofficial)",
     "abort": {
-      "already_configured": "Device is already configured"
+      "already_configured": "Device is already configured",
+      "reauth_successful": "[%key:common::config_flow::abort::reauth_successful%]"
     },
     "error": {
       "cannot_connect": "Failed to connect",
