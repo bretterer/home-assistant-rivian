@@ -22,11 +22,13 @@ NAME = "Rivian (Unofficial)"
 DOMAIN = "rivian"
 VERSION = "0.0.1-alpha.2"
 ISSUE_URL = "https://github.com/bretterer/home-assistant-rivian/issues"
-COORDINATOR = "rivian_coordinator"
-UPDATE_INTERVAL = 15
 
 # Attributes
-ATTR_COORDINATOR = "rivian_coordinator"
+ATTR_CHARGING = "charging"
+ATTR_COORDINATOR = "coordinator"
+ATTR_USER = "user"
+ATTR_VEHICLE = "vehicle"
+ATTR_WALLBOX = "wallbox"
 
 # Config properties
 CONF_OTP = "otp"
@@ -981,4 +983,15 @@ VEHICLE_STATE_API_FIELDS: Final[set[str]] = {
     "otaAvailableVersionNumber",
     "otaAvailableVersionGitHash",
     "otaInstallProgress",
+}
+
+CHARGING_API_FIELDS: Final[set[str]] = {
+    "currentCurrency",
+    "currentPrice",
+    "kilometersChargedPerHour",
+    "power",
+    "rangeAddedThisSession",
+    "startTime",
+    "timeElapsed",
+    "totalChargedEnergy",
 }

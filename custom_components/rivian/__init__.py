@@ -12,7 +12,11 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 
 from .const import (
+    ATTR_CHARGING,
     ATTR_COORDINATOR,
+    ATTR_USER,
+    ATTR_VEHICLE,
+    ATTR_WALLBOX,
     CONF_ACCESS_TOKEN,
     CONF_REFRESH_TOKEN,
     CONF_USER_SESSION_TOKEN,
@@ -20,13 +24,18 @@ from .const import (
     ISSUE_URL,
     VERSION,
 )
-from .entity import RivianDataUpdateCoordinator
+from .coordinator import (
+    ChargingCoordinator,
+    UserCoordinator,
+    VehicleCoordinator,
+    WallboxCoordinator,
+)
 
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS: list[Platform] = [
-    Platform.SENSOR,
     Platform.BINARY_SENSOR,
     Platform.DEVICE_TRACKER,
+    Platform.SENSOR,
     Platform.UPDATE,
 ]
 
@@ -52,13 +61,35 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.error("Could not update Rivian Data: %s", err, exc_info=1)
         raise ConfigEntryNotReady("Error communicating with API") from err
 
-    coordinator = RivianDataUpdateCoordinator(hass, client=client, entry=entry)
-    try:
-        await coordinator.async_config_entry_first_refresh()
-    except RivianUnauthenticated as err:
-        raise ConfigEntryAuthFailed from err
+    coordinator = UserCoordinator(hass=hass, client=client)
+    await coordinator.async_config_entry_first_refresh()
+    vehicles = {
+        vehicle["vin"]: vehicle["vehicle"] | {"name": vehicle["name"]}
+        for vehicle in coordinator.data["vehicles"]
+    }
 
-    hass.data[DOMAIN][entry.entry_id] = {ATTR_COORDINATOR: coordinator}
+    vehicle_coordinators: dict[str, VehicleCoordinator] = {}
+    charging_coordinators: dict[str, ChargingCoordinator] = {}
+    for vin in vehicles:
+        coor = VehicleCoordinator(hass=hass, client=client, vin=vin)
+        await coor.async_config_entry_first_refresh()
+        vehicle_coordinators[vin] = coor
+        coor = ChargingCoordinator(hass=hass, client=client, vin=vin)
+        await coor.async_config_entry_first_refresh()
+        charging_coordinators[vin] = coor
+
+    wallbox_coordinator = WallboxCoordinator(hass=hass, client=client)
+    await wallbox_coordinator.async_config_entry_first_refresh()
+
+    hass.data[DOMAIN][entry.entry_id] = {
+        ATTR_VEHICLE: vehicles,
+        ATTR_COORDINATOR: {
+            ATTR_USER: coordinator,
+            ATTR_VEHICLE: vehicle_coordinators,
+            ATTR_CHARGING: charging_coordinators,
+            ATTR_WALLBOX: wallbox_coordinator,
+        },
+    }
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
@@ -67,12 +98,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
-    _LOGGER.info("Rivian async_unload_entry")
-
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
-    # pylint: disable=protected-access
-    api: Rivian = hass.data[DOMAIN][entry.entry_id][ATTR_COORDINATOR]._api
+    api: Rivian = hass.data[DOMAIN][entry.entry_id][ATTR_COORDINATOR][ATTR_USER].api
     await api.close()
 
     if unload_ok:
