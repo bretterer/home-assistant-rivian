@@ -126,7 +126,7 @@ class RivianFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         self._data.update(config_data)
         await self._rivian.close()
 
-        entry_id = self.context["entry_id"]
+        entry_id = self.context.get("entry_id")
         if existing_entry := self.hass.config_entries.async_get_entry(entry_id):
             self.hass.config_entries.async_update_entry(existing_entry, data=self._data)
             await self.hass.config_entries.async_reload(existing_entry.entry_id)
