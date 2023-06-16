@@ -141,7 +141,12 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
     @callback
     def _process_new_data(self, data: dict[str, Any]) -> None:
         """Process new data."""
-        vehicle_info = self._build_vehicle_info_dict(data["payload"]["data"][self.key])
+        if not (payload := data.get("payload")) or not (pdata := payload.get("data")):
+            _LOGGER.error("Received an unknown subscription update: %s", data)
+            self.update_interval = timedelta(seconds=15)
+            _LOGGER.warning("Reverting to polling every 15 seconds")
+            return
+        vehicle_info = self._build_vehicle_info_dict(pdata.get(self.key, {}))
         self.async_set_updated_data(vehicle_info)
         self.initial.set()
 
