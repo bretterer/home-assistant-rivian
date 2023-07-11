@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 import asyncio
+from collections.abc import Coroutine
 from datetime import timedelta
 import logging
 from typing import Any, Generic, TypeVar
@@ -10,7 +11,11 @@ from typing import Any, Generic, TypeVar
 from aiohttp import ClientResponse
 import async_timeout
 from rivian import Rivian
-from rivian.exceptions import RivianExpiredTokenError, RivianUnauthenticated
+from rivian.exceptions import (
+    RivianApiRateLimitError,
+    RivianExpiredTokenError,
+    RivianUnauthenticated,
+)
 
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed
@@ -31,7 +36,8 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator[T], Generic[T], ABC):
     """Data update coordinator for the Rivian integration."""
 
     key: str
-    update_interval: int = 30
+    _update_interval = 30
+    _error_count = 0
 
     def __init__(self, hass: HomeAssistant, client: Rivian) -> None:
         """Initialize the coordinator."""
@@ -39,9 +45,18 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator[T], Generic[T], ABC):
             hass=hass,
             logger=_LOGGER,
             name=DOMAIN,
-            update_interval=timedelta(seconds=self.update_interval),
+            update_interval=timedelta(seconds=self._update_interval),
         )
         self.api = client
+
+    def _set_update_interval(self, seconds: int | None = None) -> None:
+        """Set the update interval or calculate new one based on errors."""
+        if seconds:
+            self._update_interval = seconds
+        else:
+            seconds = min(self._update_interval * 2**self._error_count, 900)
+        self.update_interval = timedelta(seconds=seconds)
+        _LOGGER.info("Polling set to %s seconds", seconds)
 
     async def _async_update_data(self) -> T:
         """Get the latest data from Rivian."""
@@ -50,6 +65,9 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator[T], Generic[T], ABC):
             if resp.status == 200:
                 data = await resp.json()
                 _LOGGER.debug(data)
+                if self._error_count:
+                    self._error_count = 0
+                    self._set_update_interval()
                 return data["data"][self.key]
             resp.raise_for_status()
 
@@ -57,12 +75,18 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator[T], Generic[T], ABC):
             _LOGGER.info("Rivian token expired, refreshing")
             await self.api.create_csrf_token()
             return await self._async_update_data()
+        except RivianApiRateLimitError as err:
+            _LOGGER.error("Rate limit being enforced: %s", err, exc_info=1)
+            self._error_count += 1
+            self._set_update_interval()
+            return self.data
         except RivianUnauthenticated as err:
             raise ConfigEntryAuthFailed from err
         except Exception as ex:
             _LOGGER.error(
                 "Unknown Exception while updating Rivian data: %s", ex, exc_info=1
             )
+            self._error_count += 1
             if self.data:
                 return self.data
             raise UpdateFailed("Error communicating with API") from ex
@@ -104,8 +128,9 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
     """Vehicle data update coordinator for Rivian."""
 
     key = "vehicleState"
-    update_interval = 15 * 60  # 15 minutes
-    initial = asyncio.Event()
+    _update_interval = 15 * 60  # 15 minutes
+    _initial = asyncio.Event()
+    _unsub_handler: Coroutine[None, None, None] | None = None
 
     def __init__(self, hass: HomeAssistant, client: Rivian, vin: str) -> None:
         """Initialize the coordinator."""
@@ -115,7 +140,8 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
     async def _async_update_data(self) -> dict[str, Any]:
         """Get the latest data from Rivian."""
         if not self.data or not self.last_update_success:
-            await self.api.subscribe_for_vehicle_updates(
+            self._unsubscribe()
+            self._unsub_handler = await self.api.subscribe_for_vehicle_updates(
                 vin=self.vin,
                 properties=VEHICLE_STATE_API_FIELDS,
                 callback=self._process_new_data,
@@ -123,7 +149,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
 
             try:
                 async with async_timeout.timeout(1):
-                    await self.initial.wait()
+                    await self._initial.wait()
             except asyncio.TimeoutError:
                 pass  # we'll fetch it from the API
             else:
@@ -143,12 +169,15 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         """Process new data."""
         if not (payload := data.get("payload")) or not (pdata := payload.get("data")):
             _LOGGER.error("Received an unknown subscription update: %s", data)
-            self.update_interval = timedelta(seconds=15)
-            _LOGGER.warning("Reverting to polling every 15 seconds")
+            self._error_count += 1
+            if not self._initial.is_set() or self._error_count > 5:
+                self._unsubscribe(True)
+                self._set_update_interval(20)
             return
         vehicle_info = self._build_vehicle_info_dict(pdata.get(self.key, {}))
         self.async_set_updated_data(vehicle_info)
-        self.initial.set()
+        self._error_count = 0
+        self._initial.set()
 
     def _build_vehicle_info_dict(self, vijson: dict[str, Any]) -> dict[str, Any]:
         """Take the json output of vehicle_info and build a dictionary."""
@@ -173,6 +202,14 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             new_data[key]["history"] |= prev_items[key]["history"]
 
         return new_data
+
+    def _unsubscribe(self, close_monitor: bool = False):
+        """Unsubscribe."""
+        if unsub := self._unsub_handler:
+            self.hass.async_add_job(unsub)
+            self._unsub_handler = None
+        if close_monitor and (monitor := self.api._ws_monitor):
+            self.hass.async_add_job(monitor.close)
 
 
 class WallboxCoordinator(RivianDataUpdateCoordinator[list[dict[str, Any]]]):
