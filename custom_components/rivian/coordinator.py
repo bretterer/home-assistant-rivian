@@ -110,7 +110,7 @@ class ChargingCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
     async def _fetch_data(self) -> ClientResponse:
         """Fetch the data."""
         return await self.api.get_live_charging_session(
-            user_id=None, vin=self.vin, properties=CHARGING_API_FIELDS
+            vin=self.vin, properties=CHARGING_API_FIELDS
         )
 
 
@@ -132,17 +132,17 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
     _initial = asyncio.Event()
     _unsub_handler: Coroutine[None, None, None] | None = None
 
-    def __init__(self, hass: HomeAssistant, client: Rivian, vin: str) -> None:
+    def __init__(self, hass: HomeAssistant, client: Rivian, vehicle_id: str) -> None:
         """Initialize the coordinator."""
         super().__init__(hass=hass, client=client)
-        self.vin = vin
+        self.vehicle_id = vehicle_id
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Get the latest data from Rivian."""
         if not self.data or not self.last_update_success:
             self._unsubscribe()
             self._unsub_handler = await self.api.subscribe_for_vehicle_updates(
-                vin=self.vin,
+                vehicle_id=self.vehicle_id,
                 properties=VEHICLE_STATE_API_FIELDS,
                 callback=self._process_new_data,
             )
@@ -161,7 +161,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
     async def _fetch_data(self) -> ClientResponse:
         """Fetch the data."""
         return await self.api.get_vehicle_state(
-            vin=self.vin, properties=VEHICLE_STATE_API_FIELDS
+            vin=self.vehicle_id, properties=VEHICLE_STATE_API_FIELDS
         )
 
     @callback
@@ -187,7 +187,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             if v
         }
 
-        _LOGGER.debug("VIN: %s, updated: %s", self.vin, items)
+        _LOGGER.debug("Vehicle %s updated: %s", self.vehicle_id, items)
 
         if not (prev_items := (self.data or {})):
             return items
