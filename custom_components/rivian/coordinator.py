@@ -12,6 +12,7 @@ from aiohttp import ClientResponse
 import async_timeout
 from rivian import Rivian
 from rivian.exceptions import (
+    RivianApiException,
     RivianApiRateLimitError,
     RivianExpiredTokenError,
     RivianUnauthenticated,
@@ -77,19 +78,20 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator[T], Generic[T], ABC):
             return await self._async_update_data()
         except RivianApiRateLimitError as err:
             _LOGGER.error("Rate limit being enforced: %s", err, exc_info=1)
-            self._error_count += 1
             self._set_update_interval()
-            return self.data
         except RivianUnauthenticated as err:
             raise ConfigEntryAuthFailed from err
-        except Exception as ex:
+        except RivianApiException as ex:
+            _LOGGER.error("Rivian api exception: %s", ex, exc_info=1)
+        except Exception as ex:  # pylint: disable=broad-except
             _LOGGER.error(
                 "Unknown Exception while updating Rivian data: %s", ex, exc_info=1
             )
-            self._error_count += 1
-            if self.data:
-                return self.data
-            raise UpdateFailed("Error communicating with API") from ex
+
+        self._error_count += 1
+        if self.data:
+            return self.data
+        raise UpdateFailed("Error communicating with API")
 
     @abstractmethod
     async def _fetch_data(self) -> ClientResponse:
