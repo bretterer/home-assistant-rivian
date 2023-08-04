@@ -1,21 +1,45 @@
 """Rivian (Unofficial)"""
 from __future__ import annotations
 
+from collections.abc import Mapping
 import logging
 from typing import Any
 
 from rivian import Rivian
 from rivian.exceptions import RivianUnauthenticated
+from rivian.utils import generate_key_pair
 import voluptuous as vol
 
-from homeassistant import config_entries
+from homeassistant.config_entries import ConfigEntry, ConfigFlow
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.data_entry_flow import FlowResult
+from homeassistant.helpers.schema_config_entry_flow import (
+    SchemaFlowFormStep,
+    SchemaOptionsFlowHandler,
+)
+from homeassistant.helpers.selector import (
+    DeviceFilterSelectorConfig,
+    DeviceSelector,
+    DeviceSelectorConfig,
+)
 
-from .const import CONF_OTP, DOMAIN
+from .const import CONF_OTP, CONF_VEHICLE_CONTROL, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
+
+
 STEP_OTP_DATA_SCHEMA = vol.Schema({vol.Required(CONF_OTP): str})
+R1S = DeviceFilterSelectorConfig(integration=DOMAIN, manufacturer="Rivian", model="R1S")
+R1T = DeviceFilterSelectorConfig(integration=DOMAIN, manufacturer="Rivian", model="R1T")
+OPTIONS_SCHEMA = vol.Schema(
+    {
+        vol.Required(CONF_VEHICLE_CONTROL): DeviceSelector(
+            DeviceSelectorConfig(multiple=True, filter=[R1S, R1T])
+        )
+    }
+)
+OPTIONS_FLOW = {"init": SchemaFlowFormStep(OPTIONS_SCHEMA)}
 
 
 def _get_schema_credential_fields(
@@ -37,14 +61,14 @@ def _get_schema_credential_fields(
     )
 
 
-class RivianFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
+class RivianFlowHandler(ConfigFlow, domain=DOMAIN):
     """Config flow for Rivian"""
 
     VERSION = 1
 
     def __init__(self):
         """Initalize"""
-        self._rivian = Rivian("", "")
+        self._rivian = Rivian()
         self._data = {}
         self._errors = {}
 
@@ -52,6 +76,23 @@ class RivianFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         self._refresh_token = None
         self._session_token = None
         self._user_session_token = None
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> SchemaOptionsFlowHandler:
+        """Get the options flow for this handler."""
+        return SchemaOptionsFlowHandler(
+            config_entry, OPTIONS_FLOW, RivianFlowHandler.check_options
+        )
+
+    @staticmethod
+    @callback
+    def check_options(hass: HomeAssistant, data: Mapping[str, Any]) -> None:
+        """Get the options flow for this handler."""
+        if data.get(CONF_VEHICLE_CONTROL) and not data.get("private_key"):
+            public_key, private_key = generate_key_pair()
+            data["public_key"] = public_key
+            data["private_key"] = private_key
 
     # pylint: disable=protected-access
     async def async_step_user(
@@ -66,7 +107,7 @@ class RivianFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         if (otp := user_input.get(CONF_OTP)) is not None:
             username = self._data[CONF_USERNAME]
             try:
-                otpauth = await self._rivian.validate_otp_graphql(username, otp)
+                await self._rivian.validate_otp(username, otp)
             except RivianUnauthenticated as err:
                 show_otp = False
                 try:
@@ -82,7 +123,7 @@ class RivianFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                     return await self._show_otp_field()
                 return await self._show_credential_fields(user_input)
 
-            if otpauth.status == 200:
+            if self._rivian._access_token:
                 self._access_token = self._rivian._access_token
                 self._refresh_token = self._rivian._refresh_token
                 self._user_session_token = self._rivian._user_session_token
@@ -95,7 +136,7 @@ class RivianFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         password = user_input[CONF_PASSWORD]
         await self._rivian.create_csrf_token()
         try:
-            await self._rivian.authenticate_graphql(username, password)
+            await self._rivian.authenticate(username, password)
         except RivianUnauthenticated as err:
             _LOGGER.error(err)
             self._errors["base"] = "invalid_auth"
@@ -145,7 +186,5 @@ class RivianFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     async def _show_otp_field(self) -> FlowResult:
         """Show the configuration form to verify otp."""
         return self.async_show_form(
-            step_id="user",
-            data_schema=STEP_OTP_DATA_SCHEMA,
-            errors=self._errors,
+            step_id="user", data_schema=STEP_OTP_DATA_SCHEMA, errors=self._errors
         )

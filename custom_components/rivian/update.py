@@ -38,8 +38,8 @@ async def async_setup_entry(
     coordinators: dict[str, VehicleCoordinator] = data[ATTR_COORDINATOR][ATTR_VEHICLE]
 
     entities = [
-        RivianUpdateEntity(coordinators[vin], entry, UPDATE_DESCRIPTION, vehicle)
-        for vin, vehicle in vehicles.items()
+        RivianUpdateEntity(coordinators[vehicle_id], entry, UPDATE_DESCRIPTION, vehicle)
+        for vehicle_id, vehicle in vehicles.items()
     ]
     async_add_entities(entities)
 

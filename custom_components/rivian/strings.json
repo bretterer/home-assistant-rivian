@@ -21,6 +21,15 @@
       }
     }
   },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "vehicle_control": "Enable vehicle control (experimental and at your own risk)"
+        }
+      }
+    }
+  },
   "entity": {
     "sensor": {
       "charging_status": {
