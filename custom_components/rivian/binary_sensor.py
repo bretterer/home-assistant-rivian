@@ -28,8 +28,8 @@ async def async_setup_entry(
     coordinators: dict[str, VehicleCoordinator] = data[ATTR_COORDINATOR][ATTR_VEHICLE]
 
     entities = [
-        RivianBinarySensorEntity(coordinators[vin], entry, description, vehicle)
-        for vin, vehicle in vehicles.items()
+        RivianBinarySensorEntity(coordinators[vehicle_id], entry, description, vehicle)
+        for vehicle_id, vehicle in vehicles.items()
         for model, descriptions in BINARY_SENSORS.items()
         if model in vehicle["model"]
         for description in descriptions

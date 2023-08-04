@@ -32,8 +32,10 @@ async def async_setup_entry(
     coordinators: dict[str, VehicleCoordinator] = data[ATTR_COORDINATOR][ATTR_VEHICLE]
 
     entities = [
-        RivianDeviceEntity(coordinators[vin], entry, LOCATION_DESCRIPTION, vehicle)
-        for vin, vehicle in vehicles.items()
+        RivianDeviceEntity(
+            coordinators[vehicle_id], entry, LOCATION_DESCRIPTION, vehicle
+        )
+        for vehicle_id, vehicle in vehicles.items()
     ]
 
     # Migrate unique ids to support multiple VIN
