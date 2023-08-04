@@ -26,6 +26,7 @@ VERSION = "0.0.1-alpha.2"
 ISSUE_URL = "https://github.com/bretterer/home-assistant-rivian/issues"
 
 # Attributes
+ATTR_API = "api"
 ATTR_CHARGING = "charging"
 ATTR_COORDINATOR = "coordinator"
 ATTR_USER = "user"
@@ -37,6 +38,7 @@ CONF_OTP = "otp"
 CONF_ACCESS_TOKEN = "access_token"
 CONF_REFRESH_TOKEN = "refresh_token"
 CONF_USER_SESSION_TOKEN = "user_session_token"
+CONF_VEHICLE_CONTROL = "vehicle_control"
 
 LOCK_STATE_ENTITIES = {
     "closureFrunkLocked",

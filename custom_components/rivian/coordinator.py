@@ -4,13 +4,13 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 import asyncio
 from collections.abc import Coroutine
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 from typing import Any, Generic, TypeVar
 
 from aiohttp import ClientResponse
 import async_timeout
-from rivian import Rivian
+from rivian import Rivian, VehicleCommand
 from rivian.exceptions import (
     RivianApiException,
     RivianApiRateLimitError,
@@ -23,6 +23,9 @@ from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import (
+    ATTR_COORDINATOR,
+    ATTR_USER,
+    ATTR_VEHICLE,
     CHARGING_API_FIELDS,
     DOMAIN,
     INVALID_SENSOR_STATES,
@@ -37,7 +40,7 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator[T], Generic[T], ABC):
     """Data update coordinator for the Rivian integration."""
 
     key: str
-    _update_interval = 30
+    _update_interval: int = 30
     _error_count = 0
 
     def __init__(self, hass: HomeAssistant, client: Rivian) -> None:
@@ -46,7 +49,9 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator[T], Generic[T], ABC):
             hass=hass,
             logger=_LOGGER,
             name=DOMAIN,
-            update_interval=timedelta(seconds=self._update_interval),
+            update_interval=timedelta(seconds=self._update_interval)
+            if self._update_interval
+            else None,
         )
         self.api = client
 
@@ -130,9 +135,30 @@ class UserCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
 
     key = "currentUser"
 
+    def __init__(
+        self, hass: HomeAssistant, client: Rivian, include_phones: bool = False
+    ) -> None:
+        super().__init__(hass, client)
+        self.include_phones = include_phones
+
     async def _fetch_data(self) -> ClientResponse:
         """Fetch the data."""
-        return await self.api.get_user_information()
+        return await self.api.get_user_information(self.include_phones)
+
+    def get_enrolled_phone_data(
+        self, public_key: str
+    ) -> tuple[str, dict[str, str]] | None:
+        """Get enrolled phone data."""
+        phones = self.data.get("enrolledPhones", [])
+        if phone := next(
+            (phone for phone in phones if phone["vas"]["publicKey"] == public_key), None
+        ):
+            phone_id = phone["vas"]["vasPhoneId"]
+            vehicle_entry = {
+                entry["vehicleId"]: entry["identityId"] for entry in phone["enrolled"]
+            }
+            return (phone_id, vehicle_entry)
+        return None
 
 
 class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
@@ -228,6 +254,58 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             self._unsub_handler = None
         if close_monitor and (monitor := self.api._ws_monitor):
             self.hass.async_add_job(monitor.close)
+
+    def get(self, key: str) -> Any | None:
+        """Get a data value by key."""
+        if entity := self.data.get(key, {}):
+            return entity.get("value")
+        return None
+
+    async def send_vehicle_command(
+        self, command: VehicleCommand, params: dict[str, Any] | None = None
+    ) -> None:
+        """Send a command to the vehicle."""
+        if self.get("powerState") == "sleep" and command != VehicleCommand.WAKE_VEHICLE:
+            await self.send_vehicle_command(VehicleCommand.WAKE_VEHICLE)
+
+        entry_data = self.hass.data[DOMAIN][self.config_entry.entry_id]
+        vehicle = entry_data[ATTR_VEHICLE][self.vehicle_id]
+        user: UserCoordinator = entry_data[ATTR_COORDINATOR][ATTR_USER]
+        phone_info = user.get_enrolled_phone_data(
+            self.config_entry.options.get("public_key")
+        )
+
+        if response := await self.api.send_vehicle_command(
+            command=command,
+            vehicle_id=self.vehicle_id,
+            phone_id=phone_info[0],
+            identity_id=vehicle["phone_identity_id"],
+            vehicle_key=vehicle["public_key"],
+            private_key=self.config_entry.options.get("private_key"),
+            params=params,
+        ):
+            _LOGGER.debug("%s response was: %s", command, response)
+
+
+class VehicleImageCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
+    """Vehicle image data update coordinator for Rivian."""
+
+    key = "getVehicleMobileImages"
+    _update_interval = 0  # disabled
+    _last_updated: datetime | None = None
+
+    def __init__(self, hass: HomeAssistant, client: Rivian, version: str) -> None:
+        """Initialize the coordinator."""
+        super().__init__(hass=hass, client=client)
+        self.version = version
+
+    async def _fetch_data(self) -> ClientResponse:
+        """Fetch the data."""
+        data = await self.api.get_vehicle_images(
+            resolution="@3x", vehicle_version=self.version
+        )
+        self._last_updated = datetime.now(timezone.utc)
+        return data
 
 
 class WallboxCoordinator(RivianDataUpdateCoordinator[list[dict[str, Any]]]):
