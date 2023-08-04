@@ -5,13 +5,8 @@ from collections.abc import Iterable
 import logging
 from typing import Any, TypeVar
 
-import async_timeout
-from rivian import Rivian
-from rivian.exceptions import RivianExpiredTokenError, RivianUnauthenticated
-
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.entity import DeviceInfo, EntityDescription
 import homeassistant.helpers.entity_registry as er
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -55,12 +50,11 @@ class RivianVehicleEntity(RivianEntity[VehicleCoordinator]):
 
         name = vehicle["name"]
         model = vehicle["model"]
-        model_year = vehicle["modelYear"]
         self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, vin)},
+            identifiers={(DOMAIN, vin), (DOMAIN, vehicle["id"])},
             name=name if name else model,
             manufacturer="Rivian",
-            model=f"{model_year} {model}",
+            model=model,
             sw_version=self._get_value("otaCurrentVersion"),
         )
 
@@ -71,9 +65,7 @@ class RivianVehicleEntity(RivianEntity[VehicleCoordinator]):
 
     def _get_value(self, key: str) -> Any | None:
         """Get a data value from the coordinator."""
-        if entity := self.coordinator.data.get(key, {}):
-            return entity.get("value")
-        return None
+        return self.coordinator.get(key)
 
 
 class RivianChargingEntity(RivianEntity[ChargingCoordinator]):

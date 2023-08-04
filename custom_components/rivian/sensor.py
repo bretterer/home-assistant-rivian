@@ -64,8 +64,10 @@ async def async_setup_entry(
     # Add vehicle entities
     vehicle_coordinators: dict[str, VehicleCoordinator] = coordinators[ATTR_VEHICLE]
     entities = [
-        RivianSensorEntity(vehicle_coordinators[vin], entry, description, vehicle)
-        for vin, vehicle in vehicles.items()
+        RivianSensorEntity(
+            vehicle_coordinators[vehicle_id], entry, description, vehicle
+        )
+        for vehicle_id, vehicle in vehicles.items()
         for model, descriptions in SENSORS.items()
         if model in vehicle["model"]
         for description in descriptions
@@ -77,8 +79,10 @@ async def async_setup_entry(
     # Add charging entities
     charging_coordinators: dict[str, ChargingCoordinator] = coordinators[ATTR_CHARGING]
     entities.extend(
-        RivianChargingSensorEntity(charging_coordinators[vin], description, vin)
-        for vin in vehicles
+        RivianChargingSensorEntity(
+            charging_coordinators[vehicle_id], description, vehicle["vin"]
+        )
+        for vehicle_id, vehicle in vehicles.items()
         for description in CHARGING_SENSORS
     )
 

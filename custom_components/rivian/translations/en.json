@@ -21,22 +21,11 @@
     }
   },
   "options": {
-    "abort": {
-      "already_configured": "Device is already configured"
-    },
-    "error": {
-      "cannot_connect": "Failed to connect",
-      "invalid_auth": "Invalid authentication",
-      "unknown": "Unexpected error"
-    },
     "step": {
       "init": {
         "data": {
-          "password": "Password",
-          "username": "Username",
-          "otp": "Verification Code"
-        },
-        "title": "Configure your Rivian Integration"
+          "vehicle_control": "Enable vehicle control (experimental and at your own risk)"
+        }
       }
     }
   },
