@@ -14,7 +14,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import ATTR_COORDINATOR, ATTR_VEHICLE, DOMAIN, LOCK_STATE_ENTITIES
 from .coordinator import VehicleCoordinator
 from .data_classes import RivianLockEntityDescription
-from .entity import RivianVehicleEntity
+from .entity import RivianVehicleControlEntity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -53,7 +53,7 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class RivianLockEntity(RivianVehicleEntity, LockEntity):
+class RivianLockEntity(RivianVehicleControlEntity, LockEntity):
     """Representation of a Rivian sensor entity."""
 
     entity_description: RivianLockEntityDescription
