@@ -99,7 +99,6 @@ class RivianSensorEntityDescription(
 class RivianSwitchRequiredKeysMixin:
     """A class that describes Rivian switch required keys."""
 
-    available: Callable[[VehicleCoordinator], bool]
     is_on: Callable[[VehicleCoordinator], bool]
     turn_off: Callable[[VehicleCoordinator], Awaitable[None]]
     turn_on: Callable[[VehicleCoordinator], Awaitable[None]]
@@ -110,6 +109,8 @@ class RivianSwitchEntityDescription(
     SwitchEntityDescription, RivianSwitchRequiredKeysMixin
 ):
     """Rivian switch entity description."""
+
+    available: Callable[[VehicleCoordinator], bool] | None = None
 
 
 @dataclass
