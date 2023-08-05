@@ -39,7 +39,7 @@ class RivianVehicleEntity(RivianEntity[VehicleCoordinator]):
         description: EntityDescription,
         vehicle: dict[str, Any],
     ) -> None:
-        """Construct a RivianEntity."""
+        """Construct a Rivian vehicle entity."""
         super().__init__(coordinator)
         self._config_entry = config_entry
         self.entity_description = description

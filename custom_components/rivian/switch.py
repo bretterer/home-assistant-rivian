@@ -22,6 +22,7 @@ _LOGGER = logging.getLogger(__name__)
 SWITCHES: Final[tuple[RivianSwitchEntityDescription, ...]] = (
     RivianSwitchEntityDescription(
         key="charging_enabled",
+        icon="mdi:lightning-bolt",
         name="Charging Enabled",
         available=lambda coordinator: coordinator.get("remoteChargingAvailable") == 1
         or coordinator.get("chargerState") == "charging_active",
@@ -44,6 +45,30 @@ SWITCHES: Final[tuple[RivianSwitchEntityDescription, ...]] = (
         ),
         turn_on=lambda coordinator: coordinator.send_vehicle_command(
             command=VehicleCommand.VEHICLE_CABIN_PRECONDITION_ENABLE
+        ),
+    ),
+    RivianSwitchEntityDescription(
+        key="defrost_defog",
+        icon="mdi:car-defrost-front",
+        name="Defrost/Defog",
+        is_on=lambda coordinator: coordinator.get("defrostDefogStatus") != "Off",
+        turn_off=lambda coordinator: coordinator.send_vehicle_command(
+            command=VehicleCommand.CABIN_HVAC_DEFROST_DEFOG, params={"level": 0}
+        ),
+        turn_on=lambda coordinator: coordinator.send_vehicle_command(
+            command=VehicleCommand.CABIN_HVAC_DEFROST_DEFOG, params={"level": 1}
+        ),
+    ),
+    RivianSwitchEntityDescription(
+        key="steering_wheel_heat",
+        icon="mdi:steering",
+        name="Steering Wheel Heat",
+        is_on=lambda coordinator: coordinator.get("steeringWheelHeat") != "Off",
+        turn_off=lambda coordinator: coordinator.send_vehicle_command(
+            command=VehicleCommand.CABIN_HVAC_STEERING_HEAT, params={"level": 0}
+        ),
+        turn_on=lambda coordinator: coordinator.send_vehicle_command(
+            command=VehicleCommand.CABIN_HVAC_STEERING_HEAT, params={"level": 1}
         ),
     ),
 )
