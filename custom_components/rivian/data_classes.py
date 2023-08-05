@@ -11,6 +11,7 @@ from homeassistant.components.button import ButtonEntityDescription
 from homeassistant.components.cover import CoverEntityDescription
 from homeassistant.components.lock import LockEntityDescription
 from homeassistant.components.number import NumberEntityDescription
+from homeassistant.components.select import SelectEntityDescription
 from homeassistant.components.sensor import SensorEntityDescription
 from homeassistant.components.switch import SwitchEntityDescription
 from homeassistant.helpers.entity import EntityDescription
@@ -76,6 +77,21 @@ class RivianNumberEntityDescription(
     NumberEntityDescription, RivianNumberRequiredKeysMixin
 ):
     """Rivian number entity description."""
+
+
+@dataclass
+class RivianSelectRequiredKeysMixin:
+    """A class that describes Rivian select required keys."""
+
+    field: str
+    select: Callable[[VehicleCoordinator, str], Awaitable[None]]
+
+
+@dataclass
+class RivianSelectEntityDescription(
+    SelectEntityDescription, RivianSelectRequiredKeysMixin
+):
+    """Rivian select entity description."""
 
 
 @dataclass
