@@ -14,7 +14,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import ATTR_COORDINATOR, ATTR_VEHICLE, DOMAIN
 from .coordinator import VehicleCoordinator
 from .data_classes import RivianSwitchEntityDescription
-from .entity import RivianVehicleEntity
+from .entity import RivianVehicleControlEntity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ _LOGGER = logging.getLogger(__name__)
 SWITCHES: Final[tuple[RivianSwitchEntityDescription, ...]] = (
     RivianSwitchEntityDescription(
         key="charging_enabled",
-        name="Charging enabled",
+        name="Charging Enabled",
         available=lambda coordinator: coordinator.get("remoteChargingAvailable") == 1
         or coordinator.get("chargerState") == "charging_active",
         is_on=lambda coordinator: coordinator.get("chargerState")
@@ -32,6 +32,18 @@ SWITCHES: Final[tuple[RivianSwitchEntityDescription, ...]] = (
         ),
         turn_on=lambda coordinator: coordinator.send_vehicle_command(
             command=VehicleCommand.START_CHARGING
+        ),
+    ),
+    RivianSwitchEntityDescription(
+        key="cabin_preconditioning",
+        icon="mdi:fan",
+        name="Cabin Preconditioning",
+        is_on=lambda coordinator: coordinator.get("cabinPreconditioningType") != "NONE",
+        turn_off=lambda coordinator: coordinator.send_vehicle_command(
+            command=VehicleCommand.VEHICLE_CABIN_PRECONDITION_DISABLE
+        ),
+        turn_on=lambda coordinator: coordinator.send_vehicle_command(
+            command=VehicleCommand.VEHICLE_CABIN_PRECONDITION_ENABLE
         ),
     ),
 )
@@ -54,7 +66,7 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class RivianSwitchEntity(RivianVehicleEntity, SwitchEntity):
+class RivianSwitchEntity(RivianVehicleControlEntity, SwitchEntity):
     """Representation of a Rivian sensor entity."""
 
     entity_description: RivianSwitchEntityDescription
@@ -67,7 +79,11 @@ class RivianSwitchEntity(RivianVehicleEntity, SwitchEntity):
     @property
     def available(self) -> bool:
         """Return the availability of the entity."""
-        return super().available and self.entity_description.available(self.coordinator)
+        return super().available and (
+            _fn(self.coordinator)
+            if (_fn := self.entity_description.available)
+            else True
+        )
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the entity off."""

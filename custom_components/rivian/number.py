@@ -6,16 +6,16 @@ from typing import Any, Final
 
 from rivian import VehicleCommand
 
-from homeassistant.components.number import NumberDeviceClass, NumberEntity
+from homeassistant.components.number import NumberDeviceClass, NumberEntity, NumberMode
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import PERCENTAGE
+from homeassistant.const import PERCENTAGE, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import ATTR_COORDINATOR, ATTR_VEHICLE, DOMAIN
 from .coordinator import VehicleCoordinator
 from .data_classes import RivianNumberEntityDescription
-from .entity import RivianVehicleEntity
+from .entity import RivianVehicleControlEntity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -24,13 +24,27 @@ NUMBERS: Final[tuple[RivianNumberEntityDescription, ...]] = (
     RivianNumberEntityDescription(
         key="charge_limit",
         device_class=NumberDeviceClass.BATTERY,
-        # entity_category=EntityCategory.CONFIG,
-        name="Charge limit",
+        icon="mdi:battery-charging-70",
+        name="Charge Limit",
         native_min_value=50,
         native_unit_of_measurement=PERCENTAGE,
         field="batteryLimit",
         set_fn=lambda coordinator, value: coordinator.send_vehicle_command(
             command=VehicleCommand.CHARGING_LIMITS, params={"SOC_limit": int(value)}
+        ),
+    ),
+    RivianNumberEntityDescription(
+        key="cabin_preconditioning_temperature",
+        device_class=NumberDeviceClass.TEMPERATURE,
+        mode=NumberMode.BOX,
+        name="Cabin Preconditioning Temperature",
+        native_max_value=29,
+        native_min_value=16,
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        field="cabinClimateDriverTemperature",
+        set_fn=lambda coordinator, value: coordinator.send_vehicle_command(
+            command=VehicleCommand.CABIN_PRECONDITIONING_SET_TEMP,
+            params={"HVAC_set_temp": value},
         ),
     ),
 )
@@ -53,7 +67,7 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class RivianNumberEntity(RivianVehicleEntity, NumberEntity):
+class RivianNumberEntity(RivianVehicleControlEntity, NumberEntity):
     """Representation of a Rivian sensor entity."""
 
     entity_description: RivianNumberEntityDescription
