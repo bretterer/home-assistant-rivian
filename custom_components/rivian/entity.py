@@ -68,6 +68,15 @@ class RivianVehicleEntity(RivianEntity[VehicleCoordinator]):
         return self.coordinator.get(key)
 
 
+class RivianVehicleControlEntity(RivianVehicleEntity):
+    """Base class for Rivian vehicle control entities."""
+
+    @property
+    def available(self) -> bool:
+        """Return the availability of the entity."""
+        return super().available and self._get_value("gearStatus") == "park"
+
+
 class RivianChargingEntity(RivianEntity[ChargingCoordinator]):
     """Base class for Rivian charging entities."""
 
