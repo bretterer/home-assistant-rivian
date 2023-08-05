@@ -43,6 +43,7 @@ PLATFORMS: list[Platform] = [
     Platform.IMAGE,
     Platform.LOCK,
     Platform.NUMBER,
+    Platform.SELECT,
     Platform.SENSOR,
     Platform.SWITCH,
     Platform.UPDATE,
