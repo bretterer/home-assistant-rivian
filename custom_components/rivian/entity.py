@@ -5,7 +5,9 @@ from collections.abc import Iterable
 import logging
 from typing import Any, TypeVar
 
+from homeassistant.components.zone import in_zone
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import CONF_ZONE
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import DeviceInfo, EntityDescription
 import homeassistant.helpers.entity_registry as er
@@ -74,7 +76,16 @@ class RivianVehicleControlEntity(RivianVehicleEntity):
     @property
     def available(self) -> bool:
         """Return the availability of the entity."""
-        return super().available and self._get_value("gearStatus") == "park"
+        if not (super().available and self._get_value("gearStatus") == "park"):
+            return False
+        if zone_entity_ids := self._config_entry.options.get(CONF_ZONE, []):
+            location = self.coordinator.data.get("gnssLocation", {})
+            for entity_id in zone_entity_ids:
+                zone = self.hass.states.get(entity_id)
+                if in_zone(zone, location.get("latitude"), location.get("longitude")):
+                    return True
+            return False
+        return True
 
 
 class RivianChargingEntity(RivianEntity[ChargingCoordinator]):
