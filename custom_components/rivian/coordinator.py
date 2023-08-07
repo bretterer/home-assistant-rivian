@@ -61,8 +61,10 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator[T], Generic[T], ABC):
             self._update_interval = seconds
         else:
             seconds = min(self._update_interval * 2**self._error_count, 900)
-        self.update_interval = timedelta(seconds=seconds)
-        _LOGGER.info("Polling set to %s seconds", seconds)
+        if self.update_interval != (update_interval := timedelta(seconds=seconds)):
+            self.update_interval = update_interval
+            self._schedule_refresh()
+            _LOGGER.info("Polling set to %s seconds", seconds)
 
     async def _async_update_data(self) -> T:
         """Get the latest data from Rivian."""
@@ -178,7 +180,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
     async def _async_update_data(self) -> dict[str, Any]:
         """Get the latest data from Rivian."""
         if not self.data or not self.last_update_success:
-            self._unsubscribe()
+            await self._unsubscribe()
             self._unsub_handler = await self.api.subscribe_for_vehicle_updates(
                 vehicle_id=self.vehicle_id,
                 properties=VEHICLE_STATE_API_FIELDS,
@@ -202,6 +204,10 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             vin=self.vehicle_id, properties=VEHICLE_STATE_API_FIELDS
         )
 
+    async def async_shutdown(self) -> None:
+        await self._unsubscribe(True)
+        return await super().async_shutdown()
+
     @callback
     def _process_new_data(self, data: dict[str, Any]) -> None:
         """Process new data."""
@@ -209,7 +215,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.error("Received an unknown subscription update: %s", data)
             self._error_count += 1
             if not self._initial.is_set() or self._error_count > 5:
-                self._unsubscribe(True)
+                self.hass.async_add_job(self._unsubscribe, True)
                 self._set_update_interval(20)
             return
         vehicle_info = self._build_vehicle_info_dict(pdata.get(self.key, {}))
@@ -233,6 +239,11 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
                 is_plugged_in=charger_status.get("value") != "chrgr_sts_not_connected"
             )
 
+        if charger_status := items.get("chargerStatus"):
+            self.charging_coordinator.adjust_update_interval(
+                is_plugged_in=charger_status.get("value") != "chrgr_sts_not_connected"
+            )
+
         if not (prev_items := (self.data or {})):
             return items
         if not items or prev_items == items:
@@ -247,13 +258,14 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
 
         return new_data
 
-    def _unsubscribe(self, close_monitor: bool = False):
+    async def _unsubscribe(self, close_monitor: bool = False):
         """Unsubscribe."""
         if unsub := self._unsub_handler:
-            self.hass.async_add_job(unsub)
+            await unsub()
             self._unsub_handler = None
+            self._initial.clear()
         if close_monitor and (monitor := self.api._ws_monitor):
-            self.hass.async_add_job(monitor.close)
+            await monitor.close()
 
     def get(self, key: str) -> Any | None:
         """Get a data value by key."""
