@@ -1,20 +1,22 @@
 """Rivian (Unofficial)"""
 from __future__ import annotations
 
-from collections.abc import Mapping
 import logging
 from typing import Any
 
 from rivian import Rivian
-from rivian.exceptions import RivianUnauthenticated
+from rivian.exceptions import RivianPhoneLimitReachedError, RivianUnauthenticated
 from rivian.utils import generate_key_pair
 import voluptuous as vol
 
+from homeassistant.components.zone import DOMAIN as ZONE_DOMAIN
 from homeassistant.config_entries import ConfigEntry, ConfigFlow
-from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.const import CONF_PASSWORD, CONF_USERNAME, CONF_ZONE
+from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
+import homeassistant.helpers.device_registry as dr
 from homeassistant.helpers.schema_config_entry_flow import (
+    SchemaCommonFlowHandler,
     SchemaFlowFormStep,
     SchemaOptionsFlowHandler,
 )
@@ -22,9 +24,20 @@ from homeassistant.helpers.selector import (
     DeviceFilterSelectorConfig,
     DeviceSelector,
     DeviceSelectorConfig,
+    EntitySelector,
+    EntitySelectorConfig,
 )
 
-from .const import CONF_OTP, CONF_VEHICLE_CONTROL, DOMAIN
+from .const import (
+    ATTR_API,
+    ATTR_COORDINATOR,
+    ATTR_USER,
+    ATTR_VEHICLE,
+    CONF_OTP,
+    CONF_VEHICLE_CONTROL,
+    DOMAIN,
+)
+from .coordinator import UserCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -34,12 +47,103 @@ R1S = DeviceFilterSelectorConfig(integration=DOMAIN, manufacturer="Rivian", mode
 R1T = DeviceFilterSelectorConfig(integration=DOMAIN, manufacturer="Rivian", model="R1T")
 OPTIONS_SCHEMA = vol.Schema(
     {
-        vol.Required(CONF_VEHICLE_CONTROL): DeviceSelector(
+        vol.Optional(CONF_VEHICLE_CONTROL): DeviceSelector(
             DeviceSelectorConfig(multiple=True, filter=[R1S, R1T])
-        )
+        ),
+        vol.Optional(CONF_ZONE): EntitySelector(
+            EntitySelectorConfig(domain=ZONE_DOMAIN, multiple=True)
+        ),
     }
 )
-OPTIONS_FLOW = {"init": SchemaFlowFormStep(OPTIONS_SCHEMA)}
+
+
+async def validate_vehicle_control(
+    handler: SchemaCommonFlowHandler, user_input: dict[str, Any]
+) -> dict[str, Any]:
+    """Validate vehicle control."""
+    hass = handler.parent_handler.hass
+    entry = handler.parent_handler.config_entry
+
+    device_registry = dr.async_get(hass)
+
+    vehicle_control = user_input.get(CONF_VEHICLE_CONTROL, [])
+
+    if vehicle_control and not entry.options.get("private_key"):
+        public_key, private_key = generate_key_pair()
+        user_input["public_key"] = public_key
+        user_input["private_key"] = private_key
+    else:
+        public_key = entry.options.get("public_key")
+    entry_data = hass.data[DOMAIN][entry.entry_id]
+    api: Rivian = entry_data[ATTR_API]
+    vehicles: dict[str, dict[str, Any]] = entry_data[ATTR_VEHICLE]
+    user: UserCoordinator = entry_data[ATTR_COORDINATOR][ATTR_USER]
+    user_id = user.data["id"]
+    if enrolled_data := user.get_enrolled_phone_data(public_key=public_key):
+        vehicle_identity = enrolled_data[1]
+    else:
+        vehicle_identity = {}
+
+    if vehicle_control:
+        control_vehicles = {
+            identifier[1]: device_id
+            for device_id in vehicle_control
+            if (device := device_registry.async_get(device_id))
+            for identifier in device.identifiers
+            if identifier[0] == DOMAIN and identifier[1] in vehicles
+        }
+    else:
+        control_vehicles = {}
+
+    for vehicle_id, vehicle in vehicles.items():
+        vehicle_name = vehicle["name"]
+
+        # check if phone needs to be enrolled
+        if vehicle_id in control_vehicles and vehicle_id not in vehicle_identity:
+            success = False
+            try:
+                if not (
+                    success := await api.enroll_phone(
+                        user_id=user_id,
+                        vehicle_id=vehicle["id"],
+                        device_type="HA",
+                        device_name=hass.config.location_name,
+                        public_key=public_key,
+                    )
+                ):
+                    _LOGGER.warning("Unable to enable control for %s", vehicle_name)
+            except RivianPhoneLimitReachedError:
+                _LOGGER.error(
+                    "Unable to enable control for %s: phone limit reached", vehicle_name
+                )
+            except Exception as ex:  # pylint: disable=broad-except
+                _LOGGER.error("Unable to enable control for %s: %s", vehicle_name, ex)
+            if not success:
+                user_input[CONF_VEHICLE_CONTROL] = [
+                    vehicle
+                    for vehicle in user_input[CONF_VEHICLE_CONTROL]
+                    if vehicle != control_vehicles[vehicle_id]
+                ]
+
+        # check if phone needs to be disenrolled
+        elif vehicle_id not in control_vehicles and vehicle_id in vehicle_identity:
+            success = False
+            try:
+                identity_id = vehicle_identity[vehicle_id]
+                if not (success := await api.disenroll_phone(identity_id=identity_id)):
+                    _LOGGER.warning("Unable to disable control for %s", vehicle_name)
+            except Exception as ex:  # pylint: disable=broad-except
+                _LOGGER.error("Unable to disable control for %s: %s", vehicle_name, ex)
+            # should we do something else if unable to disenroll?
+
+    return user_input
+
+
+OPTIONS_FLOW = {
+    "init": SchemaFlowFormStep(
+        OPTIONS_SCHEMA, validate_user_input=validate_vehicle_control
+    )
+}
 
 
 def _get_schema_credential_fields(
@@ -81,24 +185,13 @@ class RivianFlowHandler(ConfigFlow, domain=DOMAIN):
     @callback
     def async_get_options_flow(config_entry: ConfigEntry) -> SchemaOptionsFlowHandler:
         """Get the options flow for this handler."""
-        return SchemaOptionsFlowHandler(
-            config_entry, OPTIONS_FLOW, RivianFlowHandler.check_options
-        )
-
-    @staticmethod
-    @callback
-    def check_options(hass: HomeAssistant, data: Mapping[str, Any]) -> None:
-        """Get the options flow for this handler."""
-        if data.get(CONF_VEHICLE_CONTROL) and not data.get("private_key"):
-            public_key, private_key = generate_key_pair()
-            data["public_key"] = public_key
-            data["private_key"] = private_key
+        return SchemaOptionsFlowHandler(config_entry, OPTIONS_FLOW)
 
     # pylint: disable=protected-access
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Handle the flow"""
+        """Handle the flow."""
         if user_input is None:
             return await self._show_credential_fields(user_input)
 

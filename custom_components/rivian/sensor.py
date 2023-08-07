@@ -28,15 +28,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import StateType
 
-from .const import (
-    ATTR_CHARGING,
-    ATTR_COORDINATOR,
-    ATTR_VEHICLE,
-    ATTR_WALLBOX,
-    DOMAIN,
-    SENSORS,
-)
-from .coordinator import ChargingCoordinator, VehicleCoordinator, WallboxCoordinator
+from .const import ATTR_COORDINATOR, ATTR_VEHICLE, ATTR_WALLBOX, DOMAIN, SENSORS
+from .coordinator import VehicleCoordinator, WallboxCoordinator
 from .data_classes import (
     RivianSensorEntityDescription,
     RivianWallboxSensorEntityDescription,
@@ -77,10 +70,11 @@ async def async_setup_entry(
     async_update_unique_id(hass, PLATFORM, entities)
 
     # Add charging entities
-    charging_coordinators: dict[str, ChargingCoordinator] = coordinators[ATTR_CHARGING]
     entities.extend(
         RivianChargingSensorEntity(
-            charging_coordinators[vehicle_id], description, vehicle["vin"]
+            vehicle_coordinators[vehicle_id].charging_coordinator,
+            description,
+            vehicle["vin"],
         )
         for vehicle_id, vehicle in vehicles.items()
         for description in CHARGING_SENSORS
@@ -158,7 +152,9 @@ class RivianChargingSensorEntity(RivianChargingEntity, SensorEntity):
     def native_unit_of_measurement(self) -> str | None:
         """Return the unit of measurement of the sensor, if any."""
         if self.entity_description.field == "currentPrice":
-            return self.coordinator.data.get("currentCurrency")
+            return self.coordinator.data.get(
+                "currentCurrency", self.hass.config.currency
+            )
         return super().native_unit_of_measurement
 
 
