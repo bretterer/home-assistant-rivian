@@ -24,7 +24,8 @@
     "step": {
       "init": {
         "data": {
-          "vehicle_control": "Enable vehicle control (experimental and at your own risk)"
+          "vehicle_control": "Enable vehicle control (experimental and at your own risk)",
+          "zone": "Limit vehicle control to the following zones"
         }
       }
     }

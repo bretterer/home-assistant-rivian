@@ -25,7 +25,6 @@ ISSUE_URL = "https://github.com/bretterer/home-assistant-rivian/issues"
 
 # Attributes
 ATTR_API = "api"
-ATTR_CHARGING = "charging"
 ATTR_COORDINATOR = "coordinator"
 ATTR_USER = "user"
 ATTR_VEHICLE = "vehicle"
