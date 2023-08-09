@@ -87,6 +87,7 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator[T], Generic[T], ABC):
             _LOGGER.error("Rate limit being enforced: %s", err, exc_info=1)
             self._set_update_interval()
         except RivianUnauthenticated as err:
+            await self.api.close()
             raise ConfigEntryAuthFailed from err
         except RivianApiException as ex:
             _LOGGER.error("Rivian api exception: %s", ex, exc_info=1)
@@ -188,8 +189,6 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
                     await self._initial.wait()
             except asyncio.TimeoutError:
                 pass  # we'll fetch it from the API
-            else:
-                return self.data
 
         data = await super()._async_update_data()
         return self._build_vehicle_info_dict(data)
@@ -227,7 +226,8 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             if v
         }
 
-        _LOGGER.debug("Vehicle %s updated: %s", self.vehicle_id, items)
+        if items:
+            _LOGGER.debug("Vehicle %s updated: %s", self.vehicle_id, items)
 
         if charger_status := items.get("chargerStatus"):
             self.charging_coordinator.adjust_update_interval(
@@ -244,7 +244,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             value = items[key]["value"]
             if str(value).lower() in INVALID_SENSOR_STATES:
                 new_data[key] = prev_items[key]
-            new_data[key]["history"] |= prev_items[key]["history"]
+            new_data[key]["history"] |= prev_items.get(key, {}).get("history")
 
         return new_data
 

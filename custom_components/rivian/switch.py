@@ -21,53 +21,51 @@ _LOGGER = logging.getLogger(__name__)
 
 SWITCHES: Final[tuple[RivianSwitchEntityDescription, ...]] = (
     RivianSwitchEntityDescription(
+        key="alarm",
+        icon="mdi:alarm-light",
+        name="Alarm",
+        is_on=lambda coor: coor.get("alarmSoundStatus") == "true",
+        turn_off=lambda coor: coor.send_vehicle_command(
+            command=VehicleCommand.PANIC_OFF
+        ),
+        turn_on=lambda coor: coor.send_vehicle_command(command=VehicleCommand.PANIC_ON),
+    ),
+    RivianSwitchEntityDescription(
         key="charging_enabled",
         icon="mdi:lightning-bolt",
         name="Charging Enabled",
-        available=lambda coordinator: coordinator.get("remoteChargingAvailable") == 1
-        or coordinator.get("chargerState") == "charging_active",
-        is_on=lambda coordinator: coordinator.get("chargerState")
+        available=lambda coor: coor.get("remoteChargingAvailable") == 1
+        or coor.get("chargerState") == "charging_active",
+        is_on=lambda coor: coor.get("chargerState")
         in ("charging_active", "charging_connecting"),
-        turn_off=lambda coordinator: coordinator.send_vehicle_command(
+        turn_off=lambda coor: coor.send_vehicle_command(
             command=VehicleCommand.STOP_CHARGING
         ),
-        turn_on=lambda coordinator: coordinator.send_vehicle_command(
+        turn_on=lambda coor: coor.send_vehicle_command(
             command=VehicleCommand.START_CHARGING
         ),
     ),
     RivianSwitchEntityDescription(
-        key="cabin_preconditioning",
-        icon="mdi:fan",
-        name="Cabin Preconditioning",
-        is_on=lambda coordinator: coordinator.get("cabinPreconditioningType") != "NONE",
-        turn_off=lambda coordinator: coordinator.send_vehicle_command(
-            command=VehicleCommand.VEHICLE_CABIN_PRECONDITION_DISABLE
+        key="gear_guard_video",
+        icon="mdi:cctv",
+        name="Gear Guard Video",
+        is_on=lambda coor: coor.get("gearGuardVideoStatus") != "Disabled",
+        turn_off=lambda coor: coor.send_vehicle_command(
+            command=VehicleCommand.DISABLE_GEAR_GUARD_VIDEO
         ),
-        turn_on=lambda coordinator: coordinator.send_vehicle_command(
-            command=VehicleCommand.VEHICLE_CABIN_PRECONDITION_ENABLE
-        ),
-    ),
-    RivianSwitchEntityDescription(
-        key="defrost_defog",
-        icon="mdi:car-defrost-front",
-        name="Defrost/Defog",
-        is_on=lambda coordinator: coordinator.get("defrostDefogStatus") != "Off",
-        turn_off=lambda coordinator: coordinator.send_vehicle_command(
-            command=VehicleCommand.CABIN_HVAC_DEFROST_DEFOG, params={"level": 0}
-        ),
-        turn_on=lambda coordinator: coordinator.send_vehicle_command(
-            command=VehicleCommand.CABIN_HVAC_DEFROST_DEFOG, params={"level": 1}
+        turn_on=lambda coor: coor.send_vehicle_command(
+            command=VehicleCommand.ENABLE_GEAR_GUARD_VIDEO
         ),
     ),
     RivianSwitchEntityDescription(
         key="steering_wheel_heat",
         icon="mdi:steering",
         name="Steering Wheel Heat",
-        is_on=lambda coordinator: coordinator.get("steeringWheelHeat") != "Off",
-        turn_off=lambda coordinator: coordinator.send_vehicle_command(
+        is_on=lambda coor: coor.get("steeringWheelHeat") != "Off",
+        turn_off=lambda coor: coor.send_vehicle_command(
             command=VehicleCommand.CABIN_HVAC_STEERING_HEAT, params={"level": 0}
         ),
-        turn_on=lambda coordinator: coordinator.send_vehicle_command(
+        turn_on=lambda coor: coor.send_vehicle_command(
             command=VehicleCommand.CABIN_HVAC_STEERING_HEAT, params={"level": 1}
         ),
     ),
