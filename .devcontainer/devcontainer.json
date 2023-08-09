@@ -1,42 +1,39 @@
 // See https://aka.ms/vscode-remote/devcontainer.json for format details.
 {
-    "name": "Home Assistant Rivian integration development",
-    "image": "mcr.microsoft.com/vscode/devcontainers/python:0-3.11-bullseye",
-    "postCreateCommand": "scripts/setup",
-    "postAttachCommand": "scripts/setup",
-    "forwardPorts": [
-        8123
-    ],
-    "customizations": {
-        "vscode": {
-            "extensions": [
-                "ms-python.python",
-                "ms-python.vscode-pylance",
-                "ms-python.isort",
-                "esbenp.prettier-vscode",
-                "github.vscode-pull-request-github",
-                "ryanluker.vscode-coverage-gutters"
-            ],
-            "settings": {
-                "files.eol": "\n",
-                "editor.tabSize": 4,
-                "python.pythonPath": "/usr/bin/python3",
-                "python.analysis.autoSearchPaths": false,
-                "python.linting.pylintEnabled": true,
-                "python.linting.enabled": true,
-                "python.formatting.provider": "black",
-                "editor.formatOnPaste": false,
-                "editor.formatOnSave": true,
-                "editor.formatOnType": true,
-                "editor.codeActionsOnSave": {
-                  "source.organizeImports": true
-                },
-                "files.trimTrailingWhitespace": true
-            }
-        }
-    },
-    "remoteUser": "vscode",
-    "features": {
-        "rust": "latest"
+  "name": "Home Assistant integration development",
+  "image": "mcr.microsoft.com/vscode/devcontainers/python:0-3.11-bullseye",
+  "postCreateCommand": ".devcontainer/setup",
+  "postAttachCommand": ".devcontainer/setup",
+  "forwardPorts": [8123],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-python.black-formatter",
+        "ms-python.isort",
+        "ms-python.pylint",
+        "esbenp.prettier-vscode",
+        "github.vscode-pull-request-github",
+        "ryanluker.vscode-coverage-gutters"
+      ],
+      "settings": {
+        "files.eol": "\n",
+        "editor.tabSize": 4,
+        "python.pythonPath": "/usr/bin/python3",
+        "python.analysis.autoSearchPaths": false,
+        "editor.formatOnPaste": false,
+        "editor.formatOnSave": true,
+        "editor.formatOnType": true,
+        "editor.codeActionsOnSave": {
+          "source.organizeImports": true
+        },
+        "files.trimTrailingWhitespace": true
+      }
     }
+  },
+  "remoteUser": "vscode",
+  "features": {
+    "rust": "latest"
+  }
 }
