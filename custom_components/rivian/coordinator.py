@@ -193,6 +193,8 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
                     await self._initial.wait()
             except asyncio.TimeoutError:
                 pass  # we'll fetch it from the API
+            else:
+                return self.data
 
         data = await super()._async_update_data()
         return self._build_vehicle_info_dict(data)

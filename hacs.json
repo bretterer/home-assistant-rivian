@@ -1,10 +1,6 @@
 {
-    "name": "Rivian (Unofficial)",
-    "domains": [
-        "sensor"
-    ],
-    "homeassistant": "2023.3.0",
-    "iot_class": "Cloud Polling",
-    "zip_release": true,
-    "filename": "rivian.zip"
+  "name": "Rivian (Unofficial)",
+  "homeassistant": "2023.7.0",
+  "zip_release": true,
+  "filename": "rivian.zip"
 }
