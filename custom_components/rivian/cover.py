@@ -22,29 +22,71 @@ from .entity import RivianVehicleControlEntity
 
 _LOGGER = logging.getLogger(__name__)
 
+WINDOWS: Final[tuple[str, ...]] = (
+    "windowFrontLeftClosed",
+    "windowFrontRightClosed",
+    "windowRearLeftClosed",
+    "windowRearRightClosed",
+)
 
-COVERS: Final[tuple[RivianCoverEntityDescription, ...]] = (
-    RivianCoverEntityDescription(
-        key="windows",
-        device_class=CoverDeviceClass.WINDOW,
-        name="Windows",
-        is_closed=lambda coordinator: not any(
-            coordinator.get(key) == "open"
-            for key in (
-                "windowFrontLeftClosed",
-                "windowFrontRightClosed",
-                "windowRearLeftClosed",
-                "windowRearRightClosed",
-            )
-        ),
-        close_cover=lambda coordinator: coordinator.send_vehicle_command(
-            command=VehicleCommand.CLOSE_ALL_WINDOWS
-        ),
-        open_cover=lambda coordinator: coordinator.send_vehicle_command(
-            command=VehicleCommand.OPEN_ALL_WINDOWS
+COVERS: Final[dict[str | None, tuple[RivianCoverEntityDescription, ...]]] = {
+    None: (
+        RivianCoverEntityDescription(
+            key="windows",
+            device_class=CoverDeviceClass.WINDOW,
+            name="Windows",
+            is_closed=lambda coor: not any(coor.get(key) == "open" for key in WINDOWS),
+            close_cover=lambda coor: coor.send_vehicle_command(
+                command=VehicleCommand.CLOSE_ALL_WINDOWS
+            ),
+            open_cover=lambda coor: coor.send_vehicle_command(
+                command=VehicleCommand.OPEN_ALL_WINDOWS
+            ),
         ),
     ),
-)
+    "LIFTGATE_CMD": (
+        RivianCoverEntityDescription(
+            key="liftgate",
+            device_class=CoverDeviceClass.DOOR,
+            name="Liftgate",
+            is_closed=lambda coor: coor.get("closureLiftgateClosed") != "open",
+            close_cover=lambda coor: coor.send_vehicle_command(
+                command=VehicleCommand.CLOSE_LIFTGATE
+            ),
+            open_cover=lambda coor: coor.send_vehicle_command(
+                command=VehicleCommand.OPEN_LIFTGATE_UNLATCH_TAILGATE
+            ),
+        ),
+    ),
+    "FRUNK_NXT_ACT": (
+        RivianCoverEntityDescription(
+            key="frunk",
+            device_class=CoverDeviceClass.DOOR,
+            name="Front Trunk",
+            is_closed=lambda coor: coor.get("closureFrunkClosed") != "open",
+            close_cover=lambda coor: coor.send_vehicle_command(
+                command=VehicleCommand.CLOSE_FRUNK
+            ),
+            open_cover=lambda coor: coor.send_vehicle_command(
+                command=VehicleCommand.OPEN_FRUNK
+            ),
+        ),
+    ),
+    "TONNEAU_CMD": (
+        RivianCoverEntityDescription(
+            key="tonneau",
+            device_class=CoverDeviceClass.DOOR,
+            name="Tonneau",
+            is_closed=lambda coor: coor.get("closureTonneauClosed") != "open",
+            close_cover=lambda coor: coor.send_vehicle_command(
+                command=VehicleCommand.CLOSE_TONNEAU_COVER
+            ),
+            open_cover=lambda coor: coor.send_vehicle_command(
+                command=VehicleCommand.OPEN_TONNEAU_COVER
+            ),
+        ),
+    ),
+}
 
 
 async def async_setup_entry(
@@ -59,7 +101,9 @@ async def async_setup_entry(
         RivianCoverEntity(coordinators[vehicle_id], entry, description, vehicle)
         for vehicle_id, vehicle in vehicles.items()
         if vehicle.get("phone_identity_id")
-        for description in COVERS
+        for feature, descriptions in COVERS.items()
+        if feature is None or feature in (vehicle.get("supported_features", []))
+        for description in descriptions
     ]
     async_add_entities(entities)
 
