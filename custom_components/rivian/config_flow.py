@@ -33,7 +33,10 @@ from .const import (
     ATTR_COORDINATOR,
     ATTR_USER,
     ATTR_VEHICLE,
+    CONF_ACCESS_TOKEN,
     CONF_OTP,
+    CONF_REFRESH_TOKEN,
+    CONF_USER_SESSION_TOKEN,
     CONF_VEHICLE_CONTROL,
     DOMAIN,
 )
@@ -193,7 +196,7 @@ class RivianFlowHandler(ConfigFlow, domain=DOMAIN):
     ) -> FlowResult:
         """Handle the flow."""
         if user_input is None:
-            return await self._show_credential_fields(user_input)
+            return await self._show_credential_fields()
 
         self._data.update(user_input)
 
@@ -247,28 +250,32 @@ class RivianFlowHandler(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Perform reauth upon an API authentication error."""
-        return await self.async_step_user(user_input)
+        self._data.update(user_input)
+        return await self._show_credential_fields(user_input)
 
     async def _async_create_entry(self) -> FlowResult:
         """Create the config entry."""
-        config_data = {
-            "access_token": self._access_token,
-            "refresh_token": self._refresh_token,
-            "user_session_token": self._user_session_token,
-        }
-
-        self._data.update(config_data)
         await self._rivian.close()
+        config_data = {
+            CONF_USERNAME: self._data[CONF_USERNAME],
+            CONF_ACCESS_TOKEN: self._access_token,
+            CONF_REFRESH_TOKEN: self._refresh_token,
+            CONF_USER_SESSION_TOKEN: self._user_session_token,
+        }
 
         entry_id = self.context.get("entry_id")
         if existing_entry := self.hass.config_entries.async_get_entry(entry_id):
-            self.hass.config_entries.async_update_entry(existing_entry, data=self._data)
+            self.hass.config_entries.async_update_entry(
+                existing_entry, data=config_data
+            )
             await self.hass.config_entries.async_reload(existing_entry.entry_id)
             return self.async_abort(reason="reauth_successful")
 
-        return self.async_create_entry(title="Rivian (Unofficial)", data=self._data)
+        return self.async_create_entry(title="Rivian (Unofficial)", data=config_data)
 
-    async def _show_credential_fields(self, user_input: dict[str, Any]) -> FlowResult:
+    async def _show_credential_fields(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
         """Show the configuration form to add credentials."""
         return self.async_show_form(
             step_id="user",
