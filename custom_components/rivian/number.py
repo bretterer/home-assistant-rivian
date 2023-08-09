@@ -33,27 +33,13 @@ NUMBERS: Final[tuple[RivianNumberEntityDescription, ...]] = (
             command=VehicleCommand.CHARGING_LIMITS, params={"SOC_limit": int(value)}
         ),
     ),
-    RivianNumberEntityDescription(
-        key="cabin_preconditioning_temperature",
-        device_class=NumberDeviceClass.TEMPERATURE,
-        mode=NumberMode.BOX,
-        name="Cabin Preconditioning Temperature",
-        native_max_value=29,
-        native_min_value=16,
-        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
-        field="cabinClimateDriverTemperature",
-        set_fn=lambda coordinator, value: coordinator.send_vehicle_command(
-            command=VehicleCommand.CABIN_PRECONDITIONING_SET_TEMP,
-            params={"HVAC_set_temp": value},
-        ),
-    ),
 )
 
 
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
-    """Set up the sensor entities"""
+    """Set up the number entities"""
     data: dict[str, Any] = hass.data[DOMAIN][entry.entry_id]
     vehicles: dict[str, dict[str, Any]] = data[ATTR_VEHICLE]
     coordinators: dict[str, VehicleCoordinator] = data[ATTR_COORDINATOR][ATTR_VEHICLE]
@@ -68,7 +54,7 @@ async def async_setup_entry(
 
 
 class RivianNumberEntity(RivianVehicleControlEntity, NumberEntity):
-    """Representation of a Rivian sensor entity."""
+    """Representation of a Rivian number entity."""
 
     entity_description: RivianNumberEntityDescription
 

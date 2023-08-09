@@ -29,6 +29,8 @@ from .coordinator import UserCoordinator, VehicleCoordinator, WallboxCoordinator
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
+    Platform.BUTTON,
+    Platform.CLIMATE,
     Platform.COVER,
     Platform.DEVICE_TRACKER,
     Platform.IMAGE,
@@ -69,6 +71,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         vehicle["id"]: vehicle["vehicle"]
         | {
             "name": vehicle["name"],
+            "supported_features": [
+                supported_feature.get("name")
+                for supported_feature in vehicle.get("vehicle", {})
+                .get("vehicleState", {})
+                .get("supportedFeatures", [])
+                if supported_feature.get("status") == "AVAILABLE"
+            ],
             "public_key": vehicle.get("vas", {}).get("vehiclePublicKey"),
         }
         for vehicle in coordinator.data["vehicles"]
