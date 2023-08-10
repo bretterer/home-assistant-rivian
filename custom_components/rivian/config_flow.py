@@ -74,7 +74,7 @@ async def validate_vehicle_control(
 
     if vehicle_control and not user.data.get("registrationChannels"):
         await api.close()
-        raise SchemaFlowError("2fa_error")
+        raise SchemaFlowError("2fa_missing")
 
     if vehicle_control and not entry.options.get("private_key"):
         public_key, private_key = generate_key_pair()
