@@ -28,6 +28,9 @@
           "zone": "Limit vehicle control to the following zones"
         }
       }
+    },
+    "error": {
+      "2fa_error": "Two-factor authentication is required to enable vehicle control"
     }
   },
   "entity": {
