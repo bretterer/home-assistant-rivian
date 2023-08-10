@@ -5,10 +5,15 @@ import logging
 
 from rivian import Rivian
 
-from homeassistant.config_entries import SOURCE_REAUTH, ConfigEntry
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
+from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.helpers.issue_registry import (
+    IssueSeverity,
+    async_create_issue,
+    async_delete_issue,
+)
 
 from .const import (
     ATTR_API,
@@ -64,12 +69,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     vehicle_control = entry.options.get(CONF_VEHICLE_CONTROL)
     if vehicle_control and not coordinator.data.get("registrationChannels"):
-        await client.close()
-        raise ConfigEntryAuthFailed("2FA is required for vehicle control")
-
-    # Abort any re-auth flows
-    for reauth_flow in entry.async_get_active_flows(hass, {SOURCE_REAUTH}):
-        hass.config_entries.flow.async_abort(reauth_flow["flow_id"])
+        vehicle_control = []
+        async_create_issue(
+            hass,
+            DOMAIN,
+            entry.entry_id,
+            is_fixable=False,
+            is_persistent=False,
+            severity=IssueSeverity.WARNING,
+            translation_key="2fa_missing",
+        )
+    else:
+        async_delete_issue(hass, DOMAIN, entry.entry_id)
 
     vehicles = coordinator.get_vehicles()
     if vehicle_control and (
