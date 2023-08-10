@@ -17,6 +17,7 @@ from homeassistant.data_entry_flow import FlowResult
 import homeassistant.helpers.device_registry as dr
 from homeassistant.helpers.schema_config_entry_flow import (
     SchemaCommonFlowHandler,
+    SchemaFlowError,
     SchemaFlowFormStep,
     SchemaOptionsFlowHandler,
 )
@@ -29,10 +30,6 @@ from homeassistant.helpers.selector import (
 )
 
 from .const import (
-    ATTR_API,
-    ATTR_COORDINATOR,
-    ATTR_USER,
-    ATTR_VEHICLE,
     CONF_ACCESS_TOKEN,
     CONF_OTP,
     CONF_REFRESH_TOKEN,
@@ -41,6 +38,7 @@ from .const import (
     DOMAIN,
 )
 from .coordinator import UserCoordinator
+from .helpers import get_rivian_api_from_entry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -66,10 +64,17 @@ async def validate_vehicle_control(
     """Validate vehicle control."""
     hass = handler.parent_handler.hass
     entry = handler.parent_handler.config_entry
-
+    api = get_rivian_api_from_entry(entry)
+    user = UserCoordinator(hass=hass, client=api, include_phones=True)
+    await user.async_config_entry_first_refresh()
+    user_id = user.data["id"]
+    vehicles = user.get_vehicles()
+    vehicle_control = user_input.get(CONF_VEHICLE_CONTROL, [])
     device_registry = dr.async_get(hass)
 
-    vehicle_control = user_input.get(CONF_VEHICLE_CONTROL, [])
+    if vehicle_control and not user.data.get("registrationChannels"):
+        await api.close()
+        raise SchemaFlowError("2fa_error")
 
     if vehicle_control and not entry.options.get("private_key"):
         public_key, private_key = generate_key_pair()
@@ -77,11 +82,6 @@ async def validate_vehicle_control(
         user_input["private_key"] = private_key
     else:
         public_key = entry.options.get("public_key")
-    entry_data = hass.data[DOMAIN][entry.entry_id]
-    api: Rivian = entry_data[ATTR_API]
-    vehicles: dict[str, dict[str, Any]] = entry_data[ATTR_VEHICLE]
-    user: UserCoordinator = entry_data[ATTR_COORDINATOR][ATTR_USER]
-    user_id = user.data["id"]
     if enrolled_data := user.get_enrolled_phone_data(public_key=public_key):
         vehicle_identity = enrolled_data[1]
     else:
@@ -139,6 +139,7 @@ async def validate_vehicle_control(
                 _LOGGER.error("Unable to disable control for %s: %s", vehicle_name, ex)
             # should we do something else if unable to disenroll?
 
+    await api.close()
     return user_input
 
 

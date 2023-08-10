@@ -5,10 +5,10 @@ import logging
 
 from rivian import Rivian
 
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import SOURCE_REAUTH, ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 
 from .const import (
     ATTR_API,
@@ -16,15 +16,13 @@ from .const import (
     ATTR_USER,
     ATTR_VEHICLE,
     ATTR_WALLBOX,
-    CONF_ACCESS_TOKEN,
-    CONF_REFRESH_TOKEN,
-    CONF_USER_SESSION_TOKEN,
     CONF_VEHICLE_CONTROL,
     DOMAIN,
     ISSUE_URL,
     VERSION,
 )
 from .coordinator import UserCoordinator, VehicleCoordinator, WallboxCoordinator
+from .helpers import get_rivian_api_from_entry
 
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS: list[Platform] = [
@@ -53,36 +51,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     hass.data.setdefault(DOMAIN, {})
 
-    client = Rivian(
-        request_timeout=30,
-        access_token=entry.data.get(CONF_ACCESS_TOKEN),
-        refresh_token=entry.data.get(CONF_REFRESH_TOKEN),
-        user_session_token=entry.data.get(CONF_USER_SESSION_TOKEN),
-    )
+    client = get_rivian_api_from_entry(entry)
     try:
         await client.create_csrf_token()
     except Exception as err:  # pylint: disable=broad-except
         _LOGGER.error("Could not update Rivian Data: %s", err, exc_info=1)
+        await client.close()
         raise ConfigEntryNotReady("Error communicating with API") from err
 
     coordinator = UserCoordinator(hass=hass, client=client, include_phones=True)
     await coordinator.async_config_entry_first_refresh()
-    vehicles = {
-        vehicle["id"]: vehicle["vehicle"]
-        | {
-            "name": vehicle["name"],
-            "supported_features": [
-                supported_feature.get("name")
-                for supported_feature in vehicle.get("vehicle", {})
-                .get("vehicleState", {})
-                .get("supportedFeatures", [])
-                if supported_feature.get("status") == "AVAILABLE"
-            ],
-            "public_key": vehicle.get("vas", {}).get("vehiclePublicKey"),
-        }
-        for vehicle in coordinator.data["vehicles"]
-    }
-    if entry.options.get(CONF_VEHICLE_CONTROL) and (
+
+    vehicle_control = entry.options.get(CONF_VEHICLE_CONTROL)
+    if vehicle_control and not coordinator.data.get("registrationChannels"):
+        await client.close()
+        raise ConfigEntryAuthFailed("2FA is required for vehicle control")
+
+    # Abort any re-auth flows
+    for reauth_flow in entry.async_get_active_flows(hass, {SOURCE_REAUTH}):
+        hass.config_entries.flow.async_abort(reauth_flow["flow_id"])
+
+    vehicles = coordinator.get_vehicles()
+    if vehicle_control and (
         enrolled := coordinator.get_enrolled_phone_data(entry.options.get("public_key"))
     ):
         for vehicle_id in vehicles:
@@ -134,12 +124,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Handle removal of an entry."""
     if public_key := entry.options.get("public_key"):
-        client = Rivian(
-            request_timeout=30,
-            access_token=entry.data.get(CONF_ACCESS_TOKEN),
-            refresh_token=entry.data.get(CONF_REFRESH_TOKEN),
-            user_session_token=entry.data.get(CONF_USER_SESSION_TOKEN),
-        )
+        client = client = get_rivian_api_from_entry(entry)
         coordinator = UserCoordinator(hass=hass, client=client, include_phones=True)
         await coordinator.async_config_entry_first_refresh()
 

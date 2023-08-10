@@ -159,6 +159,24 @@ class UserCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             return (phone_id, vehicle_entry)
         return None
 
+    def get_vehicles(self) -> dict[str, dict[str, Any]]:
+        """Get the user's vehicles."""
+        return {
+            vehicle["id"]: vehicle["vehicle"]
+            | {
+                "name": vehicle["name"],
+                "supported_features": [
+                    supported_feature.get("name")
+                    for supported_feature in vehicle.get("vehicle", {})
+                    .get("vehicleState", {})
+                    .get("supportedFeatures", [])
+                    if supported_feature.get("status") == "AVAILABLE"
+                ],
+                "public_key": vehicle.get("vas", {}).get("vehiclePublicKey"),
+            }
+            for vehicle in self.data["vehicles"]
+        }
+
 
 class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
     """Vehicle data update coordinator for Rivian."""
