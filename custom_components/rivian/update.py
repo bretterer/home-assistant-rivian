@@ -47,7 +47,7 @@ async def async_setup_entry(
 class RivianUpdateEntity(RivianVehicleEntity, UpdateEntity):
     """Rivian Update Entity."""
 
-    _attr_supported_features = Feature.PROGRESS
+    _attr_supported_features = Feature.PROGRESS | Feature.RELEASE_NOTES
 
     @property
     def installed_version(self) -> str:
@@ -69,11 +69,6 @@ class RivianUpdateEntity(RivianVehicleEntity, UpdateEntity):
         return None
 
     @property
-    def release_url(self) -> str:
-        """URL to the full release notes of the latest version available."""
-        return f"https://rivian.software/{self.latest_version.replace('.','-')}/"
-
-    @property
     def extra_state_attributes(self) -> Mapping[str, Any]:
         """Return entity specific state attributes."""
         return {
@@ -90,3 +85,18 @@ class RivianUpdateEntity(RivianVehicleEntity, UpdateEntity):
                 "git_hash": self._get_value("otaAvailableVersionGitHash"),
             },
         }
+
+    async def async_release_notes(self) -> str | None:
+        """Return Rivian release notes."""
+        vehicle_id = self.coordinator.vehicle_id
+        try:
+            resp = await self.coordinator.api.get_vehicle_ota_update_details(vehicle_id)
+            resp_data = await resp.json()
+            data = resp_data["data"]["getVehicle"]
+            if details := data["availableOTAUpdateDetails"]:
+                url = details["url"]
+            else:
+                url = data["currentOTAUpdateDetails"]["url"]
+        except:  # pylint: disable=bare-except
+            url = f"https://rivian.software/{self.latest_version.replace('.','-')}/"
+        return f"[Read release announcement]({url})"
