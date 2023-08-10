@@ -30,7 +30,7 @@
       }
     },
     "error": {
-      "2fa_error": "Two-factor authentication is required to enable vehicle control"
+      "2fa_missing": "Two-factor authentication is required to enable vehicle control"
     }
   },
   "entity": {
@@ -43,6 +43,12 @@
           "charging": "Charging"
         }
       }
+    }
+  },
+  "issues": {
+    "2fa_missing": {
+      "title": "Two-factor authentication (2FA) required for vehicle control",
+      "description": "Please enable 2FA in your Rivian account and then reload the integration or re-configure the integration and remove any devices selected for vehicle control."
     }
   }
 }
