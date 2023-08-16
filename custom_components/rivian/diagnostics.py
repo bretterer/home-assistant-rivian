@@ -3,26 +3,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_LATITUDE, CONF_LONGITUDE
 from homeassistant.core import HomeAssistant
 
 from .const import ATTR_COORDINATOR, ATTR_USER, ATTR_VEHICLE, ATTR_WALLBOX, DOMAIN
 from .coordinator import UserCoordinator, VehicleCoordinator, WallboxCoordinator
-
-TO_REDACT = {
-    CONF_LATITUDE,
-    CONF_LONGITUDE,
-    "id",
-    "identityId",
-    "serialNumber",
-    "userId",
-    "vas",
-    "vehicleId",
-    "vin",
-    "wallboxId",
-}
+from .helpers import redact
 
 
 async def async_get_config_entry_diagnostics(
@@ -39,6 +25,9 @@ async def async_get_config_entry_diagnostics(
         "charging": [
             coor.charging_coordinator.data for coor in vehicle_coordinators.values()
         ],
+        "drivers": [
+            coor.drivers_coordinator.data for coor in vehicle_coordinators.values()
+        ],
         "wallbox": wallbox_coordinator.data,
     }
-    return async_redact_data(data, TO_REDACT)
+    return redact(data)

@@ -25,6 +25,7 @@ BUTTONS: Final[dict[str | None, tuple[RivianButtonEntityDescription, ...]]] = {
             key="wake",
             icon="mdi:weather-night",
             name="Wake",
+            available=lambda coordinator: coordinator.get("powerState") == "sleep",
             press_fn=lambda coordinator: coordinator.send_vehicle_command(
                 command=VehicleCommand.WAKE_VEHICLE
             ),
@@ -50,6 +51,8 @@ BUTTONS: Final[dict[str | None, tuple[RivianButtonEntityDescription, ...]]] = {
         RivianButtonEntityDescription(
             key="drop_tailgate",
             name="Drop Tailgate",
+            available=lambda coordinator: coordinator.get("closureTailgateClosed")
+            != "open",
             press_fn=lambda coordinator: coordinator.send_vehicle_command(
                 command=VehicleCommand.OPEN_LIFTGATE_UNLATCH_TAILGATE
             ),
