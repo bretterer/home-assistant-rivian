@@ -6,9 +6,11 @@ from typing import Final
 from homeassistant.components.binary_sensor import BinarySensorDeviceClass
 from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
 from homeassistant.const import (
+    DEGREE,
     PERCENTAGE,
     EntityCategory,
     UnitOfLength,
+    UnitOfSpeed,
     UnitOfTemperature,
     UnitOfTime,
 )
@@ -119,6 +121,14 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             old_key=f"{DOMAIN}_energy_storage_mobile_soc_limit",
         ),
         RivianSensorEntityDescription(
+            key="bearing",
+            field="gnssBearing",
+            name="Bearing",
+            icon="mdi:compass",
+            native_unit_of_measurement=DEGREE,
+            suggested_display_precision=0,
+        ),
+        RivianSensorEntityDescription(
             key="brake_fluid_low",
             field="brakeFluidLow",
             name="Brake Fluid Level Low",
@@ -132,7 +142,6 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             device_class=SensorDeviceClass.TEMPERATURE,
             native_unit_of_measurement=UnitOfTemperature.CELSIUS,
             suggested_display_precision=1,
-            suggested_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
             old_key=f"{DOMAIN}_thermal_hvac_cabin_control_driver_temperature",
         ),
         RivianSensorEntityDescription(
@@ -143,7 +152,6 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             native_unit_of_measurement=UnitOfTemperature.CELSIUS,
             state_class=SensorStateClass.MEASUREMENT,
             suggested_display_precision=1,
-            suggested_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
             old_key=f"{DOMAIN}_thermal_hvac_cabin_control_cabin_temperature",
         ),
         RivianSensorEntityDescription(
@@ -170,7 +178,6 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             native_unit_of_measurement=UnitOfLength.KILOMETERS,
             state_class=SensorStateClass.MEASUREMENT,
             suggested_display_precision=1,
-            suggested_unit_of_measurement=UnitOfLength.MILES,
             old_key=f"{DOMAIN}_energy_storage_vehicle_energy_vehicle_range",
         ),
         RivianSensorEntityDescription(
@@ -456,6 +463,14 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             name="Service Mode",
             icon="mdi:account-wrench",
             old_key=f"{DOMAIN}_service_mode",
+        ),
+        RivianSensorEntityDescription(
+            key="speed",
+            field="gnssSpeed",
+            name="Speed",
+            device_class=SensorDeviceClass.SPEED,
+            native_unit_of_measurement=UnitOfSpeed.METERS_PER_SECOND,
+            state_class=SensorStateClass.MEASUREMENT,
         ),
         RivianSensorEntityDescription(
             key="time_to_end_of_charge",
