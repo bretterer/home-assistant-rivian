@@ -3,5 +3,5 @@ homeassistant>=2023.7
 numpy
 pip>=21.0
 python-dateutil
-rivian-python-client>=1.0.3
+rivian-python-client>=1.0.4
 ruff==0.0.255
