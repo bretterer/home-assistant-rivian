@@ -31,6 +31,7 @@ from .const import (
     INVALID_SENSOR_STATES,
     VEHICLE_STATE_API_FIELDS,
 )
+from .helpers import redact
 
 _LOGGER = logging.getLogger(__name__)
 T = TypeVar("T", bound=dict[str, Any] | list[dict[str, Any]])
@@ -62,8 +63,12 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator[T], Generic[T], ABC):
         else:
             seconds = min(self._update_interval * 2**self._error_count, 900)
         if self.update_interval != (update_interval := timedelta(seconds=seconds)):
+            refresh = self.update_interval and self.update_interval.seconds > seconds
             self.update_interval = update_interval
-            self._schedule_refresh()
+            if refresh and self.data:
+                self.hass.async_add_job(self.async_request_refresh)
+            else:
+                self._schedule_refresh()
             _LOGGER.info("Polling set to %s seconds", seconds)
 
     async def _async_update_data(self) -> T:
@@ -72,7 +77,11 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator[T], Generic[T], ABC):
             resp = await self._fetch_data()
             if resp.status == 200:
                 data = await resp.json()
-                _LOGGER.debug(data)
+                _LOGGER.debug(
+                    "[%s] %s",
+                    self.__class__.__name__.replace("Coordinator", ""),
+                    redact(data),
+                )
                 if self._error_count:
                     self._error_count = 0
                     self._set_update_interval()
@@ -131,6 +140,22 @@ class ChargingCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         self._set_update_interval(
             self._plugged_interval if is_plugged_in else self._unplugged_interval
         )
+
+
+class DriverKeyCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
+    """Drivers/keys data update coordinator for Rivian."""
+
+    key = "getVehicle"
+    _update_interval = 15 * 60  # 15 minutes
+
+    def __init__(self, hass: HomeAssistant, client: Rivian, vehicle_id: str) -> None:
+        """Initialize the coordinator."""
+        super().__init__(hass=hass, client=client)
+        self.vehicle_id = vehicle_id
+
+    async def _fetch_data(self) -> ClientResponse:
+        """Fetch the data."""
+        return await self.api.get_drivers_and_keys(vehicle_id=self.vehicle_id)
 
 
 class UserCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
@@ -195,6 +220,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         super().__init__(hass=hass, client=client)
         self.vehicle_id = vehicle_id
         self.charging_coordinator = ChargingCoordinator(hass, client, vehicle_id)
+        self.drivers_coordinator = DriverKeyCoordinator(hass, client, vehicle_id)
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Get the latest data from Rivian."""
@@ -251,7 +277,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         }
 
         if items:
-            _LOGGER.debug("Vehicle %s updated: %s", self.vehicle_id, items)
+            _LOGGER.debug("Vehicle %s updated: %s", self.vehicle_id, redact(items))
 
         if charger_status := items.get("chargerStatus"):
             self.charging_coordinator.adjust_update_interval(
@@ -265,7 +291,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
 
         new_data = prev_items | items
         for key in filter(lambda i: i != "gnssLocation", items):
-            value = items[key]["value"]
+            value = items[key].get("value")
             if str(value).lower() in INVALID_SENSOR_STATES:
                 new_data[key] = prev_items[key]
             new_data[key]["history"] |= prev_items.get(key, {}).get("history")

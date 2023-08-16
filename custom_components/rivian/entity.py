@@ -78,6 +78,9 @@ class RivianVehicleControlEntity(RivianVehicleEntity):
         """Return the availability of the entity."""
         if not (super().available and self._get_value("gearStatus") == "park"):
             return False
+        if _fn := getattr(self.entity_description, "available", None):
+            if not _fn(self.coordinator):
+                return False
         if zone_entity_ids := self._config_entry.options.get(CONF_ZONE, []):
             location = self.coordinator.data.get("gnssLocation", {})
             for entity_id in zone_entity_ids:

@@ -148,7 +148,6 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             device_class=SensorDeviceClass.TEMPERATURE,
             native_unit_of_measurement=UnitOfTemperature.CELSIUS,
             suggested_display_precision=1,
-            suggested_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
             old_key=f"{DOMAIN}_thermal_hvac_cabin_control_driver_temperature",
         ),
         RivianSensorEntityDescription(
@@ -159,7 +158,6 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             native_unit_of_measurement=UnitOfTemperature.CELSIUS,
             state_class=SensorStateClass.MEASUREMENT,
             suggested_display_precision=1,
-            suggested_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
             old_key=f"{DOMAIN}_thermal_hvac_cabin_control_cabin_temperature",
         ),
         RivianSensorEntityDescription(
@@ -186,7 +184,6 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             native_unit_of_measurement=UnitOfLength.KILOMETERS,
             state_class=SensorStateClass.MEASUREMENT,
             suggested_display_precision=1,
-            suggested_unit_of_measurement=UnitOfLength.MILES,
             old_key=f"{DOMAIN}_energy_storage_vehicle_energy_vehicle_range",
         ),
         RivianSensorEntityDescription(

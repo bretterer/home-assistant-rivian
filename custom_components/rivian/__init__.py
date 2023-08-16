@@ -97,6 +97,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if not coor.data:
             raise ConfigEntryNotReady("Issue loading vehicle data")
         await coor.charging_coordinator.async_config_entry_first_refresh()
+        await coor.drivers_coordinator.async_config_entry_first_refresh()
         vehicle_coordinators[vehicle_id] = coor
 
     wallbox_coordinator = WallboxCoordinator(hass=hass, client=client)
