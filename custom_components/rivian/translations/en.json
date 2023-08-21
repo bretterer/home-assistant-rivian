@@ -44,6 +44,7 @@
     "sensor": {
       "charging_status": {
         "state": {
+          "unavailable": "Unavailable",
           "available": "Available",
           "disconnected": "Disconnected",
           "plugged_in": "Plugged in",

@@ -25,6 +25,7 @@
     "sensor": {
       "charging_status": {
         "state": {
+          "unavailable": "Unavailable",
           "available": "Available",
           "disconnected": "[%key:common::state::disconnected%]",
           "plugged_in": "Plugged in",
