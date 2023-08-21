@@ -242,7 +242,7 @@ WALLBOX_SENSORS = (
         name="Charging status",
         icon="mdi:ev-plug-type1",
         device_class=SensorDeviceClass.ENUM,
-        options=["available", "disconnected", "plugged_in", "charging"],
+        options=["unavailable", "available", "disconnected", "plugged_in", "charging"],
         translation_key="charging_status",
     ),
     RivianWallboxSensorEntityDescription(
