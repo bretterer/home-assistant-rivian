@@ -9,7 +9,6 @@ import logging
 from typing import Any, Generic, TypeVar
 
 from aiohttp import ClientResponse
-import async_timeout
 from rivian import Rivian, VehicleCommand
 from rivian.exceptions import (
     RivianApiException,
@@ -201,7 +200,8 @@ class UserCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
                     .get("supportedFeatures", [])
                     if supported_feature.get("status") == "AVAILABLE"
                 ],
-                "public_key": vehicle.get("vas", {}).get("vehiclePublicKey"),
+                "vas_id": (vas := vehicle.get("vas", {})).get("vasVehicleId"),
+                "public_key": vas.get("vehiclePublicKey"),
             }
             for vehicle in self.data["vehicles"]
         }
@@ -214,6 +214,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
     _update_interval = 15 * 60  # 15 minutes
     _initial = asyncio.Event()
     _unsub_handler: Coroutine[None, None, None] | None = None
+    _awake = asyncio.Event()
 
     def __init__(self, hass: HomeAssistant, client: Rivian, vehicle_id: str) -> None:
         """Initialize the coordinator."""
@@ -233,8 +234,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             )
 
             try:
-                async with async_timeout.timeout(1):
-                    await self._initial.wait()
+                await asyncio.wait_for(self._initial.wait(), 1)
             except asyncio.TimeoutError:
                 pass  # we'll fetch it from the API
             else:
@@ -279,6 +279,11 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         if items:
             _LOGGER.debug("Vehicle %s updated: %s", self.vehicle_id, redact(items))
 
+        if power_state := items.get("powerState"):
+            if power_state.get("value") == "sleep":
+                self._awake.clear()
+            else:
+                self._awake.set()
         if charger_status := items.get("chargerStatus"):
             self.charging_coordinator.adjust_update_interval(
                 is_plugged_in=charger_status.get("value") != "chrgr_sts_not_connected"
@@ -294,7 +299,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             value = items[key].get("value")
             if str(value).lower() in INVALID_SENSOR_STATES:
                 new_data[key] = prev_items[key]
-            new_data[key]["history"] |= prev_items.get(key, {}).get("history")
+            new_data[key]["history"] |= prev_items.get(key, {}).get("history", set())
 
         return new_data
 
@@ -319,6 +324,10 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         """Send a command to the vehicle."""
         if self.get("powerState") == "sleep" and command != VehicleCommand.WAKE_VEHICLE:
             await self.send_vehicle_command(VehicleCommand.WAKE_VEHICLE)
+            try:
+                await asyncio.wait_for(self._awake.wait(), 30)
+            except asyncio.TimeoutError:
+                pass  # didn't wake-up in time, but we'll try command anyway
 
         entry_data = self.hass.data[DOMAIN][self.config_entry.entry_id]
         vehicle = entry_data[ATTR_VEHICLE][self.vehicle_id]
