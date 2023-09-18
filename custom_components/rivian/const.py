@@ -471,6 +471,7 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             device_class=SensorDeviceClass.SPEED,
             native_unit_of_measurement=UnitOfSpeed.METERS_PER_SECOND,
             state_class=SensorStateClass.MEASUREMENT,
+            suggested_display_precision=0,
         ),
         RivianSensorEntityDescription(
             key="time_to_end_of_charge",
