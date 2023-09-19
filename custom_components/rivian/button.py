@@ -110,10 +110,10 @@ class RivianButtonEntity(RivianVehicleControlEntity, ButtonEntity):
         await self.entity_description.press_fn(self.coordinator)
 
 
-DEVICE_NAME = "Rivian Phone Key"
+DEVICE_LOCAL_NAME = "Rivian Phone Key"
 ACTIVE_ENTRY_CHARACTERISTIC_UUID = "5249565f-4d4f-424b-4559-5f5752495445"
 PHONE_ID_VEHICLE_ID_UUID = "aa49565a-4d4f-424b-4559-5f5752495445"
-PNONCE_VNONCE_UUID = "e020a15d-e730-4b2c-908b-51daf9d41e19"
+PHONE_NONCE_VEHICLE_NONCE_UUID = "e020a15d-e730-4b2c-908b-51daf9d41e19"
 
 
 def generate_ble_command_hmac(hmac_data: bytes, vehicle_key: str, private_key: str):
@@ -146,13 +146,13 @@ class RivianPairPhoneButtonEntity(RivianVehicleControlEntity, ButtonEntity):
             return True
 
         async def _find_phone_key() -> BLEDevice | None:
-            _LOGGER.debug("Searching for %s", DEVICE_NAME)
+            _LOGGER.debug("Searching for %s", DEVICE_LOCAL_NAME)
             try:
                 service_info = await bluetooth.async_process_advertisements(
                     self.hass,
                     _process_more_advertisements,
                     {
-                        "local_name": DEVICE_NAME,
+                        "local_name": DEVICE_LOCAL_NAME,
                         "manufacturer_id": 2369,
                         "service_uuid": "fb8b8093-fda4-5fed-92e5-54fdb22fc06c",
                         "connectable": True,
@@ -164,7 +164,7 @@ class RivianPairPhoneButtonEntity(RivianVehicleControlEntity, ButtonEntity):
             except Exception as ex:  # pylint: disable=broad-except
                 _LOGGER.error(
                     "%s not found%s",
-                    DEVICE_NAME,
+                    DEVICE_LOCAL_NAME,
                     ("" if isinstance(ex, asyncio.TimeoutError) else f": {ex}"),
                 )
                 return None
@@ -193,8 +193,8 @@ async def pair_phone(
         """Notification handler."""
         if characteristic.uuid == PHONE_ID_VEHICLE_ID_UUID:
             field = "vas_vehicle_id"
-        elif characteristic.uuid == PNONCE_VNONCE_UUID:
-            field = "v_nonce"
+        elif characteristic.uuid == PHONE_NONCE_VEHICLE_NONCE_UUID:
+            field = "vehicle_nonce"
         else:
             field = characteristic.description
         notify_dict[field] = data.hex()
@@ -202,10 +202,10 @@ async def pair_phone(
 
     _LOGGER.debug("Attempting connection to %s (%s)", device.name, device.address)
     try:
-        async with BleakClient(device, timeout=10) as client:
+        async with BleakClient(device, timeout=30) as client:
             _LOGGER.debug("Connected to %s (%s)", device.name, device.address)
             await client.start_notify(PHONE_ID_VEHICLE_ID_UUID, _notify_handler)
-            await client.start_notify(PNONCE_VNONCE_UUID, _notify_handler)
+            await client.start_notify(PHONE_NONCE_VEHICLE_NONCE_UUID, _notify_handler)
 
             _LOGGER.debug("Requesting vas vehicle id")
             await client.write_gatt_char(
@@ -213,7 +213,7 @@ async def pair_phone(
                 bytes.fromhex(phone_id.replace("-", "")),
                 response=True,
             )
-            await asyncio.wait_for(notify_event.wait(), 5)
+            await asyncio.wait_for(notify_event.wait(), 10)
             notify_event.clear()
 
             vas_vehicle_id = notify_dict.get("vas_vehicle_id")
@@ -228,13 +228,12 @@ async def pair_phone(
             _LOGGER.debug('Vas vehicle id "%s" received', vas_vehicle_id)
 
             _LOGGER.debug("Exchanging nonce")
-            p_nonce = secrets.token_bytes(16)
-            hmac = generate_ble_command_hmac(p_nonce, public_key, private_key)
-            # await client.start_notify(PNONCE_VNONCE_UUID, _notify_handler)
+            phone_nonce = secrets.token_bytes(16)
+            hmac = generate_ble_command_hmac(phone_nonce, public_key, private_key)
             await client.write_gatt_char(
-                PNONCE_VNONCE_UUID, p_nonce + hmac, response=True
+                PHONE_NONCE_VEHICLE_NONCE_UUID, phone_nonce + hmac, response=True
             )
-            await asyncio.wait_for(notify_event.wait(), 5)
+            await asyncio.wait_for(notify_event.wait(), 10)
             notify_event.clear()
 
             # Vehicle is authenticated, trigger bonding
