@@ -6,6 +6,7 @@ import logging
 import platform
 import secrets
 from typing import Any, Final
+from uuid import UUID
 
 from bleak import BleakClient
 from bleak.backends.characteristic import BleakGATTCharacteristic
@@ -134,49 +135,38 @@ class RivianPairPhoneButtonEntity(RivianVehicleControlEntity, ButtonEntity):
             self._config_entry.options.get("public_key")
         )
 
-        rivian_phone_keys = set()
+        _LOGGER.debug("Searching for %s", DEVICE_LOCAL_NAME)
+        try:
+            service_info = await bluetooth.async_process_advertisements(
+                self.hass,
+                lambda _: True,
+                {
+                    "local_name": DEVICE_LOCAL_NAME,
+                    "manufacturer_id": 2369,
+                    "service_uuid": str(UUID(vehicle["vas_id"])),
+                    "connectable": True,
+                },
+                BluetoothScanningMode.ACTIVE,
+                30,
+            )
+        except Exception as ex:  # pylint: disable=broad-except
+            _LOGGER.error(
+                "%s not found%s",
+                DEVICE_LOCAL_NAME,
+                ("" if isinstance(ex, asyncio.TimeoutError) else f": {ex}"),
+            )
+            return
 
-        def _process_more_advertisements(
-            service_info: BluetoothServiceInfoBleak,
-        ) -> bool:
-            if service_info.address in rivian_phone_keys:
-                return False
-            _LOGGER.debug("Found %s (%s)", service_info.name, service_info.address)
-            rivian_phone_keys.add(service_info.address)
-            return True
+        device = service_info.device
 
-        async def _find_phone_key() -> BLEDevice | None:
-            _LOGGER.debug("Searching for %s", DEVICE_LOCAL_NAME)
-            try:
-                service_info = await bluetooth.async_process_advertisements(
-                    self.hass,
-                    _process_more_advertisements,
-                    {
-                        "local_name": DEVICE_LOCAL_NAME,
-                        "manufacturer_id": 2369,
-                        "connectable": True,
-                    },
-                    BluetoothScanningMode.ACTIVE,
-                    30,
-                )
-                return service_info.device
-            except Exception as ex:  # pylint: disable=broad-except
-                _LOGGER.error(
-                    "%s not found%s",
-                    DEVICE_LOCAL_NAME,
-                    ("" if isinstance(ex, asyncio.TimeoutError) else f": {ex}"),
-                )
-                return None
-
-        while device := await _find_phone_key():
-            if await pair_phone(
-                device,
-                phone_info[0],
-                vehicle["vas_id"],
-                vehicle["public_key"],
-                self._config_entry.options.get("private_key"),
-            ):
-                return
+        if await pair_phone(
+            device,
+            phone_info[0],
+            vehicle["vas_id"],
+            vehicle["public_key"],
+            self._config_entry.options.get("private_key"),
+        ):
+            return
 
         _LOGGER.debug("Unable to complete pairing")
 
@@ -251,8 +241,7 @@ async def pair_phone(
     except Exception as ex:  # pylint: disable=broad-except
         _LOGGER.debug(
             "Couldn't connect to %s (%s). "
-            "If you have multiple vehicles nearby, you may see this message a few times as the correct device is scanned. "
-            'Otherwise, make sure you are in the correct vehicle and have selected "Set Up" for the appropriate key and try again'
+            'Make sure you are in the correct vehicle and have selected "Set Up" for the appropriate key and try again'
             "%s",
             device.name,
             device.address,
