@@ -154,11 +154,10 @@ class RivianPairPhoneButtonEntity(RivianVehicleControlEntity, ButtonEntity):
                     {
                         "local_name": DEVICE_LOCAL_NAME,
                         "manufacturer_id": 2369,
-                        "service_uuid": "fb8b8093-fda4-5fed-92e5-54fdb22fc06c",
                         "connectable": True,
                     },
                     BluetoothScanningMode.ACTIVE,
-                    10,
+                    30,
                 )
                 return service_info.device
             except Exception as ex:  # pylint: disable=broad-except
