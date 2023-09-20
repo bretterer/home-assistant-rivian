@@ -232,12 +232,15 @@ async def pair_phone(
             notify_event.clear()
 
             # Vehicle is authenticated, trigger bonding
-            if platform.system() != "Darwin":
+            if platform.system() == "Darwin":
+                # Mac BLE API doesn't have an explicit way to trigger bonding
+                # Instead, enable notification on ACTIVE_ENTRY_CHARACTERISTIC_UUID to trigger bonding manually
+                await client.start_notify(
+                    ACTIVE_ENTRY_CHARACTERISTIC_UUID, _notify_handler
+                )
+            else:
                 await client.pair()
 
-            # Mac BLE API doesn't have an explicit way to trigger bonding
-            # Instead, enable notification on ACTIVE_ENTRY_CHARACTERISTIC_UUID to trigger bonding manually
-            await client.start_notify(ACTIVE_ENTRY_CHARACTERISTIC_UUID, _notify_handler)
             _LOGGER.debug(
                 "Successfully paired with %s (%s)", device.name, device.address
             )
