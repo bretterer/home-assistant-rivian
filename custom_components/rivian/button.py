@@ -151,11 +151,7 @@ class RivianPairPhoneButtonEntity(RivianVehicleControlEntity, ButtonEntity):
                 service_info = await bluetooth.async_process_advertisements(
                     self.hass,
                     _process_more_advertisements,
-                    {
-                        "local_name": DEVICE_LOCAL_NAME,
-                        "manufacturer_id": 2369,
-                        "connectable": True,
-                    },
+                    {"local_name": DEVICE_LOCAL_NAME, "connectable": True},
                     BluetoothScanningMode.ACTIVE,
                     30,
                 )
@@ -212,7 +208,7 @@ async def pair_phone(
                 bytes.fromhex(phone_id.replace("-", "")),
                 response=True,
             )
-            await asyncio.wait_for(notify_event.wait(), 10)
+            await asyncio.wait_for(notify_event.wait(), 5)
             notify_event.clear()
 
             vas_vehicle_id = notify_dict.get("vas_vehicle_id")
@@ -232,18 +228,16 @@ async def pair_phone(
             await client.write_gatt_char(
                 PHONE_NONCE_VEHICLE_NONCE_UUID, phone_nonce + hmac, response=True
             )
-            await asyncio.wait_for(notify_event.wait(), 10)
+            await asyncio.wait_for(notify_event.wait(), 5)
             notify_event.clear()
 
             # Vehicle is authenticated, trigger bonding
-            if platform.system() == "Darwin":
-                # Mac BLE API doesn't have an explicit way to trigger bonding
-                # enable notification on RIVIAN_BLE_ACTIVE_ENTRY_UUID to trigger bonding
-                await client.start_notify(
-                    ACTIVE_ENTRY_CHARACTERISTIC_UUID, _notify_handler
-                )
-            else:
+            if platform.system() != "Darwin":
                 await client.pair()
+
+            # Mac BLE API doesn't have an explicit way to trigger bonding
+            # Instead, enable notification on ACTIVE_ENTRY_CHARACTERISTIC_UUID to trigger bonding manually
+            await client.start_notify(ACTIVE_ENTRY_CHARACTERISTIC_UUID, _notify_handler)
             _LOGGER.debug(
                 "Successfully paired with %s (%s)", device.name, device.address
             )
