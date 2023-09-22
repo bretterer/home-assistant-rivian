@@ -177,7 +177,7 @@ class RivianPairPhoneButtonEntity(RivianVehicleControlEntity, ButtonEntity):
         while search_result := await _find_phone_key():
             if platform.system() == "Linux":
                 _LOGGER.debug("Making sure BT controller can be paired")
-                if not await set_pairable(search_result[0].details["props"]["Adapter"]):
+                if not await set_pairable(search_result[0]):
                     _LOGGER.warning(
                         "Couldn't set BT controller to pairable, phone pairing may fail"
                     )
@@ -276,10 +276,21 @@ async def pair_phone(
     return False
 
 
-async def set_pairable(path: str) -> bool:
+async def set_pairable(device: BLEDevice) -> bool:
     """Set bluez to pairable."""
     from dbus_fast import BusType  # pylint: disable=import-outside-toplevel
     from dbus_fast.aio import MessageBus  # pylint: disable=import-outside-toplevel
+
+    try:
+        path = device.details["props"]["Adapter"]
+    except Exception:  # pylint: disable=broad-except
+        path = "/org/bluez/hci0"
+        _LOGGER.warning(
+            "Couldn't determine BT controller path, defaulting to %s: %s",
+            path,
+            device.details,
+            exc_info=1,
+        )
 
     try:
         bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
