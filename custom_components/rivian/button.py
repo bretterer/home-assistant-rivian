@@ -17,7 +17,7 @@ from homeassistant.components import bluetooth
 from homeassistant.components.bluetooth import BluetoothScanningMode
 from homeassistant.components.button import ButtonEntity, ButtonEntityDescription
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import ATTR_COORDINATOR, ATTR_USER, ATTR_VEHICLE, DOMAIN
@@ -94,7 +94,12 @@ async def async_setup_entry(
             vehicle,
         )
         for vehicle_id, vehicle in vehicles.items()
-        if vehicle.get("phone_identity_id")
+        if (
+            device := coordinators[vehicle_id].drivers_coordinator.get_device_details(
+                vehicle.get("phone_identity_id")
+            )
+        )
+        and not device["isPaired"]
     )
     async_add_entities(entities)
 
@@ -124,15 +129,16 @@ def generate_ble_command_hmac(hmac_data: bytes, vehicle_key: str, private_key: s
 class RivianPairPhoneButtonEntity(RivianVehicleControlEntity, ButtonEntity):
     """Representation of a Rivian pair phone button entity."""
 
+    _pairing: bool = False
+
     async def async_press(self) -> None:
         """Press the button."""
-        if not self.available:
-            _LOGGER.warning(
-                "Either pairing is already complete or a pairing process is currently under way. Please try again later"
+        if self._pairing:
+            raise HomeAssistantError(
+                "Either a pairing process is currently under way or pairing is already complete. Please try again later"
             )
-            return
 
-        self._available = False
+        self._pairing = True
 
         entry_data = self.hass.data[DOMAIN][self._config_entry.entry_id]
         vehicle = entry_data[ATTR_VEHICLE][self.coordinator.vehicle_id]
@@ -148,7 +154,7 @@ class RivianPairPhoneButtonEntity(RivianVehicleControlEntity, ButtonEntity):
         ) -> bool:
             if service_info.address in rivian_phone_keys:
                 return False
-            _LOGGER.debug("Found %s (%s)", service_info.name, service_info.address)
+            _LOGGER.debug("Found %s (RSSI: %s)", service_info.device, service_info.rssi)
             rivian_phone_keys.add(service_info.address)
             return True
 
@@ -177,6 +183,7 @@ class RivianPairPhoneButtonEntity(RivianVehicleControlEntity, ButtonEntity):
         while search_result := await _find_phone_key():
             if platform.system() == "Linux":
                 _LOGGER.debug("Making sure BT controller can be paired")
+                # TODO: find out how BT proxy presents itself to avoid invalid warnings
                 if not await set_pairable(search_result[0]):
                     _LOGGER.warning(
                         "Couldn't set BT controller to pairable, phone pairing may fail"
@@ -188,13 +195,27 @@ class RivianPairPhoneButtonEntity(RivianVehicleControlEntity, ButtonEntity):
                 vehicle["public_key"],
                 self._config_entry.options.get("private_key"),
             ):
+                _LOGGER.debug("Querying API to validate vehicle pairing was successful")
+                await asyncio.sleep(10)
+                await (coor := self.coordinator.drivers_coordinator).async_refresh()
+                if (
+                    device := coor.get_device_details(phone_info[1].get(vehicle["id"]))
+                ) and device["isPaired"]:
+                    _LOGGER.debug("Success, pairing is now complete")
+                    self._available = False
+                    self.async_write_ha_state()
+                    return
+                _LOGGER.debug(
+                    "Unable to validate pairing via API, please manually test vehicle controls"
+                )
+                self._pairing = False
                 return
             if search_result[1]:
                 # we found the appropriate key but pairing didn't work, so no need to continue
                 break
 
         _LOGGER.debug("Unable to complete pairing")
-        self._available = True
+        self._pairing = False
 
 
 async def pair_phone(
@@ -215,10 +236,10 @@ async def pair_phone(
         notify_dict[field] = data.hex()
         notify_event.set()
 
-    _LOGGER.debug("Attempting connection to %s (%s)", device.name, device.address)
+    _LOGGER.debug("Attempting connection to %s", device)
     try:
         async with BleakClient(device, timeout=60) as client:
-            _LOGGER.debug("Connected to %s (%s)", device.name, device.address)
+            _LOGGER.debug("Connected to %s", device)
             await client.start_notify(PHONE_ID_VEHICLE_ID_UUID, _notify_handler)
             await client.start_notify(PHONE_NONCE_VEHICLE_NONCE_UUID, _notify_handler)
 
@@ -232,7 +253,7 @@ async def pair_phone(
             notify_event.clear()
 
             vas_vehicle_id = notify_dict.get("vas_vehicle_id")
-            if vas_vehicle_id != vas_id:
+            if vas_vehicle_id != vas_id.replace("-", ""):
                 _LOGGER.debug(
                     "Incorrect vas vehicle id: received %s, expected %s",
                     vas_vehicle_id,
@@ -250,6 +271,8 @@ async def pair_phone(
             )
             await asyncio.wait_for(notify_event.wait(), 5)
 
+            _LOGGER.debug("Nonce exchange complete, attempting to pair")
+
             # Vehicle is authenticated, trigger bonding
             if platform.system() == "Darwin":
                 # Mac BLE API doesn't have an explicit way to trigger bonding
@@ -260,17 +283,14 @@ async def pair_phone(
             else:
                 await client.pair()
 
-            _LOGGER.debug(
-                "Successfully paired with %s (%s)", device.name, device.address
-            )
+            _LOGGER.debug("Successfully paired with %s", device)
             return True
     except Exception as ex:  # pylint: disable=broad-except
         _LOGGER.debug(
-            "Couldn't connect to %s (%s). "
+            "Couldn't connect to %s. "
             'Make sure you are in the correct vehicle and have selected "Set Up" for the appropriate key and try again'
             "%s",
-            DEVICE_LOCAL_NAME,
-            device.address,
+            device,
             ("" if isinstance(ex, asyncio.TimeoutError) else f": {ex}"),
         )
     return False
