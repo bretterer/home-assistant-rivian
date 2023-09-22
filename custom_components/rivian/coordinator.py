@@ -156,6 +156,21 @@ class DriverKeyCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         """Fetch the data."""
         return await self.api.get_drivers_and_keys(vehicle_id=self.vehicle_id)
 
+    def get_device_details(self, identity_id: str) -> dict[str, Any] | None:
+        """Get the details of a device."""
+        if not self.data:
+            return None
+        return next(
+            (
+                device
+                for user in self.data.get("invitedUsers")
+                if user["__typename"] == "ProvisionedUser"
+                for device in user["devices"]
+                if device["mappedIdentityId"] == identity_id
+            ),
+            None,
+        )
+
 
 class UserCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
     """User data update coordinator for Rivian."""
