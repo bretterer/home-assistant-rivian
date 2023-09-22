@@ -1,5 +1,6 @@
 colorlog==6.7.0
-homeassistant>=2023.7
+homeassistant>=2023.9
+home-assistant-frontend
 numpy
 pip>=21.0
 python-dateutil
