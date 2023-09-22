@@ -212,9 +212,6 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
 
     key = "vehicleState"
     _update_interval = 15 * 60  # 15 minutes
-    _initial = asyncio.Event()
-    _unsub_handler: Coroutine[None, None, None] | None = None
-    _awake = asyncio.Event()
 
     def __init__(self, hass: HomeAssistant, client: Rivian, vehicle_id: str) -> None:
         """Initialize the coordinator."""
@@ -222,6 +219,9 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         self.vehicle_id = vehicle_id
         self.charging_coordinator = ChargingCoordinator(hass, client, vehicle_id)
         self.drivers_coordinator = DriverKeyCoordinator(hass, client, vehicle_id)
+        self._initial = asyncio.Event()
+        self._unsub_handler: Coroutine[None, None, None] | None = None
+        self._awake = asyncio.Event()
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Get the latest data from Rivian."""
