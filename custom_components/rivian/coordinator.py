@@ -134,7 +134,7 @@ class ChargingCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
 
     def adjust_update_interval(self, is_plugged_in: bool) -> None:
         """Adjust update interval based on plugged in status."""
-        self._set_update_interval(30 if is_plugged_in else 15 * 60)
+        self._set_update_interval(30 if is_plugged_in else self._update_interval)
 
 
 class DriverKeyCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
