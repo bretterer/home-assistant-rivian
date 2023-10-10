@@ -119,6 +119,8 @@ class ChargingCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
     """Charging data update coordinator for Rivian."""
 
     key = "getLiveSessionData"
+    _unplugged_interval = 15 * 60 # 15 minutes
+    _plugged_interval = 30 # 30 seconds
     _update_interval = 15 * 60  # 15 minutes
 
     def __init__(self, hass: HomeAssistant, client: Rivian, vehicle_id: str) -> None:
@@ -134,7 +136,7 @@ class ChargingCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
 
     def adjust_update_interval(self, is_plugged_in: bool) -> None:
         """Adjust update interval based on plugged in status."""
-        self._set_update_interval(30 if is_plugged_in else self._update_interval)
+        self._set_update_interval(self._plugged_interval if is_plugged_in else self._unplugged_interval)
 
 
 class DriverKeyCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
