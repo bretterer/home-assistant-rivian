@@ -103,17 +103,22 @@ class ChargingCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
     """Charging data update coordinator for Rivian."""
 
     key = "getLiveSessionData"
+    _update_interval = 15 * 60  # 15 minutes
 
-    def __init__(self, hass: HomeAssistant, client: Rivian, vin: str) -> None:
+    def __init__(self, hass: HomeAssistant, client: Rivian, vehicle_id: str) -> None:
         """Initialize the coordinator."""
         super().__init__(hass=hass, client=client)
-        self.vin = vin
+        self.vehicle_id = vehicle_id
 
     async def _fetch_data(self) -> ClientResponse:
         """Fetch the data."""
         return await self.api.get_live_charging_session(
-            vin=self.vin, properties=CHARGING_API_FIELDS
+            vin=self.vehicle_id, properties=CHARGING_API_FIELDS
         )
+
+    def adjust_update_interval(self, is_plugged_in: bool) -> None:
+        """Adjust update interval based on plugged in status."""
+        self._set_update_interval(30 if is_plugged_in else self._update_interval)
 
 
 class UserCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
