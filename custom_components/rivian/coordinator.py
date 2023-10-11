@@ -103,8 +103,8 @@ class ChargingCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
     """Charging data update coordinator for Rivian."""
 
     key = "getLiveSessionData"
-    _unplugged_interval = 15 * 60 # 15 minutes
-    _plugged_interval = 30 # 30 seconds
+    _unplugged_interval = 15 * 60  # 15 minutes
+    _plugged_interval = 30  # 30 seconds
     _update_interval = _unplugged_interval  # 15 minutes
 
     def __init__(self, hass: HomeAssistant, client: Rivian, vehicle_id: str) -> None:
@@ -120,7 +120,9 @@ class ChargingCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
 
     def adjust_update_interval(self, is_plugged_in: bool) -> None:
         """Adjust update interval based on plugged in status."""
-        self._set_update_interval(self._plugged_interval if is_plugged_in else self._unplugged_interval)
+        self._set_update_interval(
+            self._plugged_interval if is_plugged_in else self._unplugged_interval
+        )
 
 
 class UserCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
@@ -146,7 +148,6 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         super().__init__(hass=hass, client=client)
         self.vehicle_id = vehicle_id
         self.charging_coordinator = ChargingCoordinator(hass, client, vehicle_id)
-        self._awake = asyncio.Event()
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Get the latest data from Rivian."""
@@ -201,16 +202,10 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         if items:
             _LOGGER.debug("Vehicle %s updated: %s", self.vehicle_id, redact(items))
 
-        if power_state := items.get("powerState"):
-            if power_state.get("value") == "sleep":
-                self._awake.clear()
-            else:
-                self._awake.set()
         if charger_status := items.get("chargerStatus"):
             self.charging_coordinator.adjust_update_interval(
                 is_plugged_in=charger_status.get("value") != "chrgr_sts_not_connected"
             )
-
 
         if not (prev_items := (self.data or {})):
             return items
