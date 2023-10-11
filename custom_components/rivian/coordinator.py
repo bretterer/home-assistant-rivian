@@ -145,6 +145,8 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         """Initialize the coordinator."""
         super().__init__(hass=hass, client=client)
         self.vehicle_id = vehicle_id
+        self.charging_coordinator = ChargingCoordinator(hass, client, vehicle_id)
+        self._awake = asyncio.Event()
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Get the latest data from Rivian."""
@@ -196,7 +198,19 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             if v
         }
 
-        _LOGGER.debug("Vehicle %s updated: %s", self.vehicle_id, items)
+        if items:
+            _LOGGER.debug("Vehicle %s updated: %s", self.vehicle_id, redact(items))
+
+        if power_state := items.get("powerState"):
+            if power_state.get("value") == "sleep":
+                self._awake.clear()
+            else:
+                self._awake.set()
+        if charger_status := items.get("chargerStatus"):
+            self.charging_coordinator.adjust_update_interval(
+                is_plugged_in=charger_status.get("value") != "chrgr_sts_not_connected"
+            )
+
 
         if not (prev_items := (self.data or {})):
             return items
