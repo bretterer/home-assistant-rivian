@@ -76,9 +76,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await coor.async_config_entry_first_refresh()
         vehicle_coordinators[vin] = coor
         
-        coor.charging_coordinator = ChargingCoordinator(hass=hass, client=client, vehicle_id=vehicle_id)
         await coor.charging_coordinator.async_config_entry_first_refresh()
-        charging_coordinators[vin] = coor
+        charging_coordinators[vin] = coor.charging_coordinator
 
     wallbox_coordinator = WallboxCoordinator(hass=hass, client=client)
     await wallbox_coordinator.async_config_entry_first_refresh()
