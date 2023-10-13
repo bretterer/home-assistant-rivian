@@ -28,6 +28,7 @@ from .const import (
     INVALID_SENSOR_STATES,
     VEHICLE_STATE_API_FIELDS,
 )
+from .helpers import redact
 
 _LOGGER = logging.getLogger(__name__)
 T = TypeVar("T", bound=dict[str, Any] | list[dict[str, Any]])
