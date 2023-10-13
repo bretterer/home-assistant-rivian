@@ -71,14 +71,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     vehicle_coordinators: dict[str, VehicleCoordinator] = {}
     charging_coordinators: dict[str, ChargingCoordinator] = {}
     for vin in vehicles:
-        coor = VehicleCoordinator(
-            hass=hass, client=client, vehicle_id=vehicles[vin]["id"]
-        )
+        vehicle_id = vehicles[vin]["id"]
+        coor = VehicleCoordinator(hass=hass, client=client, vehicle_id=vehicle_id)
         await coor.async_config_entry_first_refresh()
         vehicle_coordinators[vin] = coor
-        coor = ChargingCoordinator(hass=hass, client=client, vin=vin)
-        await coor.async_config_entry_first_refresh()
-        charging_coordinators[vin] = coor
+        
+        await coor.charging_coordinator.async_config_entry_first_refresh()
+        charging_coordinators[vin] = coor.charging_coordinator
 
     wallbox_coordinator = WallboxCoordinator(hass=hass, client=client)
     await wallbox_coordinator.async_config_entry_first_refresh()
