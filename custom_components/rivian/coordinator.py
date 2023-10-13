@@ -28,7 +28,6 @@ from .const import (
     INVALID_SENSOR_STATES,
     VEHICLE_STATE_API_FIELDS,
 )
-from .helpers import redact
 
 _LOGGER = logging.getLogger(__name__)
 T = TypeVar("T", bound=dict[str, Any] | list[dict[str, Any]])
@@ -201,7 +200,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         }
 
         if items:
-            _LOGGER.debug("Vehicle %s updated: %s", self.vehicle_id, redact(items))
+            _LOGGER.debug("Vehicle %s updated: %s", self.vehicle_id, items)
 
         if charger_status := items.get("chargerStatus"):
             self.charging_coordinator.adjust_update_interval(
