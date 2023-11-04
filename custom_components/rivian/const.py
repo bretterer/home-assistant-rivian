@@ -6,9 +6,11 @@ from typing import Final
 from homeassistant.components.binary_sensor import BinarySensorDeviceClass
 from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
 from homeassistant.const import (
+    DEGREE,
     PERCENTAGE,
     EntityCategory,
     UnitOfLength,
+    UnitOfSpeed,
     UnitOfTemperature,
     UnitOfTime,
 )
