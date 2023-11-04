@@ -463,6 +463,15 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             old_key=f"{DOMAIN}_service_mode",
         ),
         RivianSensorEntityDescription(
+            key="speed",
+            field="gnssSpeed",
+            name="Speed",
+            device_class=SensorDeviceClass.SPEED,
+            native_unit_of_measurement=UnitOfSpeed.METERS_PER_SECOND,
+            state_class=SensorStateClass.MEASUREMENT,
+            suggested_display_precision=0,
+        ),
+        RivianSensorEntityDescription(
             key="time_to_end_of_charge",
             field="timeToEndOfCharge",
             name="Charging Time Remaining",
@@ -998,7 +1007,6 @@ VEHICLE_STATE_API_FIELDS: Final[set[str]] = {
         for field in ([sensor.field] if isinstance(sensor.field, str) else sensor.field)
     ),
     "gnssLocation",
-    "gnssSpeed",
     "otaCurrentVersion",
     "otaCurrentVersionYear",
     "otaCurrentVersionWeek",
