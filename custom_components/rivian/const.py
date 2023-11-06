@@ -6,9 +6,11 @@ from typing import Final
 from homeassistant.components.binary_sensor import BinarySensorDeviceClass
 from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
 from homeassistant.const import (
+    DEGREE,
     PERCENTAGE,
     EntityCategory,
     UnitOfLength,
+    UnitOfSpeed,
     UnitOfTemperature,
     UnitOfTime,
 )
@@ -118,6 +120,14 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             old_key=f"{DOMAIN}_energy_storage_mobile_soc_limit",
         ),
         RivianSensorEntityDescription(
+            key="bearing",
+            field="gnssBearing",
+            name="Bearing",
+            icon="mdi:compass",
+            native_unit_of_measurement=DEGREE,
+            suggested_display_precision=0,
+        ),
+        RivianSensorEntityDescription(
             key="brake_fluid_low",
             field="brakeFluidLow",
             name="Brake Fluid Level Low",
@@ -196,6 +206,12 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             ],
             old_key=f"{DOMAIN}_dynamics_propulsion_status_prndl",
             value_lambda=lambda v: v.title(),
+        ),
+        RivianSensorEntityDescription(
+            key="trailer_status",
+            field="trailerStatus",
+            name="Trailer Status",
+            icon="mdi:truck-trailer",
         ),
         RivianSensorEntityDescription(
             key="gear_guard_video_mode",
@@ -457,6 +473,15 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             old_key=f"{DOMAIN}_service_mode",
         ),
         RivianSensorEntityDescription(
+            key="speed",
+            field="gnssSpeed",
+            name="Speed",
+            device_class=SensorDeviceClass.SPEED,
+            native_unit_of_measurement=UnitOfSpeed.METERS_PER_SECOND,
+            state_class=SensorStateClass.MEASUREMENT,
+            suggested_display_precision=0,
+        ),
+        RivianSensorEntityDescription(
             key="time_to_end_of_charge",
             field="timeToEndOfCharge",
             name="Charging Time Remaining",
@@ -536,6 +561,20 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             icon="mdi:window-closed",
             entity_category=EntityCategory.DIAGNOSTIC,
             old_key=f"{DOMAIN}_body_closures_window_calibration_RR_state",
+        ),
+        RivianSensorEntityDescription(
+            key="windows_next_action",
+            field="windowsNextAction",
+            name="Windows Next Action",
+            icon="mdi:window-closed",
+            entity_category=EntityCategory.DIAGNOSTIC,
+        ),
+        RivianSensorEntityDescription(
+            key="twelve_volt_battery_health",
+            field="twelveVoltBatteryHealth",
+            name="12V Battery Health",
+            icon="mdi:car-battery",
+            entity_category=EntityCategory.DIAGNOSTIC,
         ),
     ),
     "R1S": (
@@ -873,6 +912,12 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             device_class=BinarySensorDeviceClass.MOVING,
             old_key=f"{DOMAIN}_use_state",
             on_value="go",
+        ),
+        RivianBinarySensorEntityDescription(
+            key="car_wash_mode",
+            field="carWashMode",
+            name="Car Wash Mode",
+            icon="mdi:car-wash"
         ),
     ),
     "R1T": (
