@@ -206,6 +206,12 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             value_lambda=lambda v: v.title(),
         ),
         RivianSensorEntityDescription(
+            key="trailer_status",
+            field="trailerStatus",
+            name="Trailer Status",
+            icon="mdi:truck-trailer",
+        ),
+        RivianSensorEntityDescription(
             key="gear_guard_video_mode",
             field="gearGuardVideoMode",
             name="Gear Guard Video Mode",
@@ -554,6 +560,20 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             entity_category=EntityCategory.DIAGNOSTIC,
             old_key=f"{DOMAIN}_body_closures_window_calibration_RR_state",
         ),
+        RivianSensorEntityDescription(
+            key="windows_next_action",
+            field="windowsNextAction",
+            name="Windows Next Action",
+            icon="mdi:window-closed",
+            entity_category=EntityCategory.DIAGNOSTIC,
+        ),
+        RivianSensorEntityDescription(
+            key="twelve_volt_battery_health",
+            field="twelveVoltBatteryHealth",
+            name="12V Battery Health",
+            icon="mdi:car-battery",
+            entity_category=EntityCategory.DIAGNOSTIC,
+        ),
     ),
     "R1S": (
         RivianSensorEntityDescription(
@@ -890,6 +910,12 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             device_class=BinarySensorDeviceClass.MOVING,
             old_key=f"{DOMAIN}_use_state",
             on_value="go",
+        ),
+        RivianBinarySensorEntityDescription(
+            key="car_wash_mode",
+            field="carWashMode",
+            name="Car Wash Mode",
+            icon="mdi:car-wash"
         ),
     ),
     "R1T": (
