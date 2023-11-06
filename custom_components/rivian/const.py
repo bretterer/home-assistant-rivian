@@ -120,6 +120,14 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             old_key=f"{DOMAIN}_energy_storage_mobile_soc_limit",
         ),
         RivianSensorEntityDescription(
+            key="bearing",
+            field="gnssBearing",
+            name="Bearing",
+            icon="mdi:compass",
+            native_unit_of_measurement=DEGREE,
+            suggested_display_precision=0,
+        ),
+        RivianSensorEntityDescription(
             key="brake_fluid_low",
             field="brakeFluidLow",
             name="Brake Fluid Level Low",
