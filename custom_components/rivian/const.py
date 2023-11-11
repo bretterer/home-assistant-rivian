@@ -917,7 +917,8 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             key="car_wash_mode",
             field="carWashMode",
             name="Car Wash Mode",
-            icon="mdi:car-wash"
+            icon="mdi:car-wash",
+            on_value="on",
         ),
     ),
     "R1T": (
