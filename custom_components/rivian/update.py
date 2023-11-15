@@ -24,7 +24,7 @@ from .const import ATTR_COORDINATOR, ATTR_VEHICLE, DOMAIN
 from .coordinator import VehicleCoordinator
 from .entity import RivianVehicleEntity
 
-INSTALLING_STATUS = ("Install_Countdown", "Awaiting_Install", "Installing", "Install_Failed")
+INSTALLING_STATUS = ("Install_Countdown", "Awaiting_Install", "Installing")
 
 UPDATE_DESCRIPTION = UpdateEntityDescription(
     key="software_ota",

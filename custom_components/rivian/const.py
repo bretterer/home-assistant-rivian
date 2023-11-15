@@ -420,6 +420,7 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
                 "Installing",
                 "Install Success",
                 "Connection Lost",
+                "Install Failed",
             ],
             entity_category=EntityCategory.DIAGNOSTIC,
             old_key=f"{DOMAIN}_telematics_ota_status_status",
