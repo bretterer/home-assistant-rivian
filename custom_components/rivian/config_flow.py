@@ -115,10 +115,12 @@ async def validate_vehicle_control(
                     )
                 ):
                     _LOGGER.warning("Unable to enable control for %s", vehicle_name)
-            except RivianPhoneLimitReachedError:
+            except RivianPhoneLimitReachedError as err:
                 _LOGGER.error(
                     "Unable to enable control for %s: phone limit reached", vehicle_name
                 )
+                await api.close()
+                raise SchemaFlowError("phone_limit") from err
             except Exception as ex:  # pylint: disable=broad-except
                 _LOGGER.error("Unable to enable control for %s: %s", vehicle_name, ex)
             if not success:

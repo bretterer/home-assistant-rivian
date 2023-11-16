@@ -31,7 +31,8 @@
       }
     },
     "error": {
-      "2fa_missing": "Two-factor authentication is required to enable vehicle control"
+      "2fa_missing": "Two-factor authentication is required to enable vehicle control",
+      "phone_limit": "Insufficient phone slots available to enable vehicle control"
     }
   },
   "entity": {

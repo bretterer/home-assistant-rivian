@@ -1,7 +1,7 @@
 """Rivian entities."""
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Coroutine, Iterable
 import logging
 from typing import Any, TypeVar
 
@@ -13,10 +13,11 @@ from homeassistant.helpers.entity import DeviceInfo, EntityDescription
 import homeassistant.helpers.entity_registry as er
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
+from .const import ATTR_COORDINATOR, ATTR_USER, ATTR_VEHICLE, DOMAIN
 from .coordinator import (
     ChargingCoordinator,
     RivianDataUpdateCoordinator,
+    UserCoordinator,
     VehicleCoordinator,
     WallboxCoordinator,
 )
@@ -89,6 +90,28 @@ class RivianVehicleControlEntity(RivianVehicleEntity):
                     return True
             return False
         return True
+
+    def _handle_driver_update(self) -> None:
+        """Handle driver update."""
+        entry_data = self.hass.data[DOMAIN][self._config_entry.entry_id]
+        user: UserCoordinator = entry_data[ATTR_COORDINATOR][ATTR_USER]
+        phone_info = user.get_enrolled_phone_data(
+            self._config_entry.options.get("public_key")
+        )
+        device = self.coordinator.drivers_coordinator.get_device_details(
+            phone_info[1].get(self.coordinator.vehicle_id)
+        )
+        self._available = device["isPaired"]
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        self._handle_driver_update()
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.drivers_coordinator.async_add_listener(
+                self._handle_driver_update
+            )
+        )
 
 
 class RivianChargingEntity(RivianEntity[ChargingCoordinator]):

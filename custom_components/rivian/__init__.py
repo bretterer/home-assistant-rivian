@@ -156,12 +156,15 @@ async def async_remove_config_entry_device(
     hass: HomeAssistant, config_entry: ConfigEntry, device_entry: DeviceEntry
 ) -> bool:
     """Remove a config entry from a device."""
-    coordinator: UserCoordinator = hass.data[DOMAIN][config_entry.entry_id][
-        ATTR_COORDINATOR
-    ][ATTR_USER]
-    vehicles = coordinator.get_vehicles()
+    coordinators = hass.data[DOMAIN][config_entry.entry_id][ATTR_COORDINATOR]
+    user_coordinator: UserCoordinator = coordinators[ATTR_USER]
+    wallbox_coordinator: WallboxCoordinator = coordinators[ATTR_WALLBOX]
+
+    vehicles = user_coordinator.get_vehicles().keys()
+    wallboxes = {x["wallboxId"] for x in wallbox_coordinator.data}
+
     return not any(
         identifier
         for identifier in device_entry.identifiers
-        if identifier[0] == DOMAIN and identifier[1] in vehicles
+        if identifier[0] == DOMAIN and identifier[1] in vehicles | wallboxes
     )
