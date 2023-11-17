@@ -1,6 +1,6 @@
 {
   "name": "Rivian (Unofficial)",
-  "homeassistant": "2023.7.0",
+  "homeassistant": "2023.10.0",
   "zip_release": true,
   "filename": "rivian.zip"
 }
