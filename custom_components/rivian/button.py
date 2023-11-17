@@ -192,8 +192,11 @@ class RivianPairPhoneButtonEntity(RivianVehicleControlEntity, ButtonEntity):
                     self._available = False
                     self.async_write_ha_state()
                     return
-                _LOGGER.debug(
-                    "Unable to validate pairing via API, please manually test vehicle controls"
+                _LOGGER.warning(
+                    "Unable to validate pairing was successful. "
+                    "If the vehicle shows that your phone key is ready, then vehicle controls will be enabled shortly. "
+                    "You may also manually reload the integration to force a refresh. "
+                    "Otherwise, you will need to try the pairing process again."
                 )
                 self._pairing = False
                 return
@@ -206,3 +209,4 @@ class RivianPairPhoneButtonEntity(RivianVehicleControlEntity, ButtonEntity):
 
     def _handle_driver_update(self) -> None:
         """Handle driver update."""
+        # This is purposefully blank to keep from disabling the entity pending BLE pairing
