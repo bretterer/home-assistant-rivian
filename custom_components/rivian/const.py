@@ -487,6 +487,17 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             suggested_display_precision=0,
         ),
         RivianSensorEntityDescription(
+            key="altitude",
+            field="gnssAltitude",
+            name="Altitude",
+            icon="mdi:altimeter",
+            device_class=SensorDeviceClass.DISTANCE, 
+            native_unit_of_measurement=UnitOfLength.METERS,
+            state_class=SensorStateClass.MEASUREMENT,
+            suggested_display_precision=0,
+            suggested_unit_of_measurement=UnitOfLength.FEET,
+        ),
+        RivianSensorEntityDescription(
             key="time_to_end_of_charge",
             field="timeToEndOfCharge",
             name="Charging Time Remaining",
