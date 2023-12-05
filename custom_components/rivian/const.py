@@ -600,14 +600,14 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
         RivianSensorEntityDescription(
             key="bluetooth_front_fascia_hardware_failure_status",
             field="btmFfHardwareFailureStatus",
-            name="Bluetooth Module Failure Status Front Fascia",
+            name="Bluetooth Module Failure Status Fascia Front",
             icon="mdi:bluetooth",
             entity_category=EntityCategory.DIAGNOSTIC,
         ),
         RivianSensorEntityDescription(
             key="bluetooth_rear_fascia_hardware_failure_status",
             field="btmRfHardwareFailureStatus",
-            name="Bluetooth Module Failure Status Rear Fascia",
+            name="Bluetooth Module Failure Status Fascia Rear",
             icon="mdi:bluetooth",
             entity_category=EntityCategory.DIAGNOSTIC,
         ),
@@ -621,14 +621,14 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
         RivianSensorEntityDescription(
             key="bluetooth_right_front_door_hardware_failure_status",
             field="btmRfdHardwareFailureStatus",
-            name="Bluetooth Module Failure Status Right Front Door",
+            name="Bluetooth Module Failure Status Door Front Right",
             icon="mdi:bluetooth",
             entity_category=EntityCategory.DIAGNOSTIC,
         ),
         RivianSensorEntityDescription(
             key="bluetooth_left_front_door_hardware_failure_status",
             field="btmLfdHardwareFailureStatus",
-            name="Bluetooth Module Failure Status Left Front Door",
+            name="Bluetooth Module Failure Status Door Front Left",
             icon="mdi:bluetooth",
             entity_category=EntityCategory.DIAGNOSTIC,
         ),
