@@ -88,6 +88,16 @@ DRIVE_MODE_MAP = {
 SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
     "R1": (
         RivianSensorEntityDescription(
+            key="altitude",
+            field="gnssAltitude",
+            name="Altitude",
+            icon="mdi:altimeter",
+            device_class=SensorDeviceClass.DISTANCE,
+            native_unit_of_measurement=UnitOfLength.METERS,
+            state_class=SensorStateClass.MEASUREMENT,
+            suggested_display_precision=0,
+        ),
+        RivianSensorEntityDescription(
             key="battery_thermal_status",
             field="batteryHvThermalEvent",
             name="Battery Thermal Status",
@@ -127,12 +137,6 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             icon="mdi:compass",
             native_unit_of_measurement=DEGREE,
             suggested_display_precision=0,
-        ),
-        RivianSensorEntityDescription(
-            key="altitude",
-            field="gnssAltitude",
-            name="Altitude",
-            icon="mdi:altimeter",
         ),
         RivianSensorEntityDescription(
             key="brake_fluid_low",
@@ -485,17 +489,6 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             native_unit_of_measurement=UnitOfSpeed.METERS_PER_SECOND,
             state_class=SensorStateClass.MEASUREMENT,
             suggested_display_precision=0,
-        ),
-        RivianSensorEntityDescription(
-            key="altitude",
-            field="gnssAltitude",
-            name="Altitude",
-            icon="mdi:altimeter",
-            device_class=SensorDeviceClass.DISTANCE, 
-            native_unit_of_measurement=UnitOfLength.METERS,
-            state_class=SensorStateClass.MEASUREMENT,
-            suggested_display_precision=0,
-            suggested_unit_of_measurement=UnitOfLength.FEET,
         ),
         RivianSensorEntityDescription(
             key="time_to_end_of_charge",
