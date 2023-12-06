@@ -115,19 +115,20 @@ class RivianSensorEntity(RivianVehicleEntity, SensorEntity):
         if _fn := self.entity_description.value_fn:
             return _fn(self.coordinator)
 
-        if (val := self._get_value(self.entity_description.field)) is not None:
-            rval = _fn(val) if (_fn := self.entity_description.value_lambda) else val
-            if self.device_class == SensorDeviceClass.ENUM and rval not in self.options:
-                _LOGGER.error(
-                    "Sensor %s provides state value '%s', which is not in the list of known options. Please consider opening an issue at https://github.com/bretterer/home-assistant-rivian/issues with the following info: 'field: \"%s\" / value: \"%s\"'",
-                    self.name,
-                    rval,
-                    self.entity_description.field,
-                    val,
-                )
-                self.options.append(rval)
-            return rval
-        return STATE_UNAVAILABLE
+        if (val := self._get_value(self.entity_description.field)) is None:
+            return STATE_UNAVAILABLE if not self.native_unit_of_measurement else None
+
+        rval = _fn(val) if (_fn := self.entity_description.value_lambda) else val
+        if self.device_class == SensorDeviceClass.ENUM and rval not in self.options:
+            _LOGGER.error(
+                "Sensor %s provides state value '%s', which is not in the list of known options. Please consider opening an issue at https://github.com/bretterer/home-assistant-rivian/issues with the following info: 'field: \"%s\" / value: \"%s\"'",
+                self.name,
+                rval,
+                self.entity_description.field,
+                val,
+            )
+            self.options.append(rval)
+        return rval
 
     @property
     def extra_state_attributes(self) -> Mapping[str, Any] | None:
