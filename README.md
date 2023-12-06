@@ -111,7 +111,7 @@ To complete the pairing setup after enabling vehicle controls in Home Assistant:
 | Gear Guard Alarm                                    | Binary Sensor  | Tampered/clear status                  |
 | Gear Guard Video Mode                               | Sensor         |                                        |
 | Gear Guard Video Status                             | Sensor         |                                        |
-| Gear Guard Video Terms Accepted                     | Sensor         |                                        |
+| Gear Guard Video Terms Accepted\*                   | Sensor         |                                        |
 | Gear Selector                                       | Sensor         |                                        |
 | Gear Tunnel Left                                    | Binary Sensor  | Open/closed status, R1T only           |
 | Gear Tunnel Left Lock                               | Binary Sensor  | Locked/unlocked status, R1T only       |
@@ -141,19 +141,19 @@ To complete the pairing setup after enabling vehicle controls in Home Assistant:
 | Service Mode                                        | Sensor         |                                        |
 | SOC Limit                                           | Sensor         |                                        |
 | Software                                            | Update         |                                        |
-| Software OTA - Available Version                    | Sensor         |                                        |
-| Software OTA - Available Version Git Hash           | Sensor         |                                        |
-| Software OTA - Available Version Number             | Sensor         |                                        |
-| Software OTA - Available Version Week               | Sensor         |                                        |
-| Software OTA - Available Version Year               | Sensor         |                                        |
-| Software OTA - Current Version                      | Sensor         |                                        |
-| Software OTA - Current Version Git Hash             | Sensor         |                                        |
-| Software OTA - Current Version Number               | Sensor         |                                        |
-| Software OTA - Current Version Week                 | Sensor         |                                        |
-| Software OTA - Current Version Year                 | Sensor         |                                        |
+| Software OTA - Available Version\*                  | Sensor         |                                        |
+| Software OTA - Available Version Git Hash\*         | Sensor         |                                        |
+| Software OTA - Available Version Number\*           | Sensor         |                                        |
+| Software OTA - Available Version Week\*             | Sensor         |                                        |
+| Software OTA - Available Version Year\*             | Sensor         |                                        |
+| Software OTA - Current Version\*                    | Sensor         |                                        |
+| Software OTA - Current Version Git Hash\*           | Sensor         |                                        |
+| Software OTA - Current Version Number\*             | Sensor         |                                        |
+| Software OTA - Current Version Week\*               | Sensor         |                                        |
+| Software OTA - Current Version Year\*               | Sensor         |                                        |
 | Software OTA - Download Progress                    | Sensor         |                                        |
 | Software OTA - Install Duration                     | Sensor         |                                        |
-| Software OTA - Install Progress                     | Sensor         |                                        |
+| Software OTA - Install Progress\*                   | Sensor         |                                        |
 | Software OTA - Install Ready                        | Sensor         |                                        |
 | Software OTA - Install Time                         | Sensor         |                                        |
 | Software OTA - Install Type                         | Sensor         |                                        |
@@ -185,6 +185,8 @@ To complete the pairing setup after enabling vehicle controls in Home Assistant:
 | Window Rear Right                                   | Binary Sensor  | Open/close status                      |
 | Windows Next Action                                 | Sensor         |                                        |
 | Wiper Fluid Level                                   | Binary Sensor  | OK/problem status                      |
+
+\* Disabled by default
 
 ### Remote Vehicle Control Entities
 
@@ -219,10 +221,6 @@ To complete the pairing setup after enabling vehicle controls in Home Assistant:
 - [jrgutier](https://github.com/jrgutier) - Helped with getting information on the Rivian API
 - [tmack8001](https://github.com/tmack8001) - Helping with Development and Testing
 - [natekspencer](https://github.com/natekspencer) - Keeping the integration up-to-date with changes from Home Assistant
-
-## Sponsors
-
-- [74656b](https://github.com/74656b) Thank you for the sponsorship!
 
 ---
 
