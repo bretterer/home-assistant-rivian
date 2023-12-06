@@ -125,7 +125,7 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
         RivianSensorEntityDescription(
             key="battery_limit",
             field="batteryLimit",
-            name="SOC Limit",
+            name="Battery State of Charge Limit",
             icon="mdi:battery-charging-80",
             native_unit_of_measurement=PERCENTAGE,
             old_key=f"{DOMAIN}_energy_storage_mobile_soc_limit",

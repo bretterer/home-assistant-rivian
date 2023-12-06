@@ -67,13 +67,14 @@ To complete the pairing setup after enabling vehicle controls in Home Assistant:
 3. Click on the "Pair" button entity for the associated vehicle in Home Assistant  
    Home Assistant will then attempt to connect to your vehicle and complete the pairing process. On Darwin (MacOS) based systems, a pop-up will appear which you will have to manually click to allow pairing. On Linux or Windows systems, this should happen automatically.
 
-## Available Entities
+## Available Sensors
 
 | Name                                                | Domain         | Description                            |
 | --------------------------------------------------- | -------------- | -------------------------------------- |
 | 12V Battery Health                                  | Sensor         |                                        |
 | Altitude                                            | Sensor         |                                        |
 | Battery State of Charge                             | Sensor         |                                        |
+| Battery State of Charge Limit                       | Sensor         |                                        |
 | Battery Thermal Runaway Propagation                 | Sensor         |                                        |
 | Battery Thermal Status                              | Sensor         |                                        |
 | Bearing                                             | Sensor         |                                        |
@@ -139,7 +140,6 @@ To complete the pairing setup after enabling vehicle controls in Home Assistant:
 | Range Threshold                                     | Sensor         |                                        |
 | Remote Charging Available                           | Sensor         |                                        |
 | Service Mode                                        | Sensor         |                                        |
-| SOC Limit                                           | Sensor         |                                        |
 | Software                                            | Update         |                                        |
 | Software OTA - Available Version\*                  | Sensor         |                                        |
 | Software OTA - Available Version Git Hash\*         | Sensor         |                                        |
@@ -188,7 +188,7 @@ To complete the pairing setup after enabling vehicle controls in Home Assistant:
 
 \* Disabled by default
 
-### Remote Vehicle Control Entities
+### Remote Vehicle Controls
 
 | Name                   | Domain  | Description                                                                                                                                               |
 | ---------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
