@@ -1,25 +1,23 @@
 """Rivian entities."""
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Coroutine, Iterable
 import logging
 from typing import Any, TypeVar
 
-import async_timeout
-from rivian import Rivian
-from rivian.exceptions import RivianExpiredTokenError, RivianUnauthenticated
-
+from homeassistant.components.zone import in_zone
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import CONF_ZONE
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.entity import DeviceInfo, EntityDescription
 import homeassistant.helpers.entity_registry as er
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
+from .const import ATTR_COORDINATOR, ATTR_USER, ATTR_VEHICLE, DOMAIN
 from .coordinator import (
     ChargingCoordinator,
     RivianDataUpdateCoordinator,
+    UserCoordinator,
     VehicleCoordinator,
     WallboxCoordinator,
 )
@@ -44,7 +42,7 @@ class RivianVehicleEntity(RivianEntity[VehicleCoordinator]):
         description: EntityDescription,
         vehicle: dict[str, Any],
     ) -> None:
-        """Construct a RivianEntity."""
+        """Construct a Rivian vehicle entity."""
         super().__init__(coordinator)
         self._config_entry = config_entry
         self.entity_description = description
@@ -55,12 +53,11 @@ class RivianVehicleEntity(RivianEntity[VehicleCoordinator]):
 
         name = vehicle["name"]
         model = vehicle["model"]
-        model_year = vehicle["modelYear"]
         self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, vin)},
+            identifiers={(DOMAIN, vin), (DOMAIN, vehicle["id"])},
             name=name if name else model,
             manufacturer="Rivian",
-            model=f"{model_year} {model}",
+            model=model,
             sw_version=self._get_value("otaCurrentVersion"),
         )
 
@@ -71,9 +68,50 @@ class RivianVehicleEntity(RivianEntity[VehicleCoordinator]):
 
     def _get_value(self, key: str) -> Any | None:
         """Get a data value from the coordinator."""
-        if entity := self.coordinator.data.get(key, {}):
-            return entity.get("value")
-        return None
+        return self.coordinator.get(key)
+
+
+class RivianVehicleControlEntity(RivianVehicleEntity):
+    """Base class for Rivian vehicle control entities."""
+
+    @property
+    def available(self) -> bool:
+        """Return the availability of the entity."""
+        if not (super().available and self._get_value("gearStatus") == "park"):
+            return False
+        if _fn := getattr(self.entity_description, "available", None):
+            if not _fn(self.coordinator):
+                return False
+        if zone_entity_ids := self._config_entry.options.get(CONF_ZONE, []):
+            location = self.coordinator.data.get("gnssLocation", {})
+            for entity_id in zone_entity_ids:
+                zone = self.hass.states.get(entity_id)
+                if in_zone(zone, location.get("latitude"), location.get("longitude")):
+                    return True
+            return False
+        return True
+
+    def _handle_driver_update(self) -> None:
+        """Handle driver update."""
+        entry_data = self.hass.data[DOMAIN][self._config_entry.entry_id]
+        user: UserCoordinator = entry_data[ATTR_COORDINATOR][ATTR_USER]
+        phone_info = user.get_enrolled_phone_data(
+            self._config_entry.options.get("public_key")
+        )
+        device = self.coordinator.drivers_coordinator.get_device_details(
+            phone_info[1].get(self.coordinator.vehicle_id)
+        )
+        self._available = device["isPaired"]
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        self._handle_driver_update()
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.drivers_coordinator.async_add_listener(
+                self._handle_driver_update
+            )
+        )
 
 
 class RivianChargingEntity(RivianEntity[ChargingCoordinator]):

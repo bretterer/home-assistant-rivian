@@ -21,6 +21,20 @@
       }
     }
   },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "vehicle_control": "Enable vehicle control (experimental and at your own risk)",
+          "zone": "Limit vehicle control to the following zones"
+        }
+      }
+    },
+    "error": {
+      "2fa_missing": "Two-factor authentication is required to enable vehicle control",
+      "phone_limit": "Insufficient phone slots available to enable vehicle control"
+    }
+  },
   "entity": {
     "sensor": {
       "charging_status": {
@@ -32,6 +46,12 @@
           "charging": "Charging"
         }
       }
+    }
+  },
+  "issues": {
+    "2fa_missing": {
+      "title": "Two-factor authentication (2FA) required for vehicle control",
+      "description": "Please enable 2FA in your Rivian account and then reload the integration or re-configure the integration and remove any devices selected for vehicle control."
     }
   }
 }

@@ -26,7 +26,7 @@ VERSION = "0.0.1-alpha.2"
 ISSUE_URL = "https://github.com/bretterer/home-assistant-rivian/issues"
 
 # Attributes
-ATTR_CHARGING = "charging"
+ATTR_API = "api"
 ATTR_COORDINATOR = "coordinator"
 ATTR_USER = "user"
 ATTR_VEHICLE = "vehicle"
@@ -37,6 +37,7 @@ CONF_OTP = "otp"
 CONF_ACCESS_TOKEN = "access_token"
 CONF_REFRESH_TOKEN = "refresh_token"
 CONF_USER_SESSION_TOKEN = "user_session_token"
+CONF_VEHICLE_CONTROL = "vehicle_control"
 
 LOCK_STATE_ENTITIES = {
     "closureFrunkLocked",
@@ -87,6 +88,16 @@ DRIVE_MODE_MAP = {
 SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
     "R1": (
         RivianSensorEntityDescription(
+            key="altitude",
+            field="gnssAltitude",
+            name="Altitude",
+            icon="mdi:altimeter",
+            device_class=SensorDeviceClass.DISTANCE,
+            native_unit_of_measurement=UnitOfLength.METERS,
+            state_class=SensorStateClass.MEASUREMENT,
+            suggested_display_precision=0,
+        ),
+        RivianSensorEntityDescription(
             key="battery_thermal_status",
             field="batteryHvThermalEvent",
             name="Battery Thermal Status",
@@ -114,7 +125,7 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
         RivianSensorEntityDescription(
             key="battery_limit",
             field="batteryLimit",
-            name="SOC Limit",
+            name="Battery State of Charge Limit",
             icon="mdi:battery-charging-80",
             native_unit_of_measurement=PERCENTAGE,
             old_key=f"{DOMAIN}_energy_storage_mobile_soc_limit",
@@ -126,12 +137,6 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             icon="mdi:compass",
             native_unit_of_measurement=DEGREE,
             suggested_display_precision=0,
-        ),
-        RivianSensorEntityDescription(
-            key="altitude",
-            field="gnssAltitude",
-            name="Altitude",
-            icon="mdi:altimeter",
         ),
         RivianSensorEntityDescription(
             key="brake_fluid_low",
@@ -147,7 +152,6 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             device_class=SensorDeviceClass.TEMPERATURE,
             native_unit_of_measurement=UnitOfTemperature.CELSIUS,
             suggested_display_precision=1,
-            suggested_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
             old_key=f"{DOMAIN}_thermal_hvac_cabin_control_driver_temperature",
         ),
         RivianSensorEntityDescription(
@@ -158,7 +162,6 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             native_unit_of_measurement=UnitOfTemperature.CELSIUS,
             state_class=SensorStateClass.MEASUREMENT,
             suggested_display_precision=1,
-            suggested_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
             old_key=f"{DOMAIN}_thermal_hvac_cabin_control_cabin_temperature",
         ),
         RivianSensorEntityDescription(
@@ -185,7 +188,6 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             native_unit_of_measurement=UnitOfLength.KILOMETERS,
             state_class=SensorStateClass.MEASUREMENT,
             suggested_display_precision=1,
-            suggested_unit_of_measurement=UnitOfLength.MILES,
             old_key=f"{DOMAIN}_energy_storage_vehicle_energy_vehicle_range",
         ),
         RivianSensorEntityDescription(
@@ -659,7 +661,7 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             name="Cabin Climate Preconditioning",
             old_key=f"{DOMAIN}_thermal_tmm_status_cabin_precondition_state",
             device_class=BinarySensorDeviceClass.RUNNING,
-            on_value=["active"],
+            on_value=["active", "complete_maintain", "initiate"],
         ),
         RivianBinarySensorEntityDescription(
             key="charger_state",
