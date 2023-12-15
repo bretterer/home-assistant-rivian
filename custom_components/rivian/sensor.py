@@ -68,7 +68,7 @@ async def async_setup_entry(
         for description in descriptions
     ]
 
-    # Migrate unique ids to support multiple VIN
+    # Migrate unique ids
     async_update_unique_id(hass, PLATFORM, entities)
 
     # Add charging entities

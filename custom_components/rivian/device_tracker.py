@@ -4,11 +4,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from homeassistant.components.device_tracker import (
-    DOMAIN as PLATFORM,
-    SourceType,
-    TrackerEntity,
-)
+from homeassistant.components.device_tracker import SourceType, TrackerEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -16,11 +12,9 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import ATTR_COORDINATOR, ATTR_VEHICLE, DOMAIN
 from .coordinator import VehicleCoordinator
 from .data_classes import RivianTrackerEntityDescription
-from .entity import RivianVehicleEntity, async_update_unique_id
+from .entity import RivianVehicleEntity
 
-LOCATION_DESCRIPTION = RivianTrackerEntityDescription(
-    key="location", name="Location", old_key="Rivian Location"
-)
+LOCATION_DESCRIPTION = RivianTrackerEntityDescription(key="location", name="Location")
 
 
 async def async_setup_entry(
@@ -37,9 +31,6 @@ async def async_setup_entry(
         )
         for vehicle_id, vehicle in vehicles.items()
     ]
-
-    # Migrate unique ids to support multiple VIN
-    async_update_unique_id(hass, PLATFORM, entities)
 
     async_add_entities(entities)
 
