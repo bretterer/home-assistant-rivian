@@ -4,10 +4,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from homeassistant.components.binary_sensor import (
-    DOMAIN as PLATFORM,
-    BinarySensorEntity,
-)
+from homeassistant.components.binary_sensor import BinarySensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
@@ -16,7 +13,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import ATTR_COORDINATOR, ATTR_VEHICLE, BINARY_SENSORS, DOMAIN
 from .coordinator import VehicleCoordinator
 from .data_classes import RivianBinarySensorEntityDescription
-from .entity import RivianVehicleEntity, async_update_unique_id
+from .entity import RivianVehicleEntity
 
 
 async def async_setup_entry(
@@ -34,9 +31,6 @@ async def async_setup_entry(
         if model in vehicle["model"]
         for description in descriptions
     ]
-
-    # Migrate unique ids to support multiple VIN
-    async_update_unique_id(hass, PLATFORM, entities)
 
     async_add_entities(entities)
 

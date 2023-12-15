@@ -35,7 +35,6 @@ class RivianBinarySensorEntityDescription(BinarySensorEntityDescription):
     # Value to consider binary sensor to be "on"
     on_value: bool | float | int | str | list[str] = True
     negate: bool = False
-    old_key: str | None = None
 
 
 @dataclass(kw_only=True)
@@ -88,7 +87,7 @@ class RivianSensorEntityDescription(SensorEntityDescription):
     field: str
     value_fn: Callable[[VehicleCoordinator], Any] | None = None
     value_lambda: Expression | None = None
-    old_key: str | None = None
+    old_key: str | None = None  # to be removed 2024-06
 
 
 @dataclass(kw_only=True)
@@ -105,8 +104,6 @@ class RivianSwitchEntityDescription(
 @dataclass(kw_only=True)
 class RivianTrackerEntityDescription(EntityDescription):
     """Rivian tracker entity Description."""
-
-    old_key: str | None = None
 
 
 @dataclass(kw_only=True)
