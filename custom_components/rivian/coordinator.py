@@ -312,7 +312,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         new_data = prev_items | items
         for key in filter(lambda i: i != "gnssLocation", items):
             value = items[key].get("value")
-            if str(value).lower() in INVALID_SENSOR_STATES:
+            if str(value).lower() in INVALID_SENSOR_STATES and key in prev_items:
                 new_data[key] = prev_items[key]
             new_data[key]["history"] |= prev_items.get(key, {}).get("history", set())
 

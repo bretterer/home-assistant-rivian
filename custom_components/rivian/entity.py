@@ -64,6 +64,9 @@ class RivianVehicleEntity(RivianEntity[VehicleCoordinator]):
     @property
     def available(self) -> bool:
         """Return the availability of the entity."""
+        if field := getattr(self.entity_description, "field", None):
+            if self._get_value(field) is None:
+                return False
         return self._available
 
     def _get_value(self, key: str) -> Any | None:

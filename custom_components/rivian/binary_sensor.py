@@ -52,6 +52,16 @@ class RivianBinarySensorEntity(RivianVehicleEntity, BinarySensorEntity):
         self._aggregate = isinstance(self.entity_description.field, set)
 
     @property
+    def available(self) -> bool:
+        """Return the availability of the entity."""
+        if self._aggregate:
+            return self._available and any(
+                self._get_value(entity_key)
+                for entity_key in self.entity_description.field
+            )
+        return super().available
+
+    @property
     def is_on(self) -> bool:
         """Return true if sensor is on."""
         fields = self.entity_description.field
