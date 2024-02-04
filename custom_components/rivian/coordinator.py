@@ -40,7 +40,7 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator[T], Generic[T], ABC):
     """Data update coordinator for the Rivian integration."""
 
     key: str
-    _update_interval: int = 30
+    _update_interval_seconds = 30
     _error_count = 0
 
     def __init__(self, hass: HomeAssistant, client: Rivian) -> None:
@@ -49,21 +49,21 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator[T], Generic[T], ABC):
             hass=hass,
             logger=_LOGGER,
             name=DOMAIN,
-            update_interval=timedelta(seconds=self._update_interval)
-            if self._update_interval
-            else None,
+            update_interval=(
+                timedelta(seconds=self._update_interval_seconds)
+                if self._update_interval_seconds
+                else None
+            ),
         )
         self.api = client
 
-    def _set_update_interval(self, seconds: int | None = None) -> None:
+    def _set_update_interval(self, seconds: float | None = None) -> None:
         """Set the update interval or calculate new one based on errors."""
-        if seconds:
-            self._update_interval = seconds
-        else:
-            seconds = min(self._update_interval * 2**self._error_count, 900)
-        if self.update_interval != (update_interval := timedelta(seconds=seconds)):
-            refresh = self.update_interval and self.update_interval.seconds > seconds
-            self.update_interval = update_interval
+        if not seconds:
+            seconds = min(self._update_interval_seconds * 2**self._error_count, 900)
+        if self._update_interval_seconds != seconds:
+            refresh = self.update_interval and self._update_interval_seconds > seconds
+            self.update_interval = timedelta(seconds=seconds)
             if refresh and self.data:
                 self.hass.async_add_job(self.async_request_refresh)
             else:
@@ -121,7 +121,7 @@ class ChargingCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
     key = "getLiveSessionData"
     _unplugged_interval = 15 * 60  # 15 minutes
     _plugged_interval = 30  # 30 seconds
-    _update_interval = _unplugged_interval  # 15 minutes
+    _update_interval_seconds = _unplugged_interval  # 15 minutes
 
     def __init__(self, hass: HomeAssistant, client: Rivian, vehicle_id: str) -> None:
         """Initialize the coordinator."""
@@ -145,7 +145,7 @@ class DriverKeyCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
     """Drivers/keys data update coordinator for Rivian."""
 
     key = "getVehicle"
-    _update_interval = 15 * 60  # 15 minutes
+    _update_interval_seconds = 15 * 60  # 15 minutes
 
     def __init__(self, hass: HomeAssistant, client: Rivian, vehicle_id: str) -> None:
         """Initialize the coordinator."""
@@ -226,7 +226,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
     """Vehicle data update coordinator for Rivian."""
 
     key = "vehicleState"
-    _update_interval = 15 * 60  # 15 minutes
+    _update_interval_seconds = 15 * 60  # 15 minutes
 
     def __init__(self, hass: HomeAssistant, client: Rivian, vehicle_id: str) -> None:
         """Initialize the coordinator."""
@@ -367,7 +367,7 @@ class VehicleImageCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
     """Vehicle image data update coordinator for Rivian."""
 
     key = "getVehicleMobileImages"
-    _update_interval = 0  # disabled
+    _update_interval_seconds = 0  # disabled
     _last_updated: datetime | None = None
 
     def __init__(self, hass: HomeAssistant, client: Rivian, version: str) -> None:
