@@ -10,6 +10,7 @@ from homeassistant.const import (
     PERCENTAGE,
     EntityCategory,
     UnitOfLength,
+    UnitOfPressure,
     UnitOfSpeed,
     UnitOfTemperature,
     UnitOfTime,
@@ -462,27 +463,63 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             state_class=SensorStateClass.MEASUREMENT,
         ),
         RivianSensorEntityDescription(
+            key="tire_pressure_front_left",
+            field="tirePressureFrontLeft",
+            name="Tire Pressure Front Left",
+            icon="mdi:tire",
+            device_class=SensorDeviceClass.PRESSURE,
+            native_unit_of_measurement=UnitOfPressure.BAR,
+            state_class=SensorStateClass.MEASUREMENT,
+        ),
+        RivianSensorEntityDescription(
+            key="tire_pressure_front_right",
+            field="tirePressureFrontRight",
+            name="Tire Pressure Front Right",
+            icon="mdi:tire",
+            device_class=SensorDeviceClass.PRESSURE,
+            native_unit_of_measurement=UnitOfPressure.BAR,
+            state_class=SensorStateClass.MEASUREMENT,
+        ),
+        RivianSensorEntityDescription(
+            key="tire_pressure_rear_left",
+            field="tirePressureRearLeft",
+            name="Tire Pressure Rear Left",
+            icon="mdi:tire",
+            device_class=SensorDeviceClass.PRESSURE,
+            native_unit_of_measurement=UnitOfPressure.BAR,
+            state_class=SensorStateClass.MEASUREMENT,
+        ),
+        RivianSensorEntityDescription(
+            key="tire_pressure_rear_right",
+            field="tirePressureRearRight",
+            name="Tire Pressure Rear Right",
+            icon="mdi:tire",
+            device_class=SensorDeviceClass.PRESSURE,
+            native_unit_of_measurement=UnitOfPressure.BAR,
+            state_class=SensorStateClass.MEASUREMENT,
+        ),
+        RivianSensorEntityDescription(
             key="tire_pressure_status_front_left",
             field="tirePressureStatusFrontLeft",
-            name="Tire Pressure Front Left",
+            name="Tire Pressure Front Left Status",
             icon="mdi:tire",
         ),
         RivianSensorEntityDescription(
             key="tire_pressure_status_front_right",
             field="tirePressureStatusFrontRight",
-            name="Tire Pressure Front Right",
+            name="Tire Pressure Front Right Status",
             icon="mdi:tire",
         ),
         RivianSensorEntityDescription(
             key="tire_pressure_status_rear_left",
             field="tirePressureStatusRearLeft",
-            name="Tire Pressure Rear Left",
+            name="Tire Pressure Rear Left Status",
             icon="mdi:tire",
         ),
         RivianSensorEntityDescription(
             key="tire_pressure_status_rear_right",
             field="tirePressureStatusRearRight",
-            name="Tire Pressure Rear Right",
+            name="Tire Pressure Rear Right Status",
             icon="mdi:tire",
         ),
         RivianSensorEntityDescription(
@@ -612,6 +649,13 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             name="Cabin Climate Preconditioning",
             device_class=BinarySensorDeviceClass.RUNNING,
             on_value=["active", "complete_maintain", "initiate"],
+        ),
+        RivianBinarySensorEntityDescription(
+            key="charge_port",
+            field="chargePortState",
+            name="Charge Port",
+            device_class=BinarySensorDeviceClass.DOOR,
+            on_value="open",
         ),
         RivianBinarySensorEntityDescription(
             key="charger_state",
@@ -990,6 +1034,13 @@ VEHICLE_STATE_API_FIELDS: Final[set[str]] = {
     "otaAvailableVersionNumber",
     "otaAvailableVersionGitHash",
     "otaInstallProgress",
+}
+
+VEHICLE_STATE_SANS_TPMS_API_FIELDS: Final[set[str]] = VEHICLE_STATE_API_FIELDS ^ {
+    "tirePressureFrontLeft",
+    "tirePressureFrontRight",
+    "tirePressureRearLeft",
+    "tirePressureRearRight",
 }
 
 CHARGING_API_FIELDS: Final[set[str]] = {

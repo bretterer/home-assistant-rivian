@@ -29,6 +29,7 @@ from .const import (
     DOMAIN,
     INVALID_SENSOR_STATES,
     VEHICLE_STATE_API_FIELDS,
+    VEHICLE_STATE_SANS_TPMS_API_FIELDS,
 )
 from .helpers import redact
 
@@ -261,7 +262,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
     async def _fetch_data(self) -> ClientResponse:
         """Fetch the data."""
         return await self.api.get_vehicle_state(
-            vin=self.vehicle_id, properties=VEHICLE_STATE_API_FIELDS
+            vin=self.vehicle_id, properties=VEHICLE_STATE_SANS_TPMS_API_FIELDS
         )
 
     async def async_shutdown(self) -> None:
