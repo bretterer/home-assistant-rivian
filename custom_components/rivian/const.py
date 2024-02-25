@@ -10,6 +10,7 @@ from homeassistant.const import (
     PERCENTAGE,
     EntityCategory,
     UnitOfLength,
+    UnitOfPressure,
     UnitOfSpeed,
     UnitOfTemperature,
     UnitOfTime,
@@ -22,11 +23,11 @@ from .data_classes import (
 
 NAME = "Rivian (Unofficial)"
 DOMAIN = "rivian"
-VERSION = "0.0.1-alpha.2"
+VERSION = "0.0.0"
 ISSUE_URL = "https://github.com/bretterer/home-assistant-rivian/issues"
 
 # Attributes
-ATTR_CHARGING = "charging"
+ATTR_API = "api"
 ATTR_COORDINATOR = "coordinator"
 ATTR_USER = "user"
 ATTR_VEHICLE = "vehicle"
@@ -37,6 +38,7 @@ CONF_OTP = "otp"
 CONF_ACCESS_TOKEN = "access_token"
 CONF_REFRESH_TOKEN = "refresh_token"
 CONF_USER_SESSION_TOKEN = "user_session_token"
+CONF_VEHICLE_CONTROL = "vehicle_control"
 
 LOCK_STATE_ENTITIES = {
     "closureFrunkLocked",
@@ -87,11 +89,20 @@ DRIVE_MODE_MAP = {
 SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
     "R1": (
         RivianSensorEntityDescription(
+            key="altitude",
+            field="gnssAltitude",
+            name="Altitude",
+            icon="mdi:altimeter",
+            device_class=SensorDeviceClass.DISTANCE,
+            native_unit_of_measurement=UnitOfLength.METERS,
+            state_class=SensorStateClass.MEASUREMENT,
+            suggested_display_precision=0,
+        ),
+        RivianSensorEntityDescription(
             key="battery_thermal_status",
             field="batteryHvThermalEvent",
             name="Battery Thermal Status",
             icon="mdi:battery-alert",
-            old_key=f"{DOMAIN}_dynamics_hv_battery_notifications_BMS_thermal_event",
             value_lambda=lambda v: v.replace("_", " ").title(),
         ),
         RivianSensorEntityDescription(
@@ -99,7 +110,6 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             field="batteryHvThermalEventPropagation",
             name="Battery Thermal Runaway Propagation",
             icon="mdi:battery-alert",
-            old_key=f"{DOMAIN}_energy_storage_icd_cid_notifications_b_pack_thermal_runaway_propagation",
         ),
         RivianSensorEntityDescription(
             key="battery_level",
@@ -109,15 +119,13 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             native_unit_of_measurement=PERCENTAGE,
             state_class=SensorStateClass.MEASUREMENT,
             suggested_display_precision=1,
-            old_key=f"{DOMAIN}_energy_storage_charger_adjusted_soc",
         ),
         RivianSensorEntityDescription(
             key="battery_limit",
             field="batteryLimit",
-            name="SOC Limit",
+            name="Battery State of Charge Limit",
             icon="mdi:battery-charging-80",
             native_unit_of_measurement=PERCENTAGE,
-            old_key=f"{DOMAIN}_energy_storage_mobile_soc_limit",
         ),
         RivianSensorEntityDescription(
             key="bearing",
@@ -128,17 +136,10 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             suggested_display_precision=0,
         ),
         RivianSensorEntityDescription(
-            key="altitude",
-            field="gnssAltitude",
-            name="Altitude",
-            icon="mdi:altimeter",
-        ),
-        RivianSensorEntityDescription(
             key="brake_fluid_low",
             field="brakeFluidLow",
             name="Brake Fluid Level Low",
             icon="mdi:car-brake-fluid-level",
-            old_key=f"{DOMAIN}_dynamics_powertrain_status_brake_fluid_level_low",
         ),
         RivianSensorEntityDescription(
             key="driver_temperature",
@@ -147,8 +148,6 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             device_class=SensorDeviceClass.TEMPERATURE,
             native_unit_of_measurement=UnitOfTemperature.CELSIUS,
             suggested_display_precision=1,
-            suggested_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
-            old_key=f"{DOMAIN}_thermal_hvac_cabin_control_driver_temperature",
         ),
         RivianSensorEntityDescription(
             key="cabin_temperature",
@@ -158,15 +157,12 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             native_unit_of_measurement=UnitOfTemperature.CELSIUS,
             state_class=SensorStateClass.MEASUREMENT,
             suggested_display_precision=1,
-            suggested_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
-            old_key=f"{DOMAIN}_thermal_hvac_cabin_control_cabin_temperature",
         ),
         RivianSensorEntityDescription(
             key="cabin_preconditioning_type",
             field="cabinPreconditioningType",
             name="Cabin Climate Preconditioning Type",
             icon="mdi:thermostat",
-            old_key=f"{DOMAIN}_cabin_preconditioning_type",
             value_lambda=lambda v: v.replace("_", " ").title(),
         ),
         RivianSensorEntityDescription(
@@ -174,7 +170,6 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             field="chargerDerateStatus",
             name="Charger Derate Status",
             icon="mdi:ev-station",
-            old_key=f"{DOMAIN}_charger_derate_status",
         ),
         RivianSensorEntityDescription(
             key="distance_to_empty",
@@ -185,8 +180,6 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             native_unit_of_measurement=UnitOfLength.KILOMETERS,
             state_class=SensorStateClass.MEASUREMENT,
             suggested_display_precision=1,
-            suggested_unit_of_measurement=UnitOfLength.MILES,
-            old_key=f"{DOMAIN}_energy_storage_vehicle_energy_vehicle_range",
         ),
         RivianSensorEntityDescription(
             key="drive_mode",
@@ -195,7 +188,6 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             icon="mdi:car-speed-limiter",
             device_class=SensorDeviceClass.ENUM,
             options=list(DRIVE_MODE_MAP.values()),
-            old_key=f"{DOMAIN}_dynamics_modes_drive_mode",
             value_lambda=lambda v: DRIVE_MODE_MAP.get(v, v),
         ),
         RivianSensorEntityDescription(
@@ -210,7 +202,6 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
                 "Park",
                 "Reverse",
             ],
-            old_key=f"{DOMAIN}_dynamics_propulsion_status_prndl",
             value_lambda=lambda v: v.title(),
         ),
         RivianSensorEntityDescription(
@@ -229,7 +220,6 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
                 "Away From Home",
                 "Everywhere",
             ],
-            old_key=f"{DOMAIN}_gear_guard_video_mode",
             value_lambda=lambda v: v.replace("_", " ").title(),
         ),
         RivianSensorEntityDescription(
@@ -243,7 +233,6 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
                 "Enabled",
                 "Engaged",
             ],
-            old_key=f"{DOMAIN}_gear_guard_video_status",
             value_lambda=lambda v: v.replace("_", " ").title(),
         ),
         RivianSensorEntityDescription(
@@ -253,7 +242,6 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             icon="mdi:cctv",
             entity_category=EntityCategory.DIAGNOSTIC,
             entity_registry_enabled_default=False,
-            old_key=f"{DOMAIN}_gear_guard_video_terms_accepted",
             value_lambda=lambda v: v.replace("_", " ").title(),
         ),
         RivianSensorEntityDescription(
@@ -263,7 +251,6 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             icon="mdi:package",
             entity_category=EntityCategory.DIAGNOSTIC,
             entity_registry_enabled_default=False,
-            old_key=f"{DOMAIN}_telematics_ota_status_available_version",
         ),
         RivianSensorEntityDescription(
             key="ota_available_version_git_hash",
@@ -272,7 +259,6 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             icon="mdi:source-commit",
             entity_category=EntityCategory.DIAGNOSTIC,
             entity_registry_enabled_default=False,
-            old_key=f"{DOMAIN}_telematics_ota_status_available_version_git_hash",
         ),
         RivianSensorEntityDescription(
             key="ota_available_version_number",
@@ -281,7 +267,6 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             icon="mdi:numeric",
             entity_category=EntityCategory.DIAGNOSTIC,
             entity_registry_enabled_default=False,
-            old_key=f"{DOMAIN}_telematics_ota_status_available_version_number",
         ),
         RivianSensorEntityDescription(
             key="ota_available_version_week",
@@ -290,7 +275,6 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             icon="mdi:calendar-week",
             entity_category=EntityCategory.DIAGNOSTIC,
             entity_registry_enabled_default=False,
-            old_key=f"{DOMAIN}_telematics_ota_status_available_version_week",
         ),
         RivianSensorEntityDescription(
             key="ota_available_version_year",
@@ -299,7 +283,6 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             icon="mdi:calendar",
             entity_category=EntityCategory.DIAGNOSTIC,
             entity_registry_enabled_default=False,
-            old_key=f"{DOMAIN}_telematics_ota_status_available_version_year",
         ),
         RivianSensorEntityDescription(
             key="ota_current_status",
@@ -307,7 +290,6 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             name="Software OTA - Status Current",
             icon="mdi:package",
             entity_category=EntityCategory.DIAGNOSTIC,
-            old_key=f"{DOMAIN}_telematics_ota_status_status_current",
             value_lambda=lambda v: v.replace("_", " ").title(),
         ),
         RivianSensorEntityDescription(
@@ -317,7 +299,6 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             icon="mdi:package",
             entity_category=EntityCategory.DIAGNOSTIC,
             entity_registry_enabled_default=False,
-            old_key=f"{DOMAIN}_telematics_ota_status_current_version",
         ),
         RivianSensorEntityDescription(
             key="ota_current_version_git_hash",
@@ -326,7 +307,6 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             icon="mdi:source-commit",
             entity_category=EntityCategory.DIAGNOSTIC,
             entity_registry_enabled_default=False,
-            old_key=f"{DOMAIN}_telematics_ota_status_current_version_git_hash",
         ),
         RivianSensorEntityDescription(
             key="ota_current_version_number",
@@ -335,7 +315,6 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             icon="mdi:numeric",
             entity_category=EntityCategory.DIAGNOSTIC,
             entity_registry_enabled_default=False,
-            old_key=f"{DOMAIN}_telematics_ota_status_current_version_number",
         ),
         RivianSensorEntityDescription(
             key="ota_current_version_week",
@@ -344,7 +323,6 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             icon="mdi:calendar-week",
             entity_category=EntityCategory.DIAGNOSTIC,
             entity_registry_enabled_default=False,
-            old_key=f"{DOMAIN}_telematics_ota_status_current_version_week",
         ),
         RivianSensorEntityDescription(
             key="ota_current_version_year",
@@ -353,7 +331,6 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             icon="mdi:calendar",
             entity_category=EntityCategory.DIAGNOSTIC,
             entity_registry_enabled_default=False,
-            old_key=f"{DOMAIN}_telematics_ota_status_current_version_year",
         ),
         RivianSensorEntityDescription(
             key="ota_download_progress",
@@ -362,7 +339,6 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             icon="mdi:progress-download",
             entity_category=EntityCategory.DIAGNOSTIC,
             native_unit_of_measurement=PERCENTAGE,
-            old_key=f"{DOMAIN}_telematics_ota_status_download_progress",
         ),
         RivianSensorEntityDescription(
             key="ota_install_duration",
@@ -372,7 +348,6 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             device_class=SensorDeviceClass.DURATION,
             entity_category=EntityCategory.DIAGNOSTIC,
             native_unit_of_measurement=UnitOfTime.MINUTES,
-            old_key=f"{DOMAIN}_telematics_ota_status_install_duration",
         ),
         RivianSensorEntityDescription(
             key="ota_install_progress",
@@ -382,7 +357,6 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             entity_category=EntityCategory.DIAGNOSTIC,
             entity_registry_enabled_default=False,
             native_unit_of_measurement=PERCENTAGE,
-            old_key=f"{DOMAIN}_telematics_ota_status_install_progress",
         ),
         RivianSensorEntityDescription(
             key="ota_install_ready",
@@ -390,7 +364,6 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             name="Software OTA - Install Ready",
             icon="mdi:progress-check",
             entity_category=EntityCategory.DIAGNOSTIC,
-            old_key=f"{DOMAIN}_core_ota_status_cgm_ota_install_ready",
             value_lambda=lambda v: v.replace("_", " ").title().replace("Ota", "OTA"),
         ),
         RivianSensorEntityDescription(
@@ -401,7 +374,6 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             device_class=SensorDeviceClass.DURATION,
             entity_category=EntityCategory.DIAGNOSTIC,
             native_unit_of_measurement=UnitOfTime.MINUTES,
-            old_key=f"{DOMAIN}_telematics_ota_status_install_time",
         ),
         RivianSensorEntityDescription(
             key="ota_install_type",
@@ -409,7 +381,6 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             name="Software OTA - Install Type",
             icon="mdi:package",
             entity_category=EntityCategory.DIAGNOSTIC,
-            old_key=f"{DOMAIN}_telematics_ota_status_install_type",
         ),
         RivianSensorEntityDescription(
             key="ota_status",
@@ -431,7 +402,6 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
                 "Install Failed",
             ],
             entity_category=EntityCategory.DIAGNOSTIC,
-            old_key=f"{DOMAIN}_telematics_ota_status_status",
             value_lambda=lambda v: v.replace("_", " ").title(),
         ),
         RivianSensorEntityDescription(
@@ -439,11 +409,10 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             field="petModeTemperatureStatus",
             name="Pet Mode Temperature Status",
             icon="mdi:dog-side",
-            old_key=f"{DOMAIN}_thermal_hvac_settings_pet_mode_temperature_status",
             value_lambda=lambda v: v.replace("_", " ").title(),
         ),
         RivianSensorEntityDescription(
-            key="power_tate",
+            key="power_state",
             field="powerState",
             name="Power State",
             icon="mdi:power",
@@ -454,7 +423,7 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
                 "Sleep",
                 "Standby",
             ],
-            old_key=f"{DOMAIN}_core_power_modes_power_state",
+            old_key="power_tate",  # to be removed 2024-06
             value_lambda=lambda v: v.title(),
         ),
         RivianSensorEntityDescription(
@@ -462,7 +431,6 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             field="rangeThreshold",
             name="Range Threshold",
             icon="mdi:map-marker-distance",
-            old_key=f"{DOMAIN}_energy_storage_icd_cid_notifications_range_threshold",
             value_lambda=lambda v: v.replace("_", " ").title(),
         ),
         RivianSensorEntityDescription(
@@ -470,14 +438,12 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             field="remoteChargingAvailable",
             name="Remote Charging Available",
             icon="mdi:battery-charging-wireless-80",
-            old_key=f"{DOMAIN}_energy_storage_mobile_remote_charging_available",
         ),
         RivianSensorEntityDescription(
             key="service_mode",
             field="serviceMode",
             name="Service Mode",
             icon="mdi:account-wrench",
-            old_key=f"{DOMAIN}_service_mode",
         ),
         RivianSensorEntityDescription(
             key="speed",
@@ -495,35 +461,66 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             device_class=SensorDeviceClass.DURATION,
             native_unit_of_measurement=UnitOfTime.MINUTES,
             state_class=SensorStateClass.MEASUREMENT,
-            old_key=f"{DOMAIN}_energy_storage_charger_EMS_charger_remaining_time_min_1",
+        ),
+        RivianSensorEntityDescription(
+            key="tire_pressure_front_left",
+            field="tirePressureFrontLeft",
+            name="Tire Pressure Front Left",
+            icon="mdi:tire",
+            device_class=SensorDeviceClass.PRESSURE,
+            native_unit_of_measurement=UnitOfPressure.BAR,
+            state_class=SensorStateClass.MEASUREMENT,
+        ),
+        RivianSensorEntityDescription(
+            key="tire_pressure_front_right",
+            field="tirePressureFrontRight",
+            name="Tire Pressure Front Right",
+            icon="mdi:tire",
+            device_class=SensorDeviceClass.PRESSURE,
+            native_unit_of_measurement=UnitOfPressure.BAR,
+            state_class=SensorStateClass.MEASUREMENT,
+        ),
+        RivianSensorEntityDescription(
+            key="tire_pressure_rear_left",
+            field="tirePressureRearLeft",
+            name="Tire Pressure Rear Left",
+            icon="mdi:tire",
+            device_class=SensorDeviceClass.PRESSURE,
+            native_unit_of_measurement=UnitOfPressure.BAR,
+            state_class=SensorStateClass.MEASUREMENT,
+        ),
+        RivianSensorEntityDescription(
+            key="tire_pressure_rear_right",
+            field="tirePressureRearRight",
+            name="Tire Pressure Rear Right",
+            icon="mdi:tire",
+            device_class=SensorDeviceClass.PRESSURE,
+            native_unit_of_measurement=UnitOfPressure.BAR,
+            state_class=SensorStateClass.MEASUREMENT,
         ),
         RivianSensorEntityDescription(
             key="tire_pressure_status_front_left",
             field="tirePressureStatusFrontLeft",
-            name="Tire Pressure Front Left",
+            name="Tire Pressure Front Left Status",
             icon="mdi:tire",
-            old_key=f"{DOMAIN}_dynamics_tires_tire_FL_pressure_status",
         ),
         RivianSensorEntityDescription(
             key="tire_pressure_status_front_right",
             field="tirePressureStatusFrontRight",
-            name="Tire Pressure Front Right",
+            name="Tire Pressure Front Right Status",
             icon="mdi:tire",
-            old_key=f"{DOMAIN}_dynamics_tires_tire_FR_pressure_status",
         ),
         RivianSensorEntityDescription(
             key="tire_pressure_status_rear_left",
             field="tirePressureStatusRearLeft",
-            name="Tire Pressure Rear Left",
+            name="Tire Pressure Rear Left Status",
             icon="mdi:tire",
-            old_key=f"{DOMAIN}_dynamics_tires_tire_RL_pressure_status",
         ),
         RivianSensorEntityDescription(
             key="tire_pressure_status_rear_right",
             field="tirePressureStatusRearRight",
-            name="Tire Pressure Rear Right",
+            name="Tire Pressure Rear Right Status",
             icon="mdi:tire",
-            old_key=f"{DOMAIN}_dynamics_tires_tire_RR_pressure_status",
         ),
         RivianSensorEntityDescription(
             key="vehicle_mileage",
@@ -535,7 +532,6 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             state_class=SensorStateClass.TOTAL_INCREASING,
             suggested_display_precision=1,
             suggested_unit_of_measurement=UnitOfLength.MILES,
-            old_key=f"{DOMAIN}_dynamics_odometer_value",
         ),
         RivianSensorEntityDescription(
             key="window_front_left_calibrated",
@@ -543,7 +539,6 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             name="Window Calibration Front Left State",
             icon="mdi:window-closed",
             entity_category=EntityCategory.DIAGNOSTIC,
-            old_key=f"{DOMAIN}_body_closures_window_calibration_FL_state",
         ),
         RivianSensorEntityDescription(
             key="window_front_right_calibrated",
@@ -551,7 +546,6 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             name="Window Calibration Front Right State",
             icon="mdi:window-closed",
             entity_category=EntityCategory.DIAGNOSTIC,
-            old_key=f"{DOMAIN}_body_closures_window_calibration_FR_state",
         ),
         RivianSensorEntityDescription(
             key="window_rear_left_calibrated",
@@ -559,7 +553,6 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             name="Window Calibration Rear Left State",
             icon="mdi:window-closed",
             entity_category=EntityCategory.DIAGNOSTIC,
-            old_key=f"{DOMAIN}_body_closures_window_calibration_RL_state",
         ),
         RivianSensorEntityDescription(
             key="window_rear_right_calibrated",
@@ -567,7 +560,6 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             name="Window Calibration Rear Right State",
             icon="mdi:window-closed",
             entity_category=EntityCategory.DIAGNOSTIC,
-            old_key=f"{DOMAIN}_body_closures_window_calibration_RR_state",
         ),
         RivianSensorEntityDescription(
             key="windows_next_action",
@@ -639,7 +631,6 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             field="closureLiftgateNextAction",
             name="Liftgate Next Action",
             icon="mdi:gesture-tap-button",
-            old_key=f"{DOMAIN}_closure_liftgate_next_action",
         ),
     ),
 }
@@ -649,7 +640,6 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             key="alarm_sound_status",
             field="alarmSoundStatus",
             name="Gear Guard Alarm",
-            old_key=f"{DOMAIN}_body_alarm_sound_alarm",
             device_class=BinarySensorDeviceClass.TAMPER,
             on_value="true",
         ),
@@ -657,15 +647,20 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             key="cabin_preconditioning_status",
             field="cabinPreconditioningStatus",
             name="Cabin Climate Preconditioning",
-            old_key=f"{DOMAIN}_thermal_tmm_status_cabin_precondition_state",
             device_class=BinarySensorDeviceClass.RUNNING,
-            on_value=["active"],
+            on_value=["active", "complete_maintain", "initiate"],
+        ),
+        RivianBinarySensorEntityDescription(
+            key="charge_port",
+            field="chargePortState",
+            name="Charge Port",
+            device_class=BinarySensorDeviceClass.DOOR,
+            on_value="open",
         ),
         RivianBinarySensorEntityDescription(
             key="charger_state",
             field="chargerState",
             name="Charging Status",
-            old_key=f"{DOMAIN}_energy_storage_charger_vehicle_charger_state",
             device_class=BinarySensorDeviceClass.BATTERY_CHARGING,
             on_value=["charging_active", "charging_connecting"],
         ),
@@ -673,7 +668,6 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             key="charger_status",
             field="chargerStatus",
             name="Charger Connection",
-            old_key=f"{DOMAIN}_energy_storage_charger_status_vehicle_charger_status",
             device_class=BinarySensorDeviceClass.PLUG,
             on_value="chrgr_sts_not_connected",
             negate=True,
@@ -682,7 +676,6 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             key="closure_frunk_closed",
             field="closureFrunkClosed",
             name="Front Trunk",
-            old_key=f"{DOMAIN}_body_closures_frunk_state",
             device_class=BinarySensorDeviceClass.DOOR,
             on_value="open",
         ),
@@ -690,7 +683,6 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             key="closure_frunk_locked",
             field="closureFrunkLocked",
             name="Front Trunk Lock",
-            old_key=f"{DOMAIN}_body_closures_frunk_locked_state",
             device_class=BinarySensorDeviceClass.LOCK,
             on_value="unlocked",
         ),
@@ -698,7 +690,6 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             key="closure_tailgate_closed",
             field="closureTailgateClosed",
             name="Tailgate",
-            old_key=f"{DOMAIN}_body_closures_tailgate_state",
             device_class=BinarySensorDeviceClass.DOOR,
             on_value="open",
         ),
@@ -706,7 +697,6 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             key="closure_tailgate_locked",
             field="closureTailgateLocked",
             name="Tailgate Lock",
-            old_key=f"{DOMAIN}_body_closures_tailgate_locked_state",
             device_class=BinarySensorDeviceClass.LOCK,
             on_value="unlocked",
         ),
@@ -715,7 +705,6 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             field="defrostDefogStatus",
             name="Defrost/Defog",
             icon="mdi:car-defrost-front",
-            old_key=f"{DOMAIN}_thermal_hvac_mobile_status_defrost_defog_status",
             device_class=BinarySensorDeviceClass.RUNNING,
             on_value="Off",
             negate=True,
@@ -724,7 +713,6 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             key="door_front_left_closed",
             field="doorFrontLeftClosed",
             name="Door Front Left",
-            old_key=f"{DOMAIN}_body_closures_door_FL_state",
             device_class=BinarySensorDeviceClass.DOOR,
             on_value="open",
         ),
@@ -732,7 +720,6 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             key="door_front_left_locked",
             field="doorFrontLeftLocked",
             name="Door Front Left Lock",
-            old_key=f"{DOMAIN}_body_closures_door_FL_locked_state",
             device_class=BinarySensorDeviceClass.LOCK,
             on_value="unlocked",
         ),
@@ -740,7 +727,6 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             key="door_front_right_closed",
             field="doorFrontRightClosed",
             name="Door Front Right",
-            old_key=f"{DOMAIN}_body_closures_door_FR_state",
             device_class=BinarySensorDeviceClass.DOOR,
             on_value="open",
         ),
@@ -748,7 +734,6 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             key="door_front_right_locked",
             field="doorFrontRightLocked",
             name="Door Front Right Lock",
-            old_key=f"{DOMAIN}_body_closures_door_FR_locked_state",
             device_class=BinarySensorDeviceClass.LOCK,
             on_value="unlocked",
         ),
@@ -756,7 +741,6 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             key="door_rear_left_closed",
             field="doorRearLeftClosed",
             name="Door Rear Left",
-            old_key=f"{DOMAIN}_body_closures_door_RL_state",
             device_class=BinarySensorDeviceClass.DOOR,
             on_value="open",
         ),
@@ -764,7 +748,6 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             key="door_rear_left_locked",
             field="doorRearLeftLocked",
             name="Door Rear Left Lock",
-            old_key=f"{DOMAIN}_body_closures_door_RL_locked_state",
             device_class=BinarySensorDeviceClass.LOCK,
             on_value="unlocked",
         ),
@@ -772,7 +755,6 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             key="door_rear_right_closed",
             field="doorRearRightClosed",
             name="Door Rear Right",
-            old_key=f"{DOMAIN}_body_closures_door_RR_state",
             device_class=BinarySensorDeviceClass.DOOR,
             on_value="open",
         ),
@@ -780,7 +762,6 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             key="door_rear_right_locked",
             field="doorRearRightLocked",
             name="Door Rear Right Lock",
-            old_key=f"{DOMAIN}_body_closures_door_RR_locked_state",
             device_class=BinarySensorDeviceClass.LOCK,
             on_value="unlocked",
         ),
@@ -788,7 +769,6 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             key="gear_guard_locked",
             field="gearGuardLocked",
             name="Gear Guard",
-            old_key=f"{DOMAIN}_body_closures_gear_guard_locked_state",
             device_class=BinarySensorDeviceClass.LOCK,
             on_value="unlocked",
         ),
@@ -796,7 +776,6 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             key="pet_mode_status",
             field="petModeStatus",
             name="Pet Mode",
-            old_key=f"{DOMAIN}_thermal_hvac_settings_pet_mode_status",
             device_class=BinarySensorDeviceClass.RUNNING,
             on_value="On",
         ),
@@ -805,7 +784,6 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             field="seatFrontLeftHeat",
             name="Heated Seat Front Left",
             icon="mdi:car-seat-heater",
-            old_key=f"{DOMAIN}_thermal_hvac_mobile_status_left_seat_heat_status",
             device_class=BinarySensorDeviceClass.RUNNING,
             on_value=["Level_1", "Level_2", "Level_3"],
         ),
@@ -814,7 +792,6 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             field="seatFrontLeftVent",
             name="Vented Seat Front Left",
             icon="mdi:car-seat-cooler",
-            old_key=f"{DOMAIN}_thermal_hvac_mobile_status_left_seat_vent_status",
             device_class=BinarySensorDeviceClass.RUNNING,
             on_value=["Level_1", "Level_2", "Level_3"],
         ),
@@ -823,7 +800,6 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             field="seatFrontRightHeat",
             name="Heated Seat Front Right",
             icon="mdi:car-seat-heater",
-            old_key=f"{DOMAIN}_thermal_hvac_mobile_status_right_seat_heat_status",
             device_class=BinarySensorDeviceClass.RUNNING,
             on_value=["Level_1", "Level_2", "Level_3"],
         ),
@@ -832,7 +808,6 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             field="seatFrontRightVent",
             name="Vented Seat Front Right",
             icon="mdi:car-seat-cooler",
-            old_key=f"{DOMAIN}_thermal_hvac_mobile_status_right_seat_vent_status",
             device_class=BinarySensorDeviceClass.RUNNING,
             on_value=["Level_1", "Level_2", "Level_3"],
         ),
@@ -841,7 +816,6 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             field="seatRearLeftHeat",
             name="Heated Seat Rear Left",
             icon="mdi:car-seat-heater",
-            old_key=f"{DOMAIN}_thermal_hvac_mobile_status_rear_left_seat_heat_status",
             device_class=BinarySensorDeviceClass.RUNNING,
             on_value=["Level_1", "Level_2", "Level_3"],
         ),
@@ -850,7 +824,6 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             field="seatRearRightHeat",
             name="Heated Seat Rear Right",
             icon="mdi:car-seat-heater",
-            old_key=f"{DOMAIN}_thermal_hvac_mobile_status_rear_right_seat_heat_status",
             device_class=BinarySensorDeviceClass.RUNNING,
             on_value=["Level_1", "Level_2", "Level_3"],
         ),
@@ -859,7 +832,6 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             field="steeringWheelHeat",
             name="Heated Steering Wheel",
             icon="mdi:steering",  # mdi:steering-heater, https://github.com/Templarian/MaterialDesign/issues/6925
-            old_key=f"{DOMAIN}_thermal_hvac_mobile_status_steering_wheel_heat_status",
             device_class=BinarySensorDeviceClass.RUNNING,
             on_value="Level_1",
         ),
@@ -867,7 +839,6 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             key="tire_pressure_status_valid_front_left",
             field="tirePressureStatusValidFrontLeft",
             name="Tire Pressure Front Left Validity",
-            old_key=f"{DOMAIN}_dynamics_tires_tire_FL_pressure_status_valid",
             device_class=BinarySensorDeviceClass.PROBLEM,
             on_value="invalid",
         ),
@@ -875,7 +846,6 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             key="tire_pressure_status_valid_front_right",
             field="tirePressureStatusValidFrontRight",
             name="Tire Pressure Front Right Validity",
-            old_key=f"{DOMAIN}_dynamics_tires_tire_FR_pressure_status_valid",
             device_class=BinarySensorDeviceClass.PROBLEM,
             on_value="invalid",
         ),
@@ -883,7 +853,6 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             key="tire_pressure_status_valid_rear_left",
             field="tirePressureStatusValidRearLeft",
             name="Tire Pressure Rear Left Validity",
-            old_key=f"{DOMAIN}_dynamics_tires_tire_RL_pressure_status_valid",
             device_class=BinarySensorDeviceClass.PROBLEM,
             on_value="invalid",
         ),
@@ -891,7 +860,6 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             key="tire_pressure_status_valid_rear_right",
             field="tirePressureStatusValidRearRight",
             name="Tire Pressure Rear Right Validity",
-            old_key=f"{DOMAIN}_dynamics_tires_tire_RR_pressure_status_valid",
             device_class=BinarySensorDeviceClass.PROBLEM,
             on_value="invalid",
         ),
@@ -899,7 +867,6 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             key="window_front_left_closed",
             field="windowFrontLeftClosed",
             name="Window Front Left",
-            old_key=f"{DOMAIN}_body_closures_front_left_window_state",
             device_class=BinarySensorDeviceClass.WINDOW,
             on_value="open",
         ),
@@ -907,7 +874,6 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             key="window_front_right_closed",
             field="windowFrontRightClosed",
             name="Window Front Right",
-            old_key=f"{DOMAIN}_body_closures_front_right_window_state",
             device_class=BinarySensorDeviceClass.WINDOW,
             on_value="open",
         ),
@@ -915,7 +881,6 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             key="window_rear_left_closed",
             field="windowRearLeftClosed",
             name="Window Rear Left",
-            old_key=f"{DOMAIN}_body_closures_rear_left_window_state",
             device_class=BinarySensorDeviceClass.WINDOW,
             on_value="open",
         ),
@@ -923,7 +888,6 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             key="window_rear_right_closed",
             field="windowRearRightClosed",
             name="Window Rear Right",
-            old_key=f"{DOMAIN}_body_closures_rear_right_window_state",
             device_class=BinarySensorDeviceClass.WINDOW,
             on_value="open",
         ),
@@ -932,7 +896,6 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             field="wiperFluidState",
             name="Wiper Fluid Level",
             icon="mdi:wiper-wash",
-            old_key=f"{DOMAIN}_body_wipers_fluid_state",
             device_class=BinarySensorDeviceClass.PROBLEM,
             on_value="normal",
             negate=True,
@@ -942,7 +905,6 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             field=LOCK_STATE_ENTITIES,
             name="Locked State",
             device_class=BinarySensorDeviceClass.LOCK,
-            old_key=f"{DOMAIN}_locked_state",
             on_value="unlocked",
         ),
         RivianBinarySensorEntityDescription(
@@ -950,7 +912,6 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             field=DOOR_STATE_ENTITIES,
             name="Door State",
             device_class=BinarySensorDeviceClass.DOOR,
-            old_key=f"{DOMAIN}_door_state",
             on_value="open",
         ),
         RivianBinarySensorEntityDescription(
@@ -958,15 +919,13 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             field=CLOSURE_STATE_ENTITIES,
             name="Closure State",
             device_class=BinarySensorDeviceClass.DOOR,
-            old_key=f"{DOMAIN}_closure_state",
             on_value="open",
         ),
         RivianBinarySensorEntityDescription(
             key="use_state",
-            field={"powerState"},
+            field="powerState",
             name="In Use State",
             device_class=BinarySensorDeviceClass.MOVING,
-            old_key=f"{DOMAIN}_use_state",
             on_value="go",
         ),
         RivianBinarySensorEntityDescription(
@@ -982,7 +941,6 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             key="closure_side_bin_left_closed",
             field="closureSideBinLeftClosed",
             name="Gear Tunnel Left",
-            old_key=f"{DOMAIN}_body_closures_sidebin_L_state",
             device_class=BinarySensorDeviceClass.DOOR,
             on_value="open",
         ),
@@ -990,7 +948,6 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             key="closure_side_bin_left_locked",
             field="closureSideBinLeftLocked",
             name="Gear Tunnel Left Lock",
-            old_key=f"{DOMAIN}_body_closures_sidebin_L_locked_state",
             device_class=BinarySensorDeviceClass.LOCK,
             on_value="unlocked",
         ),
@@ -998,7 +955,6 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             key="closure_side_bin_right_closed",
             field="closureSideBinRightClosed",
             name="Gear Tunnel Right",
-            old_key=f"{DOMAIN}_body_closures_sidebin_R_state",
             device_class=BinarySensorDeviceClass.DOOR,
             on_value="open",
         ),
@@ -1006,7 +962,6 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             key="closure_side_bin_right_locked",
             field="closureSideBinRightLocked",
             name="Gear Tunnel Right Lock",
-            old_key=f"{DOMAIN}_body_closures_sidebin_R_locked_state",
             device_class=BinarySensorDeviceClass.LOCK,
             on_value="unlocked",
         ),
@@ -1014,7 +969,6 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             key="closure_tonneau_closed",
             field="closureTonneauClosed",
             name="Tonneau",
-            old_key=f"{DOMAIN}_body_closures_tonneau_state",
             device_class=BinarySensorDeviceClass.DOOR,
             on_value="open",
         ),
@@ -1022,7 +976,6 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             key="closure_tonneau_locked",
             field="closureTonneauLocked",
             name="Tonneau Lock",
-            old_key=f"{DOMAIN}_body_closures_tonneau_locked_state",
             device_class=BinarySensorDeviceClass.LOCK,
             on_value="unlocked",
         ),
@@ -1032,7 +985,6 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             key="closure_liftgate_closed",
             field="closureLiftgateClosed",
             name="Liftgate",
-            old_key=f"{DOMAIN}_body_closures_liftgate_state",
             device_class=BinarySensorDeviceClass.DOOR,
             on_value="open",
         ),
@@ -1040,7 +992,6 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             key="closure_liftgate_locked",
             field="closureLiftgateLocked",
             name="Liftgate Lock",
-            old_key=f"{DOMAIN}_body_closures_liftgate_locked_state",
             device_class=BinarySensorDeviceClass.LOCK,
             on_value="unlocked",
         ),
@@ -1049,7 +1000,6 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             field="seatThirdRowLeftHeat",
             name="Heated Seat 3rd Row Left",
             icon="mdi:car-seat-heater",
-            old_key=f"{DOMAIN}_thermal_hvac_mobile_status_3rd_row_left_seat_heat_status",
             device_class=BinarySensorDeviceClass.RUNNING,
             on_value=["Level_1", "Level_2", "Level_3"],
         ),
@@ -1058,7 +1008,6 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             field="seatThirdRowRightHeat",
             name="Heated Seat 3rd Row Right",
             icon="mdi:car-seat-heater",
-            old_key=f"{DOMAIN}_thermal_hvac_mobile_status_3rd_row_right_seat_heat_status",
             device_class=BinarySensorDeviceClass.RUNNING,
             on_value=["Level_1", "Level_2", "Level_3"],
         ),
@@ -1085,6 +1034,13 @@ VEHICLE_STATE_API_FIELDS: Final[set[str]] = {
     "otaAvailableVersionNumber",
     "otaAvailableVersionGitHash",
     "otaInstallProgress",
+}
+
+VEHICLE_STATE_SANS_TPMS_API_FIELDS: Final[set[str]] = VEHICLE_STATE_API_FIELDS ^ {
+    "tirePressureFrontLeft",
+    "tirePressureFrontRight",
+    "tirePressureRearLeft",
+    "tirePressureRearRight",
 }
 
 CHARGING_API_FIELDS: Final[set[str]] = {

@@ -4,10 +4,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from homeassistant.components.binary_sensor import (
-    DOMAIN as PLATFORM,
-    BinarySensorEntity,
-)
+from homeassistant.components.binary_sensor import BinarySensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
@@ -16,7 +13,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import ATTR_COORDINATOR, ATTR_VEHICLE, BINARY_SENSORS, DOMAIN
 from .coordinator import VehicleCoordinator
 from .data_classes import RivianBinarySensorEntityDescription
-from .entity import RivianVehicleEntity, async_update_unique_id
+from .entity import RivianVehicleEntity
 
 
 async def async_setup_entry(
@@ -28,15 +25,12 @@ async def async_setup_entry(
     coordinators: dict[str, VehicleCoordinator] = data[ATTR_COORDINATOR][ATTR_VEHICLE]
 
     entities = [
-        RivianBinarySensorEntity(coordinators[vin], entry, description, vehicle)
-        for vin, vehicle in vehicles.items()
+        RivianBinarySensorEntity(coordinators[vehicle_id], entry, description, vehicle)
+        for vehicle_id, vehicle in vehicles.items()
         for model, descriptions in BINARY_SENSORS.items()
         if model in vehicle["model"]
         for description in descriptions
     ]
-
-    # Migrate unique ids to support multiple VIN
-    async_update_unique_id(hass, PLATFORM, entities)
 
     async_add_entities(entities)
 
@@ -56,6 +50,16 @@ class RivianBinarySensorEntity(RivianVehicleEntity, BinarySensorEntity):
         """Create a Rivian binary sensor."""
         super().__init__(coordinator, config_entry, description, vehicle)
         self._aggregate = isinstance(self.entity_description.field, set)
+
+    @property
+    def available(self) -> bool:
+        """Return the availability of the entity."""
+        if self._aggregate:
+            return self._available and any(
+                self._get_value(entity_key)
+                for entity_key in self.entity_description.field
+            )
+        return super().available
 
     @property
     def is_on(self) -> bool:

@@ -1,5 +1,8 @@
 colorlog==6.7.0
-homeassistant>=2023.3
+homeassistant>=2023.10.0
+home-assistant-frontend
+numpy
 pip>=21.0
-rivian-python-client>=0.2.4
+python-dateutil
+rivian-python-client[ble]==1.1.2
 ruff==0.0.255
