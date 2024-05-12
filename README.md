@@ -73,6 +73,7 @@ To complete the pairing setup after enabling vehicle controls in Home Assistant:
 | --------------------------------------------------- | -------------- | -------------------------------------- |
 | 12V Battery Health                                  | Sensor         |                                        |
 | Altitude                                            | Sensor         |                                        |
+| Battery Capactiy                                    | Sensor         |                                        |
 | Battery State of Charge                             | Sensor         |                                        |
 | Battery State of Charge Limit                       | Sensor         |                                        |
 | Battery Thermal Runaway Propagation                 | Sensor         |                                        |
