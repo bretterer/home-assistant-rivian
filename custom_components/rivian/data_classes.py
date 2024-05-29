@@ -1,4 +1,5 @@
 """Rivian Specific Data Classes"""
+
 from __future__ import annotations
 
 from ast import Expression

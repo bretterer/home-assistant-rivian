@@ -1,4 +1,5 @@
 """Rivian (Unofficial) Tracker"""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -91,5 +92,5 @@ class RivianDeviceEntity(RivianVehicleEntity, TrackerEntity):
             if entity["timeStamp"] != self._tracker_data["timeStamp"]:
                 self._tracker_data = entity
                 self.async_write_ha_state()
-        except:
+        except Exception:
             self._tracker_data = entity

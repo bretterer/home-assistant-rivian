@@ -1,4 +1,5 @@
 """Support for Rivian number entities."""
+
 from __future__ import annotations
 
 import logging
@@ -6,9 +7,9 @@ from typing import Any, Final
 
 from rivian import VehicleCommand
 
-from homeassistant.components.number import NumberDeviceClass, NumberEntity, NumberMode
+from homeassistant.components.number import NumberDeviceClass, NumberEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import PERCENTAGE, UnitOfTemperature
+from homeassistant.const import PERCENTAGE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
