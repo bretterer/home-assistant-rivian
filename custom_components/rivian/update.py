@@ -1,4 +1,5 @@
 """Rivian (Unofficial)"""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -7,7 +8,6 @@ from typing import Any
 from rivian import VehicleCommand
 from rivian.exceptions import RivianBadRequestError
 
-from custom_components.rivian.coordinator import VehicleCoordinator
 from homeassistant.components.update import (
     UpdateDeviceClass,
     UpdateEntity,
@@ -134,6 +134,6 @@ class RivianUpdateEntity(RivianVehicleEntity, UpdateEntity):
                 url = details["url"]
             else:
                 url = data["currentOTAUpdateDetails"]["url"]
-        except:  # pylint: disable=bare-except
+        except Exception:
             url = f"https://rivian.software/{self.latest_version.replace('.','-')}/"
         return f"[Read release announcement]({url})"
