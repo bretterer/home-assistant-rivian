@@ -24,21 +24,15 @@ async def async_setup_entry(
     vehicles: dict[str, Any] = data[ATTR_VEHICLE]
     client = data[ATTR_COORDINATOR][ATTR_USER].api
 
-    images_v1 = VehicleImageCoordinator(hass=hass, client=client, version="1")
-    await images_v1.async_config_entry_first_refresh()
-    images_v2 = VehicleImageCoordinator(hass=hass, client=client, version="2")
-    await images_v2.async_config_entry_first_refresh()
+    coordinator = VehicleImageCoordinator(hass=hass, client=client, version="2")
+    await coordinator.async_config_entry_first_refresh()
 
     entities = [
         RivianVehicleImageEntity(
-            coordinator=coordinator,
-            vin=vehicles[image["vehicleId"]]["vin"],
-            data=image,
+            coordinator=coordinator, vin=vehicles[image["vehicleId"]]["vin"], data=image
         )
-        for coordinator in (images_v1, images_v2)
         for image in coordinator.data
         if image["size"] == "large"
-        and (image["placement"] == "overhead" or coordinator.version == "2")
     ]
     async_add_entities(entities)
 
