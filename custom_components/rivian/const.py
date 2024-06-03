@@ -514,24 +514,28 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             field="tirePressureStatusFrontLeft",
             name="Tire Pressure Front Left Status",
             icon="mdi:tire",
+            entity_category=EntityCategory.DIAGNOSTIC,
         ),
         RivianSensorEntityDescription(
             key="tire_pressure_status_front_right",
             field="tirePressureStatusFrontRight",
             name="Tire Pressure Front Right Status",
             icon="mdi:tire",
+            entity_category=EntityCategory.DIAGNOSTIC,
         ),
         RivianSensorEntityDescription(
             key="tire_pressure_status_rear_left",
             field="tirePressureStatusRearLeft",
             name="Tire Pressure Rear Left Status",
             icon="mdi:tire",
+            entity_category=EntityCategory.DIAGNOSTIC,
         ),
         RivianSensorEntityDescription(
             key="tire_pressure_status_rear_right",
             field="tirePressureStatusRearRight",
             name="Tire Pressure Rear Right Status",
             icon="mdi:tire",
+            entity_category=EntityCategory.DIAGNOSTIC,
         ),
         RivianSensorEntityDescription(
             key="vehicle_mileage",
@@ -851,6 +855,7 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             field="tirePressureStatusValidFrontLeft",
             name="Tire Pressure Front Left Validity",
             device_class=BinarySensorDeviceClass.PROBLEM,
+            entity_category=EntityCategory.DIAGNOSTIC,
             on_value="invalid",
         ),
         RivianBinarySensorEntityDescription(
@@ -858,6 +863,7 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             field="tirePressureStatusValidFrontRight",
             name="Tire Pressure Front Right Validity",
             device_class=BinarySensorDeviceClass.PROBLEM,
+            entity_category=EntityCategory.DIAGNOSTIC,
             on_value="invalid",
         ),
         RivianBinarySensorEntityDescription(
@@ -865,6 +871,7 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             field="tirePressureStatusValidRearLeft",
             name="Tire Pressure Rear Left Validity",
             device_class=BinarySensorDeviceClass.PROBLEM,
+            entity_category=EntityCategory.DIAGNOSTIC,
             on_value="invalid",
         ),
         RivianBinarySensorEntityDescription(
@@ -872,6 +879,7 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             field="tirePressureStatusValidRearRight",
             name="Tire Pressure Rear Right Validity",
             device_class=BinarySensorDeviceClass.PROBLEM,
+            entity_category=EntityCategory.DIAGNOSTIC,
             on_value="invalid",
         ),
         RivianBinarySensorEntityDescription(
