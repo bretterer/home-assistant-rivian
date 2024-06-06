@@ -27,6 +27,9 @@ from homeassistant.helpers.selector import (
     DeviceSelectorConfig,
     EntitySelector,
     EntitySelectorConfig,
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
 )
 
 from .const import (
@@ -35,7 +38,11 @@ from .const import (
     CONF_REFRESH_TOKEN,
     CONF_USER_SESSION_TOKEN,
     CONF_VEHICLE_CONTROL,
+    CONF_VEHICLE_IMAGE_STYLE,
     DOMAIN,
+    IMAGE_STYLE_CEL,
+    IMAGE_STYLE_NONE,
+    IMAGE_STYLE_PHOTO,
 )
 from .coordinator import UserCoordinator
 from .helpers import get_rivian_api_from_entry
@@ -48,6 +55,13 @@ R1S = DeviceFilterSelectorConfig(integration=DOMAIN, manufacturer="Rivian", mode
 R1T = DeviceFilterSelectorConfig(integration=DOMAIN, manufacturer="Rivian", model="R1T")
 OPTIONS_SCHEMA = vol.Schema(
     {
+        vol.Optional(CONF_VEHICLE_IMAGE_STYLE, default=IMAGE_STYLE_CEL): SelectSelector(
+            SelectSelectorConfig(
+                options=[IMAGE_STYLE_CEL, IMAGE_STYLE_PHOTO, IMAGE_STYLE_NONE],
+                mode=SelectSelectorMode.DROPDOWN,
+                translation_key="image_style",
+            )
+        ),
         vol.Optional(CONF_VEHICLE_CONTROL): DeviceSelector(
             DeviceSelectorConfig(multiple=True, filter=[R1S, R1T])
         ),
