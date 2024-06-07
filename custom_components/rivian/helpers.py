@@ -1,4 +1,5 @@
 """Rivian helpers."""
+
 from __future__ import annotations
 
 from rivian import Rivian

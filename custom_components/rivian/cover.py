@@ -1,4 +1,5 @@
 """Support for Rivian cover entities."""
+
 from __future__ import annotations
 
 import logging
