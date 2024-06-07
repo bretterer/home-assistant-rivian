@@ -25,6 +25,7 @@
     "step": {
       "init": {
         "data": {
+          "vehicle_image_style": "Vehicle image style",
           "vehicle_control": "Enable vehicle control (experimental and at your own risk)",
           "zone": "Limit vehicle control to the following zones"
         }
@@ -33,6 +34,15 @@
     "error": {
       "2fa_missing": "Two-factor authentication is required to enable vehicle control",
       "phone_limit": "Insufficient phone slots available to enable vehicle control"
+    }
+  },
+  "selector": {
+    "image_style": {
+      "options": {
+        "cel": "Cel shaded",
+        "photo": "Photorealistic",
+        "none": "None"
+      }
     }
   },
   "entity": {

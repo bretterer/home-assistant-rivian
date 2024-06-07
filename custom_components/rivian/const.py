@@ -35,11 +35,16 @@ ATTR_VEHICLE = "vehicle"
 ATTR_WALLBOX = "wallbox"
 
 # Config properties
-CONF_OTP = "otp"
 CONF_ACCESS_TOKEN = "access_token"
+CONF_OTP = "otp"
 CONF_REFRESH_TOKEN = "refresh_token"
 CONF_USER_SESSION_TOKEN = "user_session_token"
 CONF_VEHICLE_CONTROL = "vehicle_control"
+CONF_VEHICLE_IMAGE_STYLE = "vehicle_image_style"
+
+IMAGE_STYLE_CEL = "cel"
+IMAGE_STYLE_PHOTO = "photo"
+IMAGE_STYLE_NONE = "none"
 
 LOCK_STATE_ENTITIES = {
     "closureFrunkLocked",

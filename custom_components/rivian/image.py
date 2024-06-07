@@ -11,7 +11,15 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import ATTR_COORDINATOR, ATTR_USER, ATTR_VEHICLE, DOMAIN
+from .const import (
+    ATTR_COORDINATOR,
+    ATTR_USER,
+    ATTR_VEHICLE,
+    CONF_VEHICLE_IMAGE_STYLE,
+    DOMAIN,
+    IMAGE_STYLE_CEL,
+    IMAGE_STYLE_NONE,
+)
 from .coordinator import VehicleImageCoordinator
 from .entity import RivianEntity
 
@@ -23,22 +31,21 @@ async def async_setup_entry(
     data: dict[str, Any] = hass.data[DOMAIN][entry.entry_id]
     vehicles: dict[str, Any] = data[ATTR_VEHICLE]
     client = data[ATTR_COORDINATOR][ATTR_USER].api
+    vehicle_image_style = entry.options.get(CONF_VEHICLE_IMAGE_STYLE, IMAGE_STYLE_CEL)
 
-    images_v1 = VehicleImageCoordinator(hass=hass, client=client, version="1")
-    await images_v1.async_config_entry_first_refresh()
-    images_v2 = VehicleImageCoordinator(hass=hass, client=client, version="2")
-    await images_v2.async_config_entry_first_refresh()
+    if vehicle_image_style == IMAGE_STYLE_NONE:
+        return
+
+    version = "3" if vehicle_image_style == IMAGE_STYLE_CEL else "2"
+    coordinator = VehicleImageCoordinator(hass=hass, client=client, version=version)
+    await coordinator.async_config_entry_first_refresh()
 
     entities = [
         RivianVehicleImageEntity(
-            coordinator=coordinator,
-            vin=vehicles[image["vehicleId"]]["vin"],
-            data=image,
+            coordinator=coordinator, vin=vehicles[image["vehicleId"]]["vin"], data=image
         )
-        for coordinator in (images_v1, images_v2)
         for image in coordinator.data
         if image["size"] == "large"
-        and (image["placement"] == "overhead" or coordinator.version == "2")
     ]
     async_add_entities(entities)
 
