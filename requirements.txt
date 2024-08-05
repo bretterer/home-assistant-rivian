@@ -4,5 +4,5 @@ home-assistant-frontend
 numpy
 pip>=21.0
 python-dateutil
-rivian-python-client[ble]==1.1.3
+rivian-python-client[ble]==1.2.1
 ruff==0.0.255
