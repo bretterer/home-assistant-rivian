@@ -410,6 +410,7 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
                 "Downloading",
                 "Preparing",
                 "Ready To Install",
+                "Scheduled To Install",
                 "Install Countdown",
                 "Awaiting Install",
                 "Installing",
