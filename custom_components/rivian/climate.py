@@ -1,4 +1,5 @@
 """Support for Rivian climate entities."""
+
 from __future__ import annotations
 
 import logging

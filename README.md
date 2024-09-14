@@ -42,8 +42,8 @@ This integration will not share user or vehicle data outside Home Assistant, a s
 
 To connect your newly installed integration to pull available sensor data (see the below example) for your Rivian vehicle, you should follow the following configuration recommendations. Not doing so could put your main Rivian account at risk of being locked and available.
 
-* One Time Password (**recommended**) - It is best security practice always to enable One Time Password / Multi-Factor Authentication. This way, your credentials (username + password) can not be used without your explicit consent through the personal device configured on your Rivian account.
-* No Account Reuse* (**recommended**) - Another best security practice is not to reuse accounts or credentials across different integrations (e.g., sharing credentials between Home Assistant and your everyday account). We highly recommend the owner *invite a new driver*, for example, `user+<purpose>@domain.com`, and use only this profile for configuration within Home Assistant. **Note:** Sensors will not be displayed for this new driver until the driver is signed in to a Rivian phone app and linked to the vehicle like an actual new driver. You may temporarily sign out of your Rivian phone app to set up this driver profile: Profile icon (bottom nav bar) > "Manage account" > Sign out (top right corner).
+- One Time Password (**recommended**) - It is best security practice always to enable One Time Password / Multi-Factor Authentication. This way, your credentials (username + password) can not be used without your explicit consent through the personal device configured on your Rivian account.
+- No Account Reuse* (**recommended**) - Another best security practice is not to reuse accounts or credentials across different integrations (e.g., sharing credentials between Home Assistant and your everyday account). We highly recommend the owner *invite a new driver\*, for example, `user+<purpose>@domain.com`, and use only this profile for configuration within Home Assistant. **Note:** Sensors will not be displayed for this new driver until the driver is signed in to a Rivian phone app and linked to the vehicle like an actual new driver. You may temporarily sign out of your Rivian phone app to set up this driver profile: Profile icon (bottom nav bar) > "Manage account" > Sign out (top right corner).
 
 The configuration flow is as follows:
 
@@ -58,14 +58,22 @@ The configuration flow is as follows:
 
 In addition to viewing vehicle data, it is also possible to issue certain vehicle commands remotely via Home Assistant as you would in the Rivian mobile app.
 
-To enable this feature, you need to have two-factor authentication (2FA) enabled on your Rivian account and have an available slot for a phone key (currently limited to 4 per vehicle as of vehicle software 2023.26.00) and then configure the integration and select the vehicle(s) you want to enroll. Additionally, as of vehicle software 2023.34.00, your Home Assistant instance also needs Bluetooth (or a Bluetooth proxy device) to complete the in-vehicle pairing setup and will need to be within reach of the vehicle's bluetooth radio.
+To enable this feature, you need to have:
 
-To complete the pairing setup after enabling vehicle controls in Home Assistant:
+- Home Assistant instance with a Bluetooth adapter (or [ESP32 Bluetooth proxy](https://esphome.io/projects/?type=bluetooth)) with a minimum Bluetooth version of 4.2
+  - The Bluetooth adapter/proxy needs to be within reach of your vehicle's Bluetooth radio to complete the one-time, in-vehicle pairing process
+  - After pairing, Bluetooth is no longer required as commands are sent remotely via the Rivian cloud
+- Two-factor authentication (2FA) enabled on your Rivian account
+- An available slot for a phone key (currently limited to 4 per vehicle as of vehicle software 2023.26.00)
+
+To complete the pairing setup, configure the integration and select the vehicle(s) for which you want to enable vehicle controls in Home Assistant and then:
 
 1. From within your vehicle, navigate to "Drivers and Keys" under settings
 2. Select "Set Up" for the relevant phone key (this should be the name of your Home Assistant instance's home location, typically "Home")
-3. Click on the "Pair" button entity for the associated vehicle in Home Assistant  
-   Home Assistant will then attempt to connect to your vehicle and complete the pairing process. On Darwin (MacOS) based systems, a pop-up will appear which you will have to manually click to allow pairing. On Linux or Windows systems, this should happen automatically.
+3. Click on the "Pair" button entity for the associated vehicle in Home Assistant
+   - Home Assistant will then attempt to connect to your vehicle and complete the pairing process. On Darwin (MacOS) based systems, a pop-up will appear which you will have to manually click to allow pairing. On Linux or Windows systems, this should happen automatically.
+
+Note: If you are having issues with pairing your vehicle, we recommend investing in an ESP32 with Bluetooth proxy installed as it offers flexibility in placement and has been proven to work where other adapters have not.
 
 ## Available Sensors
 

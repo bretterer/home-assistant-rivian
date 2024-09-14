@@ -1,7 +1,8 @@
 """Rivian entities."""
+
 from __future__ import annotations
 
-from collections.abc import Coroutine, Iterable
+from collections.abc import Iterable
 import logging
 from typing import Any, TypeVar
 
@@ -13,7 +14,7 @@ from homeassistant.helpers.entity import DeviceInfo, EntityDescription
 import homeassistant.helpers.entity_registry as er
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import ATTR_COORDINATOR, ATTR_USER, ATTR_VEHICLE, DOMAIN
+from .const import ATTR_COORDINATOR, ATTR_USER, DOMAIN
 from .coordinator import (
     ChargingCoordinator,
     RivianDataUpdateCoordinator,

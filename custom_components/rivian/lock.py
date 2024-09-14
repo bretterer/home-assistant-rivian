@@ -1,4 +1,5 @@
 """Support for Rivian lock entities."""
+
 from __future__ import annotations
 
 import logging

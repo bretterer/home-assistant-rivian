@@ -1,4 +1,5 @@
 """Support for Rivian select entities."""
+
 from __future__ import annotations
 
 import logging

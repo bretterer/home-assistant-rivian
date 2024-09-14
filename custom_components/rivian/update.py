@@ -1,4 +1,5 @@
 """Rivian (Unofficial)"""
+
 from __future__ import annotations
 
 from typing import Any
@@ -6,7 +7,6 @@ from typing import Any
 from rivian import VehicleCommand
 from rivian.exceptions import RivianBadRequestError
 
-from custom_components.rivian.coordinator import VehicleCoordinator
 from homeassistant.components.update import (
     UpdateDeviceClass,
     UpdateEntity,

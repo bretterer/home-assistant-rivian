@@ -1,4 +1,5 @@
 """Support for Rivian button entities."""
+
 from __future__ import annotations
 
 import asyncio

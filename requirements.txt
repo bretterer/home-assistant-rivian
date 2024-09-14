@@ -1,8 +1,12 @@
-colorlog==6.7.0
-homeassistant>=2023.10.0
-home-assistant-frontend
+# Home Assistant
+homeassistant>=2024.5.0
 numpy
-pip>=21.0
 python-dateutil
+
+# Integration
 rivian-python-client[ble]==1.2.1
-ruff==0.0.255
+
+# Development
+colorlog
+pip>=21.0
+ruff>=0.3.0
