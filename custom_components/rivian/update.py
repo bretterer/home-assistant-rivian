@@ -73,7 +73,8 @@ class RivianUpdateEntity(RivianVehicleEntity, UpdateEntity):
         if (latest_version := self._get_value("otaAvailableVersion")) == "0.0.0":
             latest_version = current_version
         current_hash = self._get_value("otaCurrentVersionGitHash")
-        latest_hash = self._get_value("otaAvailableVersionGitHash")
+        if (latest_hash := self._get_value("otaAvailableVersionGitHash")) == "":
+            latest_hash = current_hash
         show_hash = (current_version, current_hash) != (latest_version, latest_hash)
 
         self._attr_installed_version = current_version + (
