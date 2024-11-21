@@ -58,6 +58,8 @@ The configuration flow is as follows:
 
 In addition to viewing vehicle data, it is also possible to issue certain vehicle commands remotely via Home Assistant as you would in the Rivian mobile app.
 
+**Note:** Gen2 (2025) models are not curently supported for Remote Vehicle Control due to changes in their bluetooth hardware that have not been implemented yet. They are not able to particpate in the secure pairing process required.
+
 To enable this feature, you need to have:
 
 - Home Assistant instance with a Bluetooth adapter (or [ESP32 Bluetooth proxy](https://esphome.io/projects/?type=bluetooth)) with a minimum Bluetooth version of 4.2
