@@ -440,9 +440,10 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
                 "Ready",
                 "Sleep",
                 "Standby",
+                "Vehicle Reset",
             ],
             old_key="power_tate",  # to be removed 2024-06
-            value_lambda=lambda v: v.title(),
+            value_lambda=lambda v: v.replace("_", " ").title(),
         ),
         RivianSensorEntityDescription(
             key="range_threshold",
