@@ -1,7 +1,7 @@
 // See https://aka.ms/vscode-remote/devcontainer.json for format details.
 {
   "name": "Home Assistant integration development",
-  "image": "mcr.microsoft.com/devcontainers/python:1-3.12-bullseye",
+  "image": "mcr.microsoft.com/devcontainers/python:1-3.13-bullseye",
   "postCreateCommand": ".devcontainer/setup",
   "postAttachCommand": ".devcontainer/setup",
   "forwardPorts": [8123],
@@ -27,7 +27,10 @@
         "editor.codeActionsOnSave": {
           "source.organizeImports": "explicit"
         },
-        "files.trimTrailingWhitespace": true
+        "files.trimTrailingWhitespace": true,
+        "[python]": {
+          "editor.defaultFormatter": "charliermarsh.ruff"
+        }
       }
     }
   },
