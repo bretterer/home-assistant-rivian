@@ -8,7 +8,6 @@ import logging
 from typing import Any, Final
 
 from homeassistant.components.sensor import (
-    DOMAIN as PLATFORM,
     SensorDeviceClass,
     SensorEntity,
     SensorStateClass,
@@ -41,7 +40,6 @@ from .entity import (
     RivianEntity,
     RivianVehicleEntity,
     RivianWallboxEntity,
-    async_update_unique_id,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -68,9 +66,6 @@ async def async_setup_entry(
         if model in vehicle["model"]
         for description in descriptions
     ]
-
-    # Migrate unique ids
-    async_update_unique_id(hass, PLATFORM, entities)
 
     # Add charging entities
     entities.extend(

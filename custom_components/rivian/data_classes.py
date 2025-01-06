@@ -88,7 +88,6 @@ class RivianSensorEntityDescription(SensorEntityDescription):
     field: str
     value_fn: Callable[[VehicleCoordinator], Any] | None = None
     value_lambda: Expression | None = None
-    old_key: str | None = None  # to be removed 2024-06
 
 
 @dataclass(kw_only=True)
