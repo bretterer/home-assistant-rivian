@@ -59,6 +59,7 @@ class RivianVehicleEntity(RivianEntity[VehicleCoordinator]):
             name=name if name else model,
             manufacturer="Rivian",
             model=model,
+            serial_number=vin,
             sw_version=self._get_value("otaCurrentVersion"),
         )
 
@@ -155,6 +156,7 @@ class RivianWallboxEntity(RivianEntity[WallboxCoordinator]):
             name=wallbox["name"],
             manufacturer="Rivian",
             model=wallbox["model"],
+            serial_number=wallbox["serialNumber"],
             sw_version=wallbox["softwareVersion"],
         )
         self._attr_unique_id = f"{wallbox['serialNumber']}-{description.key}"
