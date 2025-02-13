@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 
+sudo apt-get update && sudo apt-get install libturbojpeg0 -y
+
 set -e
 
 cd "$(dirname "$0")/.."
 
 python3 -m pip install --requirement requirements.txt
+
+pre-commit install
 
 mkdir -p config

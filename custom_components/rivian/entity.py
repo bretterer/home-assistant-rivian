@@ -175,17 +175,3 @@ class RivianWallboxEntity(RivianEntity[WallboxCoordinator]):
         if self.wallbox != wallbox:
             self.wallbox = wallbox
             self.async_write_ha_state()
-
-
-# to be removed 2024-06
-def async_update_unique_id(
-    hass: HomeAssistant, domain: str, entities: Iterable[RivianVehicleEntity]
-) -> None:
-    """Update unique ID to be based on VIN and entity description key instead of name."""
-    ent_reg = er.async_get(hass)
-    for entity in entities:
-        if not (old_key := getattr(entity.entity_description, "old_key")):
-            continue
-        old_unique_id = f"{entity._vin}-{old_key}"  # pylint: disable=protected-access
-        if entity_id := ent_reg.async_get_entity_id(domain, DOMAIN, old_unique_id):
-            ent_reg.async_update_entity(entity_id, new_unique_id=entity.unique_id)
