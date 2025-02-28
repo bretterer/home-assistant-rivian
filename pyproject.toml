@@ -4,3 +4,10 @@ known-first-party = ["homeassistant", "tests"]
 forced-separate = ["tests"]
 combine-as-imports = true
 split-on-trailing-comma = false
+
+[tool.pylint."MESSAGES CONTROL"]
+# abstract-method - with intro of async there are always methods missing
+disable = [
+    "abstract-method",
+    "unexpected-keyword-arg",
+]
