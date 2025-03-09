@@ -30,7 +30,6 @@ from .const import (
     DOMAIN,
     INVALID_SENSOR_STATES,
     VEHICLE_STATE_API_FIELDS,
-    VEHICLE_STATE_SANS_TPMS_API_FIELDS,
 )
 from .helpers import redact
 
@@ -56,6 +55,7 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator[T], Generic[T], ABC):
                 if self._update_interval_seconds
                 else None
             ),
+            always_update=False,
         )
         self.api = client
 
@@ -252,19 +252,14 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
 
             try:
                 await asyncio.wait_for(self._initial.wait(), 1)
-            except asyncio.TimeoutError:
-                pass  # we'll fetch it from the API
-            else:
-                return self.data
+            except asyncio.TimeoutError as err:
+                raise UpdateFailed from err
 
-        data = await super()._async_update_data()
-        return self._build_vehicle_info_dict(data)
+        return self.data
 
     async def _fetch_data(self) -> ClientResponse:
         """Fetch the data."""
-        return await self.api.get_vehicle_state(
-            vin=self.vehicle_id, properties=VEHICLE_STATE_SANS_TPMS_API_FIELDS
-        )
+        raise NotImplementedError("Polling VehicleState no longer allowed")
 
     async def async_shutdown(self) -> None:
         await self._unsubscribe(True)
@@ -278,7 +273,6 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             self._error_count += 1
             if not self._initial.is_set() or self._error_count > 5:
                 self.hass.async_add_job(self._unsubscribe, True)
-                self._set_update_interval(20)
             return
         vehicle_info = self._build_vehicle_info_dict(pdata.get(self.key, {}))
         self.async_set_updated_data(vehicle_info)
