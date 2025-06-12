@@ -18,6 +18,7 @@ from rivian.exceptions import (
     RivianUnauthenticated,
 )
 
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
@@ -44,11 +45,14 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator[T], Generic[T], ABC):
     _update_interval_seconds = 30
     _error_count = 0
 
-    def __init__(self, hass: HomeAssistant, client: Rivian) -> None:
+    def __init__(
+        self, hass: HomeAssistant, config_entry: ConfigEntry, client: Rivian
+    ) -> None:
         """Initialize the coordinator."""
         super().__init__(
             hass=hass,
             logger=_LOGGER,
+            config_entry=config_entry,
             name=DOMAIN,
             update_interval=(
                 timedelta(seconds=self._update_interval_seconds)
@@ -67,7 +71,8 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator[T], Generic[T], ABC):
             refresh = self.update_interval and self._update_interval_seconds > seconds
             self.update_interval = timedelta(seconds=seconds)
             if refresh and self.data:
-                self.hass.async_add_job(self.async_request_refresh)
+                task = self.async_request_refresh()
+                self.config_entry.async_create_task(self.hass, task)
             else:
                 self._schedule_refresh()
             _LOGGER.info("Polling set to %s seconds", seconds)
@@ -125,9 +130,15 @@ class ChargingCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
     _plugged_interval = 30  # 30 seconds
     _update_interval_seconds = _unplugged_interval  # 15 minutes
 
-    def __init__(self, hass: HomeAssistant, client: Rivian, vehicle_id: str) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        config_entry: ConfigEntry,
+        client: Rivian,
+        vehicle_id: str,
+    ) -> None:
         """Initialize the coordinator."""
-        super().__init__(hass=hass, client=client)
+        super().__init__(hass=hass, config_entry=config_entry, client=client)
         self.vehicle_id = vehicle_id
 
     async def _fetch_data(self) -> ClientResponse:
@@ -149,9 +160,15 @@ class DriverKeyCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
     key = "getVehicle"
     _update_interval_seconds = 15 * 60  # 15 minutes
 
-    def __init__(self, hass: HomeAssistant, client: Rivian, vehicle_id: str) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        config_entry: ConfigEntry,
+        client: Rivian,
+        vehicle_id: str,
+    ) -> None:
         """Initialize the coordinator."""
-        super().__init__(hass=hass, client=client)
+        super().__init__(hass=hass, config_entry=config_entry, client=client)
         self.vehicle_id = vehicle_id
 
     async def _fetch_data(self) -> ClientResponse:
@@ -180,9 +197,13 @@ class UserCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
     key = "currentUser"
 
     def __init__(
-        self, hass: HomeAssistant, client: Rivian, include_phones: bool = False
+        self,
+        hass: HomeAssistant,
+        config_entry: ConfigEntry,
+        client: Rivian,
+        include_phones: bool = False,
     ) -> None:
-        super().__init__(hass, client)
+        super().__init__(hass=hass, config_entry=config_entry, client=client)
         self.include_phones = include_phones
 
     async def _fetch_data(self) -> ClientResponse:
@@ -230,12 +251,22 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
     key = "vehicleState"
     _update_interval_seconds = 15 * 60  # 15 minutes
 
-    def __init__(self, hass: HomeAssistant, client: Rivian, vehicle_id: str) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        config_entry: ConfigEntry,
+        client: Rivian,
+        vehicle_id: str,
+    ) -> None:
         """Initialize the coordinator."""
-        super().__init__(hass=hass, client=client)
+        super().__init__(hass=hass, config_entry=config_entry, client=client)
         self.vehicle_id = vehicle_id
-        self.charging_coordinator = ChargingCoordinator(hass, client, vehicle_id)
-        self.drivers_coordinator = DriverKeyCoordinator(hass, client, vehicle_id)
+        self.charging_coordinator = ChargingCoordinator(
+            hass=hass, config_entry=config_entry, client=client, vehicle_id=vehicle_id
+        )
+        self.drivers_coordinator = DriverKeyCoordinator(
+            hass=hass, config_entry=config_entry, client=client, vehicle_id=vehicle_id
+        )
         self._initial = asyncio.Event()
         self._unsub_handler: Coroutine[None, None, None] | None = None
         self._awake = asyncio.Event()
@@ -272,7 +303,8 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.error("Received an unknown subscription update: %s", data)
             self._error_count += 1
             if not self._initial.is_set() or self._error_count > 5:
-                self.hass.async_add_job(self._unsubscribe, True)
+                task = self._unsubscribe()
+                self.config_entry.async_create_task(self.hass, task, eager_start=True)
             return
         vehicle_info = self._build_vehicle_info_dict(pdata.get(self.key, {}))
         self.async_set_updated_data(vehicle_info)
@@ -366,9 +398,15 @@ class VehicleImageCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
     _update_interval_seconds = 0  # disabled
     _last_updated: datetime | None = None
 
-    def __init__(self, hass: HomeAssistant, client: Rivian, version: str) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        config_entry: ConfigEntry,
+        client: Rivian,
+        version: str,
+    ) -> None:
         """Initialize the coordinator."""
-        super().__init__(hass=hass, client=client)
+        super().__init__(hass=hass, config_entry=config_entry, client=client)
         self.version = version
 
     async def _fetch_data(self) -> ClientResponse:

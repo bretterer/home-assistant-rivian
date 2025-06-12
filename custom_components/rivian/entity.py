@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
 import logging
 from typing import Any, TypeVar
 
 from homeassistant.components.zone import in_zone
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_ZONE
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import callback
 from homeassistant.helpers.entity import DeviceInfo, EntityDescription
-import homeassistant.helpers.entity_registry as er
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import ATTR_COORDINATOR, ATTR_USER, DOMAIN

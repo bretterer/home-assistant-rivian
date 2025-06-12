@@ -58,7 +58,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     hass.data.setdefault(DOMAIN, {})
 
-    client = get_rivian_api_from_entry(entry)
+    client = get_rivian_api_from_entry(hass, entry)
     try:
         await client.create_csrf_token()
     except Exception as err:  # pylint: disable=broad-except
@@ -66,7 +66,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await client.close()
         raise ConfigEntryNotReady("Error communicating with API") from err
 
-    coordinator = UserCoordinator(hass=hass, client=client, include_phones=True)
+    coordinator = UserCoordinator(
+        hass=hass, config_entry=entry, client=client, include_phones=True
+    )
     await coordinator.async_config_entry_first_refresh()
 
     vehicle_control = entry.options.get(CONF_VEHICLE_CONTROL)
@@ -94,7 +96,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     vehicle_coordinators: dict[str, VehicleCoordinator] = {}
     for vehicle_id in vehicles:
-        coor = VehicleCoordinator(hass=hass, client=client, vehicle_id=vehicle_id)
+        coor = VehicleCoordinator(
+            hass=hass, config_entry=entry, client=client, vehicle_id=vehicle_id
+        )
         await coor.async_config_entry_first_refresh()
         if not coor.data:
             raise ConfigEntryNotReady("Issue loading vehicle data")
@@ -102,7 +106,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await coor.drivers_coordinator.async_config_entry_first_refresh()
         vehicle_coordinators[vehicle_id] = coor
 
-    wallbox_coordinator = WallboxCoordinator(hass=hass, client=client)
+    wallbox_coordinator = WallboxCoordinator(
+        hass=hass, config_entry=entry, client=client
+    )
     await wallbox_coordinator.async_config_entry_first_refresh()
 
     hass.data[DOMAIN][entry.entry_id] = {
@@ -138,8 +144,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Handle removal of an entry."""
     if public_key := entry.options.get("public_key"):
-        client = client = get_rivian_api_from_entry(entry)
-        coordinator = UserCoordinator(hass=hass, client=client, include_phones=True)
+        client = client = get_rivian_api_from_entry(hass, entry)
+        coordinator = UserCoordinator(
+            hass=hass, config_entry=entry, client=client, include_phones=True
+        )
         await coordinator.async_config_entry_first_refresh()
 
         if enrolled_data := coordinator.get_enrolled_phone_data(public_key=public_key):
