@@ -38,7 +38,9 @@ async def async_setup_entry(
         return
 
     version = "3" if vehicle_image_style == IMAGE_STYLE_CEL else "2"
-    coordinator = VehicleImageCoordinator(hass=hass, client=client, version=version)
+    coordinator = VehicleImageCoordinator(
+        hass=hass, config_entry=entry, client=client, version=version
+    )
     await coordinator.async_config_entry_first_refresh()
 
     entities = [

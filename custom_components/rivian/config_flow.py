@@ -15,6 +15,7 @@ from homeassistant.config_entries import ConfigEntry, ConfigFlow
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME, CONF_ZONE
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 import homeassistant.helpers.device_registry as dr
 from homeassistant.helpers.schema_config_entry_flow import (
     SchemaCommonFlowHandler,
@@ -79,8 +80,10 @@ async def validate_vehicle_control(
     """Validate vehicle control."""
     hass = handler.parent_handler.hass
     entry = handler.parent_handler.config_entry
-    api = get_rivian_api_from_entry(entry)
-    user = UserCoordinator(hass=hass, client=api, include_phones=True)
+    api = get_rivian_api_from_entry(hass, entry)
+    user = UserCoordinator(
+        hass=hass, config_entry=entry, client=api, include_phones=True
+    )
     await user.async_config_entry_first_refresh()
     user_id = user.data["id"]
     vehicles = user.get_vehicles()
@@ -193,7 +196,7 @@ class RivianFlowHandler(ConfigFlow, domain=DOMAIN):
 
     def __init__(self):
         """Initalize"""
-        self._rivian = Rivian()
+        self._rivian: Rivian | None = None
         self._data = {}
         self._errors = {}
 
@@ -201,6 +204,13 @@ class RivianFlowHandler(ConfigFlow, domain=DOMAIN):
         self._refresh_token = None
         self._session_token = None
         self._user_session_token = None
+
+    @property
+    def rivian(self) -> Rivian:
+        """Return the Rivian API client."""
+        if not self._rivian:
+            self._rivian = Rivian(session=async_get_clientsession(self.hass))
+        return self._rivian
 
     @staticmethod
     @callback
@@ -221,7 +231,7 @@ class RivianFlowHandler(ConfigFlow, domain=DOMAIN):
         if (otp := user_input.get(CONF_OTP)) is not None:
             username = self._data[CONF_USERNAME]
             try:
-                await self._rivian.validate_otp(username, otp)
+                await self.rivian.validate_otp(username, otp)
             except RivianUnauthenticated as err:
                 show_otp = False
                 try:
@@ -237,10 +247,10 @@ class RivianFlowHandler(ConfigFlow, domain=DOMAIN):
                     return await self._show_otp_field()
                 return await self._show_credential_fields(user_input)
 
-            if self._rivian._access_token:
-                self._access_token = self._rivian._access_token
-                self._refresh_token = self._rivian._refresh_token
-                self._user_session_token = self._rivian._user_session_token
+            if self.rivian._access_token:
+                self._access_token = self.rivian._access_token
+                self._refresh_token = self.rivian._refresh_token
+                self._user_session_token = self.rivian._user_session_token
                 return await self._async_create_entry()
 
             self._errors["base"] = "communication"
@@ -248,20 +258,20 @@ class RivianFlowHandler(ConfigFlow, domain=DOMAIN):
 
         username = user_input[CONF_USERNAME]
         password = user_input[CONF_PASSWORD]
-        await self._rivian.create_csrf_token()
+        await self.rivian.create_csrf_token()
         try:
-            await self._rivian.authenticate(username, password)
+            await self.rivian.authenticate(username, password)
         except RivianUnauthenticated as err:
             _LOGGER.error(err)
             self._errors["base"] = "invalid_auth"
             return await self._show_credential_fields(user_input)
 
-        if self._rivian._otp_needed:
+        if self.rivian._otp_needed:
             return await self._show_otp_field()
 
-        self._access_token = self._rivian._access_token
-        self._refresh_token = self._rivian._refresh_token
-        self._user_session_token = self._rivian._user_session_token
+        self._access_token = self.rivian._access_token
+        self._refresh_token = self.rivian._refresh_token
+        self._user_session_token = self.rivian._user_session_token
         return await self._async_create_entry()
 
     async def async_step_reauth(
@@ -273,7 +283,7 @@ class RivianFlowHandler(ConfigFlow, domain=DOMAIN):
 
     async def _async_create_entry(self) -> FlowResult:
         """Create the config entry."""
-        await self._rivian.close()
+        await self.rivian.close()
         config_data = {
             CONF_USERNAME: self._data[CONF_USERNAME],
             CONF_ACCESS_TOKEN: self._access_token,
