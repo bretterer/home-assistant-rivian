@@ -642,6 +642,53 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             icon="mdi:bluetooth",
             entity_category=EntityCategory.DIAGNOSTIC,
         ),
+        RivianSensorEntityDescription(
+            key="active_driver_name",
+            field="activeDriverName",
+            name="Active Driver Profile Name",
+            icon="mdi:card-account-details",
+            entity_category=EntityCategory.DIAGNOSTIC,
+        ),
+        RivianSensorEntityDescription(
+            key="geographic_location",
+            field="geoLocation",
+            name="Geographic Location",
+            icon="mdi:map-marker-radius",
+            entity_category=EntityCategory.DIAGNOSTIC,
+        ),
+        RivianSensorEntityDescription(
+            key="charging_disabled",
+            field="chargingDisabledAll",
+            name="Charging Disabled All",
+            icon="mdi:power-plug-off",
+            entity_category=EntityCategory.DIAGNOSTIC,
+        ),
+        RivianSensorEntityDescription(
+            key="rear_hitch_status",
+            field="reatHitchStatus",
+            name="Rear Hitch Status",
+            icon="mdi:trailer",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
+        ),
+        RivianSensorEntityDescription(
+            key="charge_port_door_next_action",
+            field="closureChargePortDoorNextAction",
+            name="Charge Port Door Next Action",
+            icon="mdi:gesture-tap-button",
+        ),
+        RivianSensorEntityDescription(
+            key="charging_trip_target_battery_level",
+            field="chargingTripTargetSoc",
+            name="Charging Trip Target Battery Level",
+            icon="mdi:battery-charging-medium",
+        ),
+        RivianSensorEntityDescription(
+            key="charging_trip_target_charge_time_remaining",
+            field="chargingTripTargetMinsRemaining",
+            name="Charging Trip Charge Time Remaining",
+            icon="mdi:timer",
+        ),
     ),
     "R1S": (
         RivianSensorEntityDescription(
@@ -952,6 +999,13 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             name="Car Wash Mode",
             icon="mdi:car-wash",
             on_value="on",
+        ),
+        RivianBinarySensorEntityDescription(
+            key="closure_charge_port_closed",
+            field="chargePortState",
+            name="Charge Port",
+            device_class=BinarySensorDeviceClass.DOOR,
+            on_value="open",
         ),
     ),
     "R1T": (
