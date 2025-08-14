@@ -46,6 +46,11 @@
     }
   },
   "entity": {
+    "cover": {
+      "charge_port": {
+        "name": "Charge port door"
+      }
+    },
     "sensor": {
       "charging_status": {
         "state": {
