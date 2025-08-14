@@ -45,6 +45,20 @@ COVERS: Final[dict[str | None, tuple[RivianCoverEntityDescription, ...]]] = {
             ),
         ),
     ),
+    "CHARG_PORT_DOOR_COMMAND": (
+        RivianCoverEntityDescription(
+            key="charge_port",
+            device_class=CoverDeviceClass.DOOR,
+            translation_key="charge_port",
+            is_closed=lambda coor: coor.get("chargePortState") != "open",
+            close_cover=lambda coor: coor.send_vehicle_command(
+                command=VehicleCommand.CLOSE_CHARGE_PORT_DOOR
+            ),
+            open_cover=lambda coor: coor.send_vehicle_command(
+                command=VehicleCommand.OPEN_CHARGE_PORT_DOOR
+            ),
+        ),
+    ),
     "LIFTGATE_CMD": (
         RivianCoverEntityDescription(
             key="liftgate",
