@@ -642,6 +642,15 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             icon="mdi:bluetooth",
             entity_category=EntityCategory.DIAGNOSTIC,
         ),
+        RivianSensorEntityDescription(
+            key="vehicle_state_last_update_time",
+            translation_key="vehicle_state_last_update_time",
+            field=None,
+            device_class=SensorDeviceClass.TIMESTAMP,
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
+            value_fn=lambda coor: coor.last_update_time,
+        ),
     ),
     "R1S": (
         RivianSensorEntityDescription(
@@ -1033,7 +1042,12 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
 }
 
 VEHICLE_STATE_API_FIELDS: Final[set[str]] = {
-    *(description.field for sensor in SENSORS.values() for description in sensor),
+    *(
+        description.field
+        for sensor in SENSORS.values()
+        for description in sensor
+        if description.field
+    ),
     *(
         field
         for sensors in BINARY_SENSORS.values()

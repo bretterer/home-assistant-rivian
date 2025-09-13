@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import Any
 
 from homeassistant.components.binary_sensor import BinarySensorEntity
@@ -76,20 +75,3 @@ class RivianBinarySensorEntity(RivianVehicleEntity, BinarySensorEntity):
             result = val in values
             return result if not self.entity_description.negate else not result
         return STATE_UNAVAILABLE
-
-    @property
-    def extra_state_attributes(self) -> Mapping[str, Any] | None:
-        """Return the state attributes of the device."""
-        if self._aggregate:
-            return None
-        try:
-            entity = self.coordinator.data[self.entity_description.field]
-            if entity is None:
-                return "Binary Sensor Unavailable"
-            return {
-                "value": entity["value"],
-                "last_update": entity["timeStamp"],
-                "history": str(entity["history"]),
-            }
-        except KeyError:
-            return None

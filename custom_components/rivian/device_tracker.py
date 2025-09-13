@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import Any
 
 from homeassistant.components.device_tracker import SourceType, TrackerEntity
@@ -26,14 +25,12 @@ async def async_setup_entry(
     vehicles: dict[str, Any] = data[ATTR_VEHICLE]
     coordinators: dict[str, VehicleCoordinator] = data[ATTR_COORDINATOR][ATTR_VEHICLE]
 
-    entities = [
+    async_add_entities(
         RivianDeviceEntity(
             coordinators[vehicle_id], entry, LOCATION_DESCRIPTION, vehicle
         )
         for vehicle_id, vehicle in vehicles.items()
-    ]
-
-    async_add_entities(entities)
+    )
 
 
 class RivianDeviceEntity(RivianVehicleEntity, TrackerEntity):
@@ -72,17 +69,6 @@ class RivianDeviceEntity(RivianVehicleEntity, TrackerEntity):
     def source_type(self) -> SourceType:
         """Return the source type, eg gps or router, of the device."""
         return SourceType.GPS
-
-    # @property
-    # def location_accuracy(self) -> int:
-    #     return self._tracker_data[6]
-
-    @property
-    def extra_state_attributes(self) -> Mapping[str, Any]:
-        """Return the state attributes of the device."""
-        return {
-            "last_update": self._tracker_data["timeStamp"],
-        }
 
     @callback
     def _handle_coordinator_update(self) -> None:

@@ -126,25 +126,6 @@ class RivianSensorEntity(RivianVehicleEntity, SensorEntity):
             self.options.append(rval)
         return rval
 
-    @property
-    def extra_state_attributes(self) -> Mapping[str, Any] | None:
-        """Return the state attributes of the device."""
-        try:
-            entity = self.coordinator.data[self.entity_description.field]
-            if entity is None:
-                return None
-            if self.entity_description.value_lambda is None:
-                return {
-                    "last_update": entity["timeStamp"],
-                }
-            return {
-                "native_value": entity["value"],
-                "last_update": entity["timeStamp"],
-                "history": str(entity["history"]),
-            }
-        except KeyError:
-            return None
-
 
 class RivianChargingSensorEntity(RivianChargingEntity, SensorEntity):
     """Representation of a Rivian charging sensor entity."""

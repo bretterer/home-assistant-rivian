@@ -60,6 +60,9 @@
           "plugged_in": "Plugged in",
           "charging": "Charging"
         }
+      },
+      "vehicle_state_last_update_time": {
+        "name": "Vehicle state last update time"
       }
     }
   },
