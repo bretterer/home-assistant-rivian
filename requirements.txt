@@ -1,8 +1,5 @@
 # Home Assistant
 homeassistant>=2025.1.0
-numpy
-python-dateutil
-PyTurboJPEG
 
 # Integration
 rivian-python-client[ble]==1.4.1

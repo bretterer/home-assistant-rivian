@@ -1,4 +1,4 @@
-"""Rivian (Unofficial)"""
+"""Rivian"""
 
 from __future__ import annotations
 
@@ -299,7 +299,7 @@ class RivianFlowHandler(ConfigFlow, domain=DOMAIN):
             await self.hass.config_entries.async_reload(existing_entry.entry_id)
             return self.async_abort(reason="reauth_successful")
 
-        return self.async_create_entry(title="Rivian (Unofficial)", data=config_data)
+        return self.async_create_entry(title="Rivian", data=config_data)
 
     async def _show_credential_fields(
         self, user_input: dict[str, Any] | None = None

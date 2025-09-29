@@ -1,5 +1,6 @@
 {
   "config": {
+    "title": "Rivian",
     "abort": {
       "already_configured": "Device is already configured",
       "reauth_successful": "Re-authentication was successful"
@@ -45,20 +46,1071 @@
     }
   },
   "entity": {
+    "binary_sensor": {
+      "alarm_sound_status": {
+        "name": "Gear guard alarm"
+      },
+      "cabin_preconditioning_status": {
+        "name": "Cabin climate preconditioning"
+      },
+      "car_wash_mode": {
+        "name": "Car wash mode"
+      },
+      "charge_port": {
+        "name": "Charge port"
+      },
+      "charger_status": {
+        "name": "Charger"
+      },
+      "closure_frunk_closed": {
+        "name": "Front trunk"
+      },
+      "closure_frunk_locked": {
+        "name": "Front trunk lock"
+      },
+      "closure_liftgate_closed": {
+        "name": "Liftgate"
+      },
+      "closure_liftgate_locked": {
+        "name": "Liftgate lock"
+      },
+      "closure_side_bin_left_closed": {
+        "name": "Gear tunnel left"
+      },
+      "closure_side_bin_right_closed": {
+        "name": "Gear tunnel right"
+      },
+      "closure_side_bin_left_locked": {
+        "name": "Gear tunnel left lock"
+      },
+      "closure_side_bin_right_locked": {
+        "name": "Gear tunnel right lock"
+      },
+      "closure_state": {
+        "name": "Closure state"
+      },
+      "closure_tailgate_closed": {
+        "name": "Tailgate"
+      },
+      "closure_tailgate_locked": {
+        "name": "Tailgate lock"
+      },
+      "closure_tonneau_closed": {
+        "name": "Tonneau"
+      },
+      "closure_tonneau_locked": {
+        "name": "Tonneau lock"
+      },
+      "defrost_defog_status": {
+        "name": "Defrost/defog"
+      },
+      "door_front_left_closed": {
+        "name": "Door front left"
+      },
+      "door_front_right_closed": {
+        "name": "Door front right"
+      },
+      "door_rear_left_closed": {
+        "name": "Door rear left"
+      },
+      "door_rear_right_closed": {
+        "name": "Door rear right"
+      },
+      "door_front_left_locked": {
+        "name": "Door front left lock"
+      },
+      "door_front_right_locked": {
+        "name": "Door front right lock"
+      },
+      "door_rear_left_locked": {
+        "name": "Door rear left lock"
+      },
+      "door_rear_right_locked": {
+        "name": "Door rear right lock"
+      },
+      "door_state": {
+        "name": "Door state"
+      },
+      "gear_guard_locked": {
+        "name": "Gear guard"
+      },
+      "locked_state": {
+        "name": "Locked state"
+      },
+      "pet_mode_status": {
+        "name": "Pet mode"
+      },
+      "seat_front_left_heat": {
+        "name": "Seat front left heat"
+      },
+      "seat_front_left_vent": {
+        "name": "Seat front left vent"
+      },
+      "seat_front_right_heat": {
+        "name": "Seat front right heat"
+      },
+      "seat_front_right_vent": {
+        "name": "Seat front right vent"
+      },
+      "seat_rear_left_heat": {
+        "name": "Seat rear left heat"
+      },
+      "seat_rear_right_heat": {
+        "name": "Seat rear right heat"
+      },
+      "seat_third_row_left_heat": {
+        "name": "Seat third row left heat"
+      },
+      "seat_third_row_right_heat": {
+        "name": "Seat third row right heat"
+      },
+      "steering_wheel_heat": {
+        "name": "Steering wheel heat"
+      },
+      "tire_pressure_status_valid_front_left": {
+        "name": "Tire pressure front left validity"
+      },
+      "tire_pressure_status_valid_front_right": {
+        "name": "Tire pressure front right validity"
+      },
+      "tire_pressure_status_valid_rear_left": {
+        "name": "Tire pressure rear left validity"
+      },
+      "tire_pressure_status_valid_rear_right": {
+        "name": "Tire pressure rear right validity"
+      },
+      "use_state": {
+        "name": "In use state"
+      },
+      "window_front_left_closed": {
+        "name": "Window front left"
+      },
+      "window_front_right_closed": {
+        "name": "Window front right"
+      },
+      "window_rear_left_closed": {
+        "name": "Window rear left"
+      },
+      "window_rear_right_closed": {
+        "name": "Window rear right"
+      },
+      "wiper_fluid_state": {
+        "name": "Wiper fluid level"
+      }
+    },
+    "button": {
+      "drop_tailgate": {
+        "name": "Drop tailgate"
+      },
+      "open_gear_tunnel_left": {
+        "name": "Open gear tunnel left"
+      },
+      "open_gear_tunnel_right": {
+        "name": "Open gear tunnel right"
+      },
+      "pair": {
+        "name": "Pair phone key"
+      },
+      "wake": {
+        "name": "Wake"
+      }
+    },
+    "climate": {
+      "cabin_climate": {
+        "name": "Cabin climate"
+      }
+    },
     "cover": {
       "charge_port": {
         "name": "Charge port door"
+      },
+      "frunk": {
+        "name": "Front trunk"
+      },
+      "liftgate": {
+        "name": "Liftgate"
+      },
+      "tonneau": {
+        "name": "Tonneau"
+      },
+      "windows": {
+        "name": "Windows"
+      }
+    },
+    "lock": {
+      "closures": {
+        "name": "Closures"
+      }
+    },
+    "number": {
+      "charge_limit": {
+        "name": "Charge limit"
+      }
+    },
+    "select": {
+      "seat_front_left_heat": {
+        "name": "Seat front left heat",
+        "state": {
+          "off": "Off",
+          "level_1": "Low",
+          "level_2": "Medium",
+          "level_3": "High"
+        }
+      },
+      "seat_front_left_vent": {
+        "name": "Seat front left vent",
+        "state": {
+          "off": "Off",
+          "level_1": "Low",
+          "level_2": "Medium",
+          "level_3": "High"
+        }
+      },
+      "seat_front_right_heat": {
+        "name": "Seat front right heat",
+        "state": {
+          "off": "Off",
+          "level_1": "Low",
+          "level_2": "Medium",
+          "level_3": "High"
+        }
+      },
+      "seat_front_right_vent": {
+        "name": "Seat front right vent",
+        "state": {
+          "off": "Off",
+          "level_1": "Low",
+          "level_2": "Medium",
+          "level_3": "High"
+        }
+      },
+      "seat_rear_left_heat": {
+        "name": "Seat rear left heat",
+        "state": {
+          "off": "Off",
+          "level_1": "Low",
+          "level_2": "Medium",
+          "level_3": "High"
+        }
+      },
+      "seat_rear_right_heat": {
+        "name": "Seat rear right heat",
+        "state": {
+          "off": "Off",
+          "level_1": "Low",
+          "level_2": "Medium",
+          "level_3": "High"
+        }
       }
     },
     "sensor": {
-      "charging_status": {
+      "active_driver": {
+        "name": "Active driver"
+      },
+      "altitude": {
+        "name": "Altitude"
+      },
+      "amperage": {
+        "name": "Amperage"
+      },
+      "amperage_maximum": {
+        "name": "Amperage maximum"
+      },
+      "battery_amperage": {
+        "name": "Battery amperage"
+      },
+      "battery_capacity": {
+        "name": "Battery capacity"
+      },
+      "battery_level": {
+        "name": "Battery state of charge"
+      },
+      "battery_limit": {
+        "name": "Battery state of charge limit"
+      },
+      "battery_thermal_runaway_propagation": {
+        "name": "Battery thermal runaway propagation",
         "state": {
-          "unavailable": "Unavailable",
+          "nominal": "Nominal"
+        }
+      },
+      "battery_thermal_status": {
+        "name": "Battery thermal status"
+      },
+      "bearing": {
+        "name": "Bearing"
+      },
+      "bluetooth_front_fascia_hardware_failure_status": {
+        "name": "Bluetooth module failure status fascia front",
+        "state": {
+          "dtc_not_set": "DTC not set",
+          "dtc_set": "DTC set"
+        }
+      },
+      "bluetooth_rear_fascia_hardware_failure_status": {
+        "name": "Bluetooth module failure status fascia rear",
+        "state": {
+          "dtc_not_set": "DTC not set",
+          "dtc_set": "DTC set"
+        }
+      },
+      "bluetooth_instrument_controls_hardware_failure_status": {
+        "name": "Bluetooth module failure status instrument controls",
+        "state": {
+          "dtc_not_set": "DTC not set",
+          "dtc_set": "DTC set"
+        }
+      },
+      "bluetooth_right_front_door_hardware_failure_status": {
+        "name": "Bluetooth module failure status door front right",
+        "state": {
+          "dtc_not_set": "DTC not set",
+          "dtc_set": "DTC set"
+        }
+      },
+      "bluetooth_left_front_door_hardware_failure_status": {
+        "name": "Bluetooth module failure status door front left",
+        "state": {
+          "dtc_not_set": "DTC not set",
+          "dtc_set": "DTC set"
+        }
+      },
+      "cabin_preconditioning_type": {
+        "name": "Cabin climate preconditioning type",
+        "state": {
+          "none": "None",
+          "user_selected": "User selected"
+        }
+      },
+      "cabin_temperature": {
+        "name": "Cabin temperature"
+      },
+      "charge_port_door_next_action": {
+        "name": "Charge port door next action",
+        "state": {
+          "close": "Closed",
+          "close_allowed": "Can close",
+          "close_allowed_obstacle_detected": "Can close - obstacle detected",
+          "close_allowed_trailer_connected": "Can close - trailer connected",
+          "close_allowed_trailer_detected": "Can close - trailer detected",
+          "close_not_allowed_faulted": "Cannot close - fault",
+          "close_not_allowed_no_power_operation": "Cannot close - no power",
+          "close_not_allowed_uncalibrated": "Cannot close - uncalibrated",
+          "close_not_available": "Closing unavailable",
+          "closing": "Closing",
+          "closing_pause_not_allowed": "Cannot pause while closing",
+          "fault": "Fault",
+          "in_transition": "In transition",
+          "lower_gate_open_close_not_allowed": "Cannot close - lower gate open",
+          "moving": "Moving",
+          "obstructed_while_closing_close_allowed": "Obstructed while closing - can still close",
+          "obstructed_while_closing_open_allowed": "Obstructed while closing - can open",
+          "obstructed_while_opening_close_allowed": "Obstructed while opening - can close",
+          "obstructed_while_opening_open_allowed": "Obstructed while opening - can still open",
+          "open": "Open",
+          "open_allowed": "Can open",
+          "open_allowed_confirm_vehicle_angle": "Can open - confirm vehicle angle",
+          "open_allowed_no_power_operation": "Can open - no power",
+          "open_allowed_obstacle_detected": "Can open - obstacle detected",
+          "open_allowed_trailer_connected": "Can open - trailer connected",
+          "open_allowed_trailer_detected": "Can open - trailer detected",
+          "open_already_no_action_available": "Already open",
+          "open_not_allowed_faulted": "Cannot open - fault",
+          "open_not_allowed_uncalibrated": "Cannot open - uncalibrated",
+          "open_not_available": "Opening unavailable",
+          "opening": "Opening",
+          "opening_pause_not_allowed": "Cannot pause while opening",
+          "processing": "Processing",
+          "sna": "Signal not available",
+          "stuck_ajar_while_opening_open_allowed": "Stuck ajar while opening - can still open",
+          "unknown": "Unknown"
+        }
+      },
+      "charger_derate_status": {
+        "name": "Charger derate status",
+        "state": {
+          "none": "None"
+        }
+      },
+      "charger_state": {
+        "name": "Charger state",
+        "state": {
+          "charger_not_ready_or_incompatible": "Error - charger not ready or incompatible",
+          "charging_active": "Charging",
+          "charging_cert_error": "Error - certificate problem",
+          "charging_complete": "Charging complete",
+          "charging_connecting": "Connecting to charger",
+          "charging_error_ac_adapter_used_on_dc": "Error - AC adapter used on DC charger",
+          "charging_error_dc_adapter_used_on_ac": "Error - DC adapter used on AC charger",
+          "charging_error_incompatible_charger": "Error - incompatible charger",
+          "charging_payment_error": "Error - payment problem",
+          "charging_payment_error_start_rivian_app": "Error - payment issue, start Rivian app",
+          "charging_ready": "Ready to charge",
+          "charging_scheduled": "Scheduled charging",
+          "charging_sd_compensation": "Adjusting charge for battery",
+          "charging_station_error": "Error - charging station problem",
+          "charging_station_stopped": "Charging stopped by station",
+          "charging_tls_error": "Error - secure connection (TLS) issue",
+          "charging_tls_error_start_rivian_app": "Error - secure connection (TLS) issue, start Rivian app",
+          "charging_tls_error_unexpected_fail": "Error - secure connection (TLS) unexpected failure",
+          "charging_tls_error_unknown_charger": "Error - secure connection (TLS) issue with unknown charger",
+          "charging_user_stopped": "Charging stopped by user",
+          "charging_vehicle_error": "Error - vehicle problem",
+          "charging_vehicle_stopped": "Charging stopped by vehicle",
+          "signal_not_available": "Signal not available",
+          "waiting_on_charger": "Waiting on charger"
+        }
+      },
+      "charger_state_ems": {
+        "name": "Charger state energy management system",
+        "state": {
+          "ac_energy_trans": "Charging",
+          "ac_stop_charging": "Stopped",
+          "hv_standby": "Idle",
+          "init": "Preparing"
+        }
+      },
+      "charger_status": {
+        "name": "Charger status",
+        "state": {
+          "chrgr_sts_connected_charging": "Connected, charging",
+          "chrgr_sts_connected_no_chrg": "Connected, not charging",
+          "chrgr_sts_not_connected": "Not connected"
+        }
+      },
+      "charging_cost": {
+        "name": "Charging cost"
+      },
+      "charging_energy_delivered": {
+        "name": "Charging energy delivered"
+      },
+      "charging_range_added": {
+        "name": "Charging range added"
+      },
+      "charging_rate": {
+        "name": "Charging rate"
+      },
+      "charging_speed": {
+        "name": "Charging speed"
+      },
+      "charging_start_time": {
+        "name": "Charging start time"
+      },
+      "charging_status": {
+        "name": "Charging status",
+        "state": {
           "available": "Available",
+          "charging": "Charging",
           "disconnected": "Disconnected",
           "plugged_in": "Plugged in",
-          "charging": "Charging"
+          "unavailable": "Unavailable"
         }
+      },
+      "charging_time_elapsed": {
+        "name": "Charging time elapsed"
+      },
+      "cold_range_notification": {
+        "name": "Cold range notification",
+        "state": {
+          "may_reduce": "Range may decrease",
+          "range_normal": "Range is normal",
+          "range_reduced": "Range limited by cold"
+        }
+      },
+      "distance_to_empty": {
+        "name": "Estimated vehicle range"
+      },
+      "drive_mode": {
+        "name": "Drive mode",
+        "state": {
+          "everyday": "All-Purpose",
+          "sport": "Sport",
+          "distance": "Conserve",
+          "winter": "Snow",
+          "towing": "Towing",
+          "off_road_auto": "All-Terrain",
+          "off_road_sand": "Soft Sand",
+          "off_road_rocks": "Rock Crawl",
+          "off_road_sport_auto": "Rally",
+          "off_road_sport_drift": "Drift"
+        }
+      },
+      "driver_temperature": {
+        "name": "Driver temperature"
+      },
+      "drivers": {
+        "name": "Drivers"
+      },
+      "frunk_next_action": {
+        "name": "Front trunk next action",
+        "state": {
+          "close": "Closed",
+          "close_allowed": "Can close",
+          "close_allowed_obstacle_detected": "Can close - obstacle detected",
+          "close_allowed_trailer_connected": "Can close - trailer connected",
+          "close_allowed_trailer_detected": "Can close - trailer detected",
+          "close_not_allowed_faulted": "Cannot close - fault",
+          "close_not_allowed_no_power_operation": "Cannot close - no power",
+          "close_not_allowed_uncalibrated": "Cannot close - uncalibrated",
+          "close_not_available": "Closing unavailable",
+          "closing": "Closing",
+          "closing_pause_not_allowed": "Cannot pause while closing",
+          "fault": "Fault",
+          "in_transition": "In transition",
+          "lower_gate_open_close_not_allowed": "Cannot close - lower gate open",
+          "moving": "Moving",
+          "obstructed_while_closing_close_allowed": "Obstructed while closing - can still close",
+          "obstructed_while_closing_open_allowed": "Obstructed while closing - can open",
+          "obstructed_while_opening_close_allowed": "Obstructed while opening - can close",
+          "obstructed_while_opening_open_allowed": "Obstructed while opening - can still open",
+          "open": "Open",
+          "open_allowed": "Can open",
+          "open_allowed_confirm_vehicle_angle": "Can open - confirm vehicle angle",
+          "open_allowed_no_power_operation": "Can open - no power",
+          "open_allowed_obstacle_detected": "Can open - obstacle detected",
+          "open_allowed_trailer_connected": "Can open - trailer connected",
+          "open_allowed_trailer_detected": "Can open - trailer detected",
+          "open_already_no_action_available": "Already open",
+          "open_not_allowed_faulted": "Cannot open - fault",
+          "open_not_allowed_uncalibrated": "Cannot open - uncalibrated",
+          "open_not_available": "Opening unavailable",
+          "opening": "Opening",
+          "opening_pause_not_allowed": "Cannot pause while opening",
+          "processing": "Processing",
+          "sna": "Signal not available",
+          "stuck_ajar_while_opening_open_allowed": "Stuck ajar while opening - can still open",
+          "unknown": "Unknown"
+        }
+      },
+      "gear_guard_video_mode": {
+        "name": "Gear guard video mode",
+        "state": {
+          "away_from_home": "Off at home",
+          "everywhere": "Everywhere",
+          "none": "Off"
+        }
+      },
+      "gear_guard_video_status": {
+        "name": "Gear guard video status",
+        "state": {
+          "disabled": "Disabled",
+          "enabled": "Enabled",
+          "engaged": "Engaged",
+          "error": "Error"
+        }
+      },
+      "gear_guard_video_terms_accepted": {
+        "name": "Gear guard video terms accepted",
+        "state": {
+          "false": "False",
+          "true": "True"
+        }
+      },
+      "gear_status": {
+        "name": "Gear selector",
+        "state": {
+          "drive": "Drive",
+          "neutral": "Neutral",
+          "park": "Park",
+          "reverse": "Reverse"
+        }
+      },
+      "gear_tunnel_left_next_action": {
+        "name": "Gear tunnel left next action",
+        "state": {
+          "close": "Closed",
+          "close_allowed": "Can close",
+          "close_allowed_obstacle_detected": "Can close - obstacle detected",
+          "close_allowed_trailer_connected": "Can close - trailer connected",
+          "close_allowed_trailer_detected": "Can close - trailer detected",
+          "close_not_allowed_faulted": "Cannot close - fault",
+          "close_not_allowed_no_power_operation": "Cannot close - no power",
+          "close_not_allowed_uncalibrated": "Cannot close - uncalibrated",
+          "close_not_available": "Closing unavailable",
+          "closing": "Closing",
+          "closing_pause_not_allowed": "Cannot pause while closing",
+          "fault": "Fault",
+          "in_transition": "In transition",
+          "lower_gate_open_close_not_allowed": "Cannot close - lower gate open",
+          "moving": "Moving",
+          "obstructed_while_closing_close_allowed": "Obstructed while closing - can still close",
+          "obstructed_while_closing_open_allowed": "Obstructed while closing - can open",
+          "obstructed_while_opening_close_allowed": "Obstructed while opening - can close",
+          "obstructed_while_opening_open_allowed": "Obstructed while opening - can still open",
+          "open": "Open",
+          "open_allowed": "Can open",
+          "open_allowed_confirm_vehicle_angle": "Can open - confirm vehicle angle",
+          "open_allowed_no_power_operation": "Can open - no power",
+          "open_allowed_obstacle_detected": "Can open - obstacle detected",
+          "open_allowed_trailer_connected": "Can open - trailer connected",
+          "open_allowed_trailer_detected": "Can open - trailer detected",
+          "open_already_no_action_available": "Already open",
+          "open_not_allowed_faulted": "Cannot open - fault",
+          "open_not_allowed_uncalibrated": "Cannot open - uncalibrated",
+          "open_not_available": "Opening unavailable",
+          "opening": "Opening",
+          "opening_pause_not_allowed": "Cannot pause while opening",
+          "processing": "Processing",
+          "sna": "Signal not available",
+          "stuck_ajar_while_opening_open_allowed": "Stuck ajar while opening - can still open",
+          "unknown": "Unknown"
+        }
+      },
+      "gear_tunnel_right_next_action": {
+        "name": "Gear tunnel right next action",
+        "state": {
+          "close": "Closed",
+          "close_allowed": "Can close",
+          "close_allowed_obstacle_detected": "Can close - obstacle detected",
+          "close_allowed_trailer_connected": "Can close - trailer connected",
+          "close_allowed_trailer_detected": "Can close - trailer detected",
+          "close_not_allowed_faulted": "Cannot close - fault",
+          "close_not_allowed_no_power_operation": "Cannot close - no power",
+          "close_not_allowed_uncalibrated": "Cannot close - uncalibrated",
+          "close_not_available": "Closing unavailable",
+          "closing": "Closing",
+          "closing_pause_not_allowed": "Cannot pause while closing",
+          "fault": "Fault",
+          "in_transition": "In transition",
+          "lower_gate_open_close_not_allowed": "Cannot close - lower gate open",
+          "moving": "Moving",
+          "obstructed_while_closing_close_allowed": "Obstructed while closing - can still close",
+          "obstructed_while_closing_open_allowed": "Obstructed while closing - can open",
+          "obstructed_while_opening_close_allowed": "Obstructed while opening - can close",
+          "obstructed_while_opening_open_allowed": "Obstructed while opening - can still open",
+          "open": "Open",
+          "open_allowed": "Can open",
+          "open_allowed_confirm_vehicle_angle": "Can open - confirm vehicle angle",
+          "open_allowed_no_power_operation": "Can open - no power",
+          "open_allowed_obstacle_detected": "Can open - obstacle detected",
+          "open_allowed_trailer_connected": "Can open - trailer connected",
+          "open_allowed_trailer_detected": "Can open - trailer detected",
+          "open_already_no_action_available": "Already open",
+          "open_not_allowed_faulted": "Cannot open - fault",
+          "open_not_allowed_uncalibrated": "Cannot open - uncalibrated",
+          "open_not_available": "Opening unavailable",
+          "opening": "Opening",
+          "opening_pause_not_allowed": "Cannot pause while opening",
+          "processing": "Processing",
+          "sna": "Signal not available",
+          "stuck_ajar_while_opening_open_allowed": "Stuck ajar while opening - can still open",
+          "unknown": "Unknown"
+        }
+      },
+      "keys": {
+        "name": "Keys"
+      },
+      "liftgate_next_action": {
+        "name": "Liftgate next action",
+        "state": {
+          "close": "Closed",
+          "close_allowed": "Can close",
+          "close_allowed_obstacle_detected": "Can close - obstacle detected",
+          "close_allowed_trailer_connected": "Can close - trailer connected",
+          "close_allowed_trailer_detected": "Can close - trailer detected",
+          "close_not_allowed_faulted": "Cannot close - fault",
+          "close_not_allowed_no_power_operation": "Cannot close - no power",
+          "close_not_allowed_uncalibrated": "Cannot close - uncalibrated",
+          "close_not_available": "Closing unavailable",
+          "closing": "Closing",
+          "closing_pause_not_allowed": "Cannot pause while closing",
+          "fault": "Fault",
+          "in_transition": "In transition",
+          "lower_gate_open_close_not_allowed": "Cannot close - lower gate open",
+          "moving": "Moving",
+          "obstructed_while_closing_close_allowed": "Obstructed while closing - can still close",
+          "obstructed_while_closing_open_allowed": "Obstructed while closing - can open",
+          "obstructed_while_opening_close_allowed": "Obstructed while opening - can close",
+          "obstructed_while_opening_open_allowed": "Obstructed while opening - can still open",
+          "open": "Open",
+          "open_allowed": "Can open",
+          "open_allowed_confirm_vehicle_angle": "Can open - confirm vehicle angle",
+          "open_allowed_no_power_operation": "Can open - no power",
+          "open_allowed_obstacle_detected": "Can open - obstacle detected",
+          "open_allowed_trailer_connected": "Can open - trailer connected",
+          "open_allowed_trailer_detected": "Can open - trailer detected",
+          "open_already_no_action_available": "Already open",
+          "open_not_allowed_faulted": "Cannot open - fault",
+          "open_not_allowed_uncalibrated": "Cannot open - uncalibrated",
+          "open_not_available": "Opening unavailable",
+          "opening": "Opening",
+          "opening_pause_not_allowed": "Cannot pause while opening",
+          "processing": "Processing",
+          "sna": "Signal not available",
+          "stuck_ajar_while_opening_open_allowed": "Stuck ajar while opening - can still open",
+          "unknown": "Unknown"
+        }
+      },
+      "limited_acceleration_cold": {
+        "name": "Limited acceleration (cold)"
+      },
+      "limited_regen_braking_cold": {
+        "name": "Limited regenerative braking (cold)"
+      },
+      "ota_available_version": {
+        "name": "Software OTA available version"
+      },
+      "ota_available_version_git_hash": {
+        "name": "Software OTA available version git hash"
+      },
+      "ota_available_version_number": {
+        "name": "Software OTA available version number"
+      },
+      "ota_available_version_week": {
+        "name": "Software OTA available version week"
+      },
+      "ota_available_version_year": {
+        "name": "Software OTA available version year"
+      },
+      "ota_current_status": {
+        "name": "Software OTA status current",
+        "state": {
+          "install_success": "Install success"
+        }
+      },
+      "ota_current_version": {
+        "name": "Software OTA current version"
+      },
+      "ota_current_version_git_hash": {
+        "name": "Software OTA current version git hash"
+      },
+      "ota_current_version_number": {
+        "name": "Software OTA current version number"
+      },
+      "ota_current_version_week": {
+        "name": "Software OTA current version week"
+      },
+      "ota_current_version_year": {
+        "name": "Software OTA current version year"
+      },
+      "ota_download_progress": {
+        "name": "Software OTA download progress"
+      },
+      "ota_install_duration": {
+        "name": "Software OTA install duration"
+      },
+      "ota_install_progress": {
+        "name": "Software OTA install progress"
+      },
+      "ota_install_ready": {
+        "name": "Software OTA install ready",
+        "state": {
+          "ota_available": "OTA available",
+          "ota_not_available": "OTA not available"
+        }
+      },
+      "ota_install_time": {
+        "name": "Software OTA install time"
+      },
+      "ota_install_type": {
+        "name": "Software OTA install type",
+        "state": {
+          "convenience": "Convenience"
+        }
+      },
+      "ota_status": {
+        "name": "Software OTA status",
+        "state": {
+          "awaiting_install": "Awaiting install",
+          "connection_lost": "Connection lost",
+          "download_failed": "Download failed",
+          "downloading": "Downloading",
+          "fault": "Fault",
+          "idle": "Idle",
+          "install_countdown": "Install countdown",
+          "install_failed": "Install failed",
+          "install_success": "Install success",
+          "installing": "Installing",
+          "preparing": "Preparing",
+          "ready_to_download": "Ready to download",
+          "ready_to_install": "Ready to install",
+          "scheduled_to_install": "Scheduled to install"
+        }
+      },
+      "pet_mode_temperature_status": {
+        "name": "Pet mode temperature status",
+        "state": {
+          "default": "Default"
+        }
+      },
+      "power": {
+        "name": "Power"
+      },
+      "power_maximum": {
+        "name": "Power maximum"
+      },
+      "power_state": {
+        "name": "Power state",
+        "state": {
+          "go": "Go",
+          "ready": "Ready",
+          "sleep": "Sleep",
+          "standby": "Standby",
+          "vehicle_reset": "Vehicle Reset"
+        }
+      },
+      "range_threshold": {
+        "name": "Range threshold",
+        "state": {
+          "critically_low": "Critically low",
+          "low": "Low",
+          "red": "Red",
+          "vehicle_range_normal": "Normal"
+        }
+      },
+      "rear_hitch_status": {
+        "name": "Rear hitch status",
+        "state": {
+          "accessory": "Accessory",
+          "none": "None",
+          "trailer_1": "Trailer 1",
+          "trailer_2": "Trailer 2",
+          "trailer_3": "Trailer 3"
+        }
+      },
+      "remote_charging_available": {
+        "name": "Remote charging available"
+      },
+      "service_mode": {
+        "name": "Service mode"
+      },
+      "speed": {
+        "name": "Speed"
+      },
+      "ssid": {
+        "name": "SSID"
+      },
+      "tailgate_next_action": {
+        "name": "Tailgate next action",
+        "state": {
+          "close": "Closed",
+          "close_allowed": "Can close",
+          "close_allowed_obstacle_detected": "Can close - obstacle detected",
+          "close_allowed_trailer_connected": "Can close - trailer connected",
+          "close_allowed_trailer_detected": "Can close - trailer detected",
+          "close_not_allowed_faulted": "Cannot close - fault",
+          "close_not_allowed_no_power_operation": "Cannot close - no power",
+          "close_not_allowed_uncalibrated": "Cannot close - uncalibrated",
+          "close_not_available": "Closing unavailable",
+          "closing": "Closing",
+          "closing_pause_not_allowed": "Cannot pause while closing",
+          "fault": "Fault",
+          "in_transition": "In transition",
+          "lower_gate_open_close_not_allowed": "Cannot close - lower gate open",
+          "moving": "Moving",
+          "obstructed_while_closing_close_allowed": "Obstructed while closing - can still close",
+          "obstructed_while_closing_open_allowed": "Obstructed while closing - can open",
+          "obstructed_while_opening_close_allowed": "Obstructed while opening - can close",
+          "obstructed_while_opening_open_allowed": "Obstructed while opening - can still open",
+          "open": "Open",
+          "open_allowed": "Can open",
+          "open_allowed_confirm_vehicle_angle": "Can open - confirm vehicle angle",
+          "open_allowed_no_power_operation": "Can open - no power",
+          "open_allowed_obstacle_detected": "Can open - obstacle detected",
+          "open_allowed_trailer_connected": "Can open - trailer connected",
+          "open_allowed_trailer_detected": "Can open - trailer detected",
+          "open_already_no_action_available": "Already open",
+          "open_not_allowed_faulted": "Cannot open - fault",
+          "open_not_allowed_uncalibrated": "Cannot open - uncalibrated",
+          "open_not_available": "Opening unavailable",
+          "opening": "Opening",
+          "opening_pause_not_allowed": "Cannot pause while opening",
+          "processing": "Processing",
+          "sna": "Signal not available",
+          "stuck_ajar_while_opening_open_allowed": "Stuck ajar while opening - can still open",
+          "unknown": "Unknown"
+        }
+      },
+      "time_to_end_of_charge": {
+        "name": "Charging time remaining"
+      },
+      "tire_pressure_front_left": {
+        "name": "Tire pressure front left"
+      },
+      "tire_pressure_front_right": {
+        "name": "Tire pressure front right"
+      },
+      "tire_pressure_rear_left": {
+        "name": "Tire pressure rear left"
+      },
+      "tire_pressure_rear_right": {
+        "name": "Tire pressure rear right"
+      },
+      "tire_pressure_status_front_left": {
+        "name": "Tire pressure front left status",
+        "state": {
+          "ok": "Ok"
+        }
+      },
+      "tire_pressure_status_front_right": {
+        "name": "Tire pressure front right status",
+        "state": {
+          "ok": "Ok"
+        }
+      },
+      "tire_pressure_status_rear_left": {
+        "name": "Tire pressure rear left status",
+        "state": {
+          "ok": "Ok"
+        }
+      },
+      "tire_pressure_status_rear_right": {
+        "name": "Tire pressure rear right status",
+        "state": {
+          "ok": "Ok"
+        }
+      },
+      "tonneau_next_action": {
+        "name": "Tonneau next action",
+        "state": {
+          "close": "Closed",
+          "close_allowed": "Can close",
+          "close_allowed_obstacle_detected": "Can close - obstacle detected",
+          "close_allowed_trailer_connected": "Can close - trailer connected",
+          "close_allowed_trailer_detected": "Can close - trailer detected",
+          "close_not_allowed_faulted": "Cannot close - fault",
+          "close_not_allowed_no_power_operation": "Cannot close - no power",
+          "close_not_allowed_uncalibrated": "Cannot close - uncalibrated",
+          "close_not_available": "Closing unavailable",
+          "closing": "Closing",
+          "closing_pause_not_allowed": "Cannot pause while closing",
+          "fault": "Fault",
+          "in_transition": "In transition",
+          "lower_gate_open_close_not_allowed": "Cannot close - lower gate open",
+          "moving": "Moving",
+          "obstructed_while_closing_close_allowed": "Obstructed while closing - can still close",
+          "obstructed_while_closing_open_allowed": "Obstructed while closing - can open",
+          "obstructed_while_opening_close_allowed": "Obstructed while opening - can close",
+          "obstructed_while_opening_open_allowed": "Obstructed while opening - can still open",
+          "open": "Open",
+          "open_allowed": "Can open",
+          "open_allowed_confirm_vehicle_angle": "Can open - confirm vehicle angle",
+          "open_allowed_no_power_operation": "Can open - no power",
+          "open_allowed_obstacle_detected": "Can open - obstacle detected",
+          "open_allowed_trailer_connected": "Can open - trailer connected",
+          "open_allowed_trailer_detected": "Can open - trailer detected",
+          "open_already_no_action_available": "Already open",
+          "open_not_allowed_faulted": "Cannot open - fault",
+          "open_not_allowed_uncalibrated": "Cannot open - uncalibrated",
+          "open_not_available": "Opening unavailable",
+          "opening": "Opening",
+          "opening_pause_not_allowed": "Cannot pause while opening",
+          "processing": "Processing",
+          "sna": "Signal not available",
+          "stuck_ajar_while_opening_open_allowed": "Stuck ajar while opening - can still open",
+          "unknown": "Unknown"
+        }
+      },
+      "trailer_status": {
+        "name": "Trailer status",
+        "state": {
+          "trailer_invalid": "Invalid trailer",
+          "trailer_not_present": "No trailer present",
+          "trailer_present": "Trailer present",
+          "trailer_present_with_brakes": "Trailer with brakes present"
+        }
+      },
+      "twelve_volt_battery_health": {
+        "name": "12 V battery health",
+        "state": {
+          "normal_operation": "Normal"
+        }
+      },
+      "vehicle_mileage": {
+        "name": "Odometer"
+      },
+      "vehicle_state_last_update_time": {
+        "name": "Vehicle state last update time"
+      },
+      "voltage": {
+        "name": "Voltage"
+      },
+      "voltage_maximum": {
+        "name": "Voltage maximum"
+      },
+      "window_front_left_calibrated": {
+        "name": "Window front left calibration state",
+        "state": {
+          "calibrated": "Calibrated"
+        }
+      },
+      "window_front_right_calibrated": {
+        "name": "Window front right calibration state",
+        "state": {
+          "calibrated": "Calibrated"
+        }
+      },
+      "window_rear_left_calibrated": {
+        "name": "Window rear left calibration state",
+        "state": {
+          "calibrated": "Calibrated"
+        }
+      },
+      "window_rear_right_calibrated": {
+        "name": "Window rear right calibration state",
+        "state": {
+          "calibrated": "Calibrated"
+        }
+      },
+      "windows_next_action": {
+        "name": "Windows next action",
+        "state": {
+          "close": "Closed",
+          "close_allowed": "Can close",
+          "close_allowed_obstacle_detected": "Can close - obstacle detected",
+          "close_allowed_trailer_connected": "Can close - trailer connected",
+          "close_allowed_trailer_detected": "Can close - trailer detected",
+          "close_not_allowed_faulted": "Cannot close - fault",
+          "close_not_allowed_no_power_operation": "Cannot close - no power",
+          "close_not_allowed_uncalibrated": "Cannot close - uncalibrated",
+          "close_not_available": "Closing unavailable",
+          "closing": "Closing",
+          "closing_pause_not_allowed": "Cannot pause while closing",
+          "fault": "Fault",
+          "in_transition": "In transition",
+          "lower_gate_open_close_not_allowed": "Cannot close - lower gate open",
+          "moving": "Moving",
+          "obstructed_while_closing_close_allowed": "Obstructed while closing - can still close",
+          "obstructed_while_closing_open_allowed": "Obstructed while closing - can open",
+          "obstructed_while_opening_close_allowed": "Obstructed while opening - can close",
+          "obstructed_while_opening_open_allowed": "Obstructed while opening - can still open",
+          "open": "Open",
+          "open_allowed": "Can open",
+          "open_allowed_confirm_vehicle_angle": "Can open - confirm vehicle angle",
+          "open_allowed_no_power_operation": "Can open - no power",
+          "open_allowed_obstacle_detected": "Can open - obstacle detected",
+          "open_allowed_trailer_connected": "Can open - trailer connected",
+          "open_allowed_trailer_detected": "Can open - trailer detected",
+          "open_already_no_action_available": "Already open",
+          "open_not_allowed_faulted": "Cannot open - fault",
+          "open_not_allowed_uncalibrated": "Cannot open - uncalibrated",
+          "open_not_available": "Opening unavailable",
+          "opening": "Opening",
+          "opening_pause_not_allowed": "Cannot pause while opening",
+          "processing": "Processing",
+          "sna": "Signal not available",
+          "stuck_ajar_while_opening_open_allowed": "Stuck ajar while opening - can still open",
+          "unknown": "Unknown"
+        }
+      }
+    },
+    "switch": {
+      "alarm": {
+        "name": "Alarm"
+      },
+      "charging_enabled": {
+        "name": "Charging enabled"
+      },
+      "gear_guard_video": {
+        "name": "Gear guard video"
+      },
+      "steering_wheel_heat": {
+        "name": "Steering wheel heat"
+      }
+    },
+    "update": {
+      "software_ota": {
+        "name": "Software"
       }
     }
   },

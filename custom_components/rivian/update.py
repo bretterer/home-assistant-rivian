@@ -1,4 +1,4 @@
-"""Rivian (Unofficial)"""
+"""Rivian"""
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ READY_FOR_INSTALL = ("Ready_To_Install", "Scheduled_To_Install")
 
 UPDATE_DESCRIPTION = UpdateEntityDescription(
     key="software_ota",
-    name="Software",
+    translation_key="software_ota",
     device_class=UpdateDeviceClass.FIRMWARE,
     entity_category=EntityCategory.DIAGNOSTIC,
 )
@@ -75,7 +75,7 @@ class RivianUpdateEntity(RivianVehicleEntity, UpdateEntity):
         current_hash = self._get_value("otaCurrentVersionGitHash")
         if (latest_hash := self._get_value("otaAvailableVersionGitHash")) == "":
             latest_hash = current_hash
-        show_hash = (current_version, current_hash) != (latest_version, latest_hash)
+        show_hash = current_version == latest_version and current_hash != latest_hash
 
         self._attr_installed_version = current_version + (
             f" ({current_hash})" if show_hash else ""
@@ -141,7 +141,7 @@ class RivianUpdateEntity(RivianVehicleEntity, UpdateEntity):
                 url = details["url"]
             else:
                 url = data["currentOTAUpdateDetails"]["url"]
-        except:  # pylint: disable=bare-except
+        except:  # noqa: E722 # pylint: disable=bare-except
             url = self._rivian_software_url
         return f"[Read release announcement]({url})"
 

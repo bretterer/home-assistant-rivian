@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from ast import Expression
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -18,7 +17,7 @@ from homeassistant.components.switch import SwitchEntityDescription
 from homeassistant.helpers.entity import EntityDescription
 
 if TYPE_CHECKING:
-    from .coordinator import VehicleCoordinator
+    from .coordinator import RivianDataUpdateCoordinator, VehicleCoordinator
 
 
 @dataclass(kw_only=True)
@@ -36,6 +35,7 @@ class RivianBinarySensorEntityDescription(BinarySensorEntityDescription):
     # Value to consider binary sensor to be "on"
     on_value: bool | float | int | str | list[str] = True
     negate: bool = False
+    required_feature: str | None = None
 
 
 @dataclass(kw_only=True)
@@ -51,7 +51,11 @@ class RivianButtonEntityDescription(
 class RivianCoverEntityDescription(CoverEntityDescription):
     """Rivian cover entity description."""
 
+    can_close: Callable[[VehicleCoordinator], bool] | None = None
     is_closed: Callable[[VehicleCoordinator], bool]
+    is_closing: Callable[[VehicleCoordinator], bool] | None = None
+    is_opening: Callable[[VehicleCoordinator], bool] | None = None
+
     close_cover: Callable[[VehicleCoordinator], Awaitable[None]]
     open_cover: Callable[[VehicleCoordinator], Awaitable[None]]
 
@@ -86,8 +90,8 @@ class RivianSensorEntityDescription(SensorEntityDescription):
     """Rivian Sensor Entity Description"""
 
     field: str
-    value_fn: Callable[[VehicleCoordinator], Any] | None = None
-    value_lambda: Expression | None = None
+    required_feature: str | None = None
+    value_fn: Callable[[RivianDataUpdateCoordinator], Any] | None = None
 
 
 @dataclass(kw_only=True)

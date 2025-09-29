@@ -26,7 +26,7 @@ from .entity import RivianVehicleControlEntity
 _LOGGER = logging.getLogger(__name__)
 
 CLIMATE: Final[ClimateEntityDescription] = ClimateEntityDescription(
-    key="cabin_climate", name="Cabin Climate"
+    key="cabin_climate", translation_key="cabin_climate"
 )
 
 DEFROST_DEFOG = "Defrost/Defog"

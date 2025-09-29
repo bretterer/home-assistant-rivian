@@ -1,4 +1,4 @@
-"""Rivian (Unofficial)"""
+"""Rivian"""
 
 from __future__ import annotations
 

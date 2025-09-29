@@ -23,8 +23,7 @@ _LOGGER = logging.getLogger(__name__)
 SWITCHES: Final[tuple[RivianSwitchEntityDescription, ...]] = (
     RivianSwitchEntityDescription(
         key="alarm",
-        icon="mdi:alarm-light",
-        name="Alarm",
+        translation_key="alarm",
         is_on=lambda coor: coor.get("alarmSoundStatus") == "true",
         turn_off=lambda coor: coor.send_vehicle_command(
             command=VehicleCommand.PANIC_OFF
@@ -33,12 +32,14 @@ SWITCHES: Final[tuple[RivianSwitchEntityDescription, ...]] = (
     ),
     RivianSwitchEntityDescription(
         key="charging_enabled",
-        icon="mdi:lightning-bolt",
-        name="Charging Enabled",
-        available=lambda coor: coor.get("remoteChargingAvailable") == 1
-        or coor.get("chargerState") == "charging_active",
-        is_on=lambda coor: coor.get("chargerState")
-        in ("charging_active", "charging_connecting"),
+        translation_key="charging_enabled",
+        available=lambda coor: (
+            coor.get("remoteChargingAvailable") == 1
+            or coor.get("chargerState") == "charging_active"
+        ),
+        is_on=lambda coor: (
+            coor.get("chargerState") in ("charging_active", "charging_connecting")
+        ),
         turn_off=lambda coor: coor.send_vehicle_command(
             command=VehicleCommand.STOP_CHARGING
         ),
@@ -48,8 +49,7 @@ SWITCHES: Final[tuple[RivianSwitchEntityDescription, ...]] = (
     ),
     RivianSwitchEntityDescription(
         key="gear_guard_video",
-        icon="mdi:cctv",
-        name="Gear Guard Video",
+        translation_key="gear_guard_video",
         is_on=lambda coor: coor.get("gearGuardVideoStatus") != "Disabled",
         turn_off=lambda coor: coor.send_vehicle_command(
             command=VehicleCommand.DISABLE_GEAR_GUARD_VIDEO
@@ -60,8 +60,7 @@ SWITCHES: Final[tuple[RivianSwitchEntityDescription, ...]] = (
     ),
     RivianSwitchEntityDescription(
         key="steering_wheel_heat",
-        icon="mdi:steering",
-        name="Steering Wheel Heat",
+        translation_key="steering_wheel_heat",
         is_on=lambda coor: coor.get("steeringWheelHeat") != "Off",
         turn_off=lambda coor: coor.send_vehicle_command(
             command=VehicleCommand.CABIN_HVAC_STEERING_HEAT, params={"level": 0}

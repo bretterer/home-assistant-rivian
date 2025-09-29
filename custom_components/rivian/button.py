@@ -15,9 +15,14 @@ import rivian.ble as rivian_ble
 
 from homeassistant.components import bluetooth
 from homeassistant.components.bluetooth import BluetoothScanningMode
-from homeassistant.components.button import ButtonEntity, ButtonEntityDescription
+from homeassistant.components.button import (
+    DOMAIN as BUTTON_DOMAIN,
+    ButtonEntity,
+    ButtonEntityDescription,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, HomeAssistantError
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import ATTR_COORDINATOR, ATTR_USER, ATTR_VEHICLE, DOMAIN
@@ -32,8 +37,7 @@ BUTTONS: Final[dict[str | None, tuple[RivianButtonEntityDescription, ...]]] = {
     None: (
         RivianButtonEntityDescription(
             key="wake",
-            icon="mdi:weather-night",
-            name="Wake",
+            translation_key="wake",
             available=lambda coordinator: coordinator.get("powerState") == "sleep",
             press_fn=lambda coordinator: coordinator.send_vehicle_command(
                 command=VehicleCommand.WAKE_VEHICLE
@@ -43,14 +47,14 @@ BUTTONS: Final[dict[str | None, tuple[RivianButtonEntityDescription, ...]]] = {
     "SIDE_BIN_NXT_ACT": (
         RivianButtonEntityDescription(
             key="open_gear_tunnel_left",
-            name="Open Gear Tunnel Left",
+            translation_key="open_gear_tunnel_left",
             press_fn=lambda coordinator: coordinator.send_vehicle_command(
                 command=VehicleCommand.RELEASE_LEFT_SIDE_BIN
             ),
         ),
         RivianButtonEntityDescription(
             key="open_gear_tunnel_right",
-            name="Open Gear Tunnel Right",
+            translation_key="open_gear_tunnel_right",
             press_fn=lambda coordinator: coordinator.send_vehicle_command(
                 command=VehicleCommand.RELEASE_RIGHT_SIDE_BIN
             ),
@@ -59,7 +63,7 @@ BUTTONS: Final[dict[str | None, tuple[RivianButtonEntityDescription, ...]]] = {
     "TAILGATE_CMD": (
         RivianButtonEntityDescription(
             key="drop_tailgate",
-            name="Drop Tailgate",
+            translation_key="drop_tailgate",
             available=lambda coordinator: coordinator.get("closureTailgateClosed")
             != "open",
             press_fn=lambda coordinator: coordinator.send_vehicle_command(
@@ -68,6 +72,8 @@ BUTTONS: Final[dict[str | None, tuple[RivianButtonEntityDescription, ...]]] = {
         ),
     ),
 }
+
+PAIR_PHONE_BUTTON = ButtonEntityDescription(key="pair", translation_key="pair")
 
 
 async def async_setup_entry(
@@ -86,21 +92,26 @@ async def async_setup_entry(
         if feature is None or feature in (vehicle.get("supported_features", []))
         for description in descriptions
     ]
-    entities.extend(
-        RivianPairPhoneButtonEntity(
-            coordinators[vehicle_id],
-            entry,
-            ButtonEntityDescription(key="pair", name="Pair"),
-            vehicle,
-        )
-        for vehicle_id, vehicle in vehicles.items()
-        if (
-            device := coordinators[vehicle_id].drivers_coordinator.get_device_details(
-                vehicle.get("phone_identity_id")
-            )
-        )
-        and not device["isPaired"]
-    )
+
+    entity_registry = er.async_get(hass)
+
+    # add or remove pair phone key button as needed
+    for vehicle_id, vehicle in vehicles.items():
+        driver_coordinator = coordinators[vehicle_id].drivers_coordinator
+        device = driver_coordinator.get_device_details(vehicle.get("phone_identity_id"))
+        if device:
+            if device["isPaired"]:
+                if entity_id := entity_registry.async_get_entity_id(
+                    BUTTON_DOMAIN, DOMAIN, f"{vehicle['vin']}-pair"
+                ):
+                    entity_registry.async_remove(entity_id)
+            else:
+                entities.append(
+                    RivianPairPhoneButtonEntity(
+                        coordinators[vehicle_id], entry, PAIR_PHONE_BUTTON, vehicle
+                    )
+                )
+
     async_add_entities(entities)
 
 

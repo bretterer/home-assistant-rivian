@@ -23,7 +23,7 @@ _LOGGER = logging.getLogger(__name__)
 LOCKS: Final[tuple[RivianLockEntityDescription, ...]] = (
     RivianLockEntityDescription(
         key="closures",
-        name="Closures",
+        translation_key="closures",
         is_locked=lambda coordinator: not any(
             coordinator.get(key) == "unlocked" for key in LOCK_STATE_ENTITIES
         ),

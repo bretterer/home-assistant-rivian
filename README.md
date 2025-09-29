@@ -1,4 +1,4 @@
-# Home Assistant integration for Rivian (Unofficial)
+# Home Assistant integration for Rivian
 
 [![GitHub Release][releases-shield]][releases]
 ![GitHub all releases][download-all]
@@ -36,7 +36,7 @@ This integration will not share user or vehicle data outside Home Assistant, a s
 5. Download _all_ the files from the `custom_components/rivian/` directory (folder) in this repository.
 6. Place the files you downloaded in the new directory (folder) you created.
 7. Restart Home Assistant.
-8. [![Add Integration][add-integration-badge]][add-integration] or in the Home Assistant UI go to "Configuration" -> "Integrations" click "+" and search for "Rivian (Unofficial)".
+8. [![Add Integration][add-integration-badge]][add-integration] or in the Home Assistant UI go to "Configuration" -> "Integrations" click "+" and search for "Rivian".
 
 ## Configuration
 
@@ -81,7 +81,7 @@ Note: If you are having issues with pairing your vehicle, we recommend investing
 
 | Name                                                | Domain         | Description                            |
 | --------------------------------------------------- | -------------- | -------------------------------------- |
-| 12V Battery Health                                  | Sensor         |                                        |
+| 12 V Battery Health                                 | Sensor         |                                        |
 | Altitude                                            | Sensor         |                                        |
 | Battery Capactiy                                    | Sensor         |                                        |
 | Battery State of Charge                             | Sensor         |                                        |
@@ -152,24 +152,24 @@ Note: If you are having issues with pairing your vehicle, we recommend investing
 | Remote Charging Available                           | Sensor         |                                        |
 | Service Mode                                        | Sensor         |                                        |
 | Software                                            | Update         |                                        |
-| Software OTA - Available Version\*                  | Sensor         |                                        |
-| Software OTA - Available Version Git Hash\*         | Sensor         |                                        |
-| Software OTA - Available Version Number\*           | Sensor         |                                        |
-| Software OTA - Available Version Week\*             | Sensor         |                                        |
-| Software OTA - Available Version Year\*             | Sensor         |                                        |
-| Software OTA - Current Version\*                    | Sensor         |                                        |
-| Software OTA - Current Version Git Hash\*           | Sensor         |                                        |
-| Software OTA - Current Version Number\*             | Sensor         |                                        |
-| Software OTA - Current Version Week\*               | Sensor         |                                        |
-| Software OTA - Current Version Year\*               | Sensor         |                                        |
-| Software OTA - Download Progress                    | Sensor         |                                        |
-| Software OTA - Install Duration                     | Sensor         |                                        |
-| Software OTA - Install Progress\*                   | Sensor         |                                        |
-| Software OTA - Install Ready                        | Sensor         |                                        |
-| Software OTA - Install Time                         | Sensor         |                                        |
-| Software OTA - Install Type                         | Sensor         |                                        |
-| Software OTA - Status                               | Sensor         |                                        |
-| Software OTA - Status Current                       | Sensor         |                                        |
+| Software OTA Available Version\*                    | Sensor         |                                        |
+| Software OTA Available Version Git Hash\*           | Sensor         |                                        |
+| Software OTA Available Version Number\*             | Sensor         |                                        |
+| Software OTA Available Version Week\*               | Sensor         |                                        |
+| Software OTA Available Version Year\*               | Sensor         |                                        |
+| Software OTA Current Version\*                      | Sensor         |                                        |
+| Software OTA Current Version Git Hash\*             | Sensor         |                                        |
+| Software OTA Current Version Number\*               | Sensor         |                                        |
+| Software OTA Current Version Week\*                 | Sensor         |                                        |
+| Software OTA Current Version Year\*                 | Sensor         |                                        |
+| Software OTA Download Progress                      | Sensor         |                                        |
+| Software OTA Install Duration                       | Sensor         |                                        |
+| Software OTA Install Progress\*                     | Sensor         |                                        |
+| Software OTA Install Ready                          | Sensor         |                                        |
+| Software OTA Install Time                           | Sensor         |                                        |
+| Software OTA Install Type                           | Sensor         |                                        |
+| Software OTA Status                                 | Sensor         |                                        |
+| Software OTA Status Current                         | Sensor         |                                        |
 | Speed                                               | Sensor         |                                        |
 | Tailgate                                            | Binary Sensor  | Open/close status                      |
 | Tailgate Lock                                       | Binary Sensor  | Locked/unlocked status                 |

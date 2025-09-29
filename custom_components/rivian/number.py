@@ -24,12 +24,11 @@ _LOGGER = logging.getLogger(__name__)
 NUMBERS: Final[tuple[RivianNumberEntityDescription, ...]] = (
     RivianNumberEntityDescription(
         key="charge_limit",
+        translation_key="charge_limit",
+        field="batteryLimit",
         device_class=NumberDeviceClass.BATTERY,
-        icon="mdi:battery-charging-70",
-        name="Charge Limit",
         native_min_value=50,
         native_unit_of_measurement=PERCENTAGE,
-        field="batteryLimit",
         set_fn=lambda coordinator, value: coordinator.send_vehicle_command(
             command=VehicleCommand.CHARGING_LIMITS, params={"SOC_limit": int(value)}
         ),

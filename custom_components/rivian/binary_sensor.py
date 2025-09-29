@@ -1,8 +1,7 @@
-"""Rivian (Unofficial)"""
+"""Rivian"""
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import Any
 
 from homeassistant.components.binary_sensor import BinarySensorEntity
@@ -31,6 +30,7 @@ async def async_setup_entry(
         for model, descriptions in BINARY_SENSORS.items()
         if model in vehicle["model"]
         for description in descriptions
+        if description.required_feature in (vehicle.get("supported_features") + [None])
     ]
 
     async_add_entities(entities)
@@ -73,23 +73,6 @@ class RivianBinarySensorEntity(RivianVehicleEntity, BinarySensorEntity):
         if (val := self._get_value(fields)) is not None:
             values = self.entity_description.on_value
             values = [values] if isinstance(values, str) else values
-            result = val in values
+            result = (val.lower() if isinstance(val, str) else val) in values
             return result if not self.entity_description.negate else not result
         return STATE_UNAVAILABLE
-
-    @property
-    def extra_state_attributes(self) -> Mapping[str, Any] | None:
-        """Return the state attributes of the device."""
-        if self._aggregate:
-            return None
-        try:
-            entity = self.coordinator.data[self.entity_description.field]
-            if entity is None:
-                return "Binary Sensor Unavailable"
-            return {
-                "value": entity["value"],
-                "last_update": entity["timeStamp"],
-                "history": str(entity["history"]),
-            }
-        except KeyError:
-            return None

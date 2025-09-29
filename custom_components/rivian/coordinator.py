@@ -250,6 +250,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
 
     key = "vehicleState"
     _update_interval_seconds = 15 * 60  # 15 minutes
+    _last_update_time: datetime | None = None
 
     def __init__(
         self,
@@ -270,6 +271,11 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         self._initial = asyncio.Event()
         self._unsub_handler: Coroutine[None, None, None] | None = None
         self._awake = asyncio.Event()
+
+    @property
+    def last_update_time(self) -> datetime | None:
+        """Return the last update time, if any."""
+        return self._last_update_time
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Get the latest data from Rivian."""
@@ -313,14 +319,13 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
 
     def _build_vehicle_info_dict(self, vijson: dict[str, Any]) -> dict[str, Any]:
         """Take the json output of vehicle_info and build a dictionary."""
-        items = {
-            k: v | ({"history": {v["value"]}} if "value" in v else {})
-            for k, v in vijson.items()
-            if v
-        }
+        items = {k: v for k, v in vijson.items() if v}
 
         if items:
             _LOGGER.debug("Vehicle %s updated: %s", self.vehicle_id, redact(items))
+            self._last_update_time = datetime.fromisoformat(
+                max(v["timeStamp"] for k, v in items.items())
+            )
 
         if power_state := items.get("powerState"):
             if power_state.get("value") == "sleep":
@@ -342,7 +347,6 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             value = items[key].get("value")
             if str(value).lower() in INVALID_SENSOR_STATES and key in prev_items:
                 new_data[key] = prev_items[key]
-            new_data[key]["history"] |= prev_items.get(key, {}).get("history", set())
 
         return new_data
 
@@ -412,7 +416,7 @@ class VehicleImageCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
     async def _fetch_data(self) -> ClientResponse:
         """Fetch the data."""
         data = await self.api.get_vehicle_images(
-            resolution="@3x", vehicle_version=self.version
+            resolution="xxhdpi", vehicle_version=self.version
         )
         self._last_updated = datetime.now(timezone.utc)
         return data

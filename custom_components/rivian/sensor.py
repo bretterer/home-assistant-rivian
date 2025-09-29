@@ -1,4 +1,4 @@
-"""Rivian (Unofficial)"""
+"""Rivian"""
 
 from __future__ import annotations
 
@@ -65,6 +65,7 @@ async def async_setup_entry(
         for model, descriptions in SENSORS.items()
         if model in vehicle["model"]
         for description in descriptions
+        if description.required_feature in (vehicle.get("supported_features") + [None])
     ]
 
     # Add charging entities
@@ -114,36 +115,17 @@ class RivianSensorEntity(RivianVehicleEntity, SensorEntity):
         if (val := self._get_value(self.entity_description.field)) is None:
             return STATE_UNAVAILABLE if not self.native_unit_of_measurement else None
 
-        rval = _fn(val) if (_fn := self.entity_description.value_lambda) else val
-        if self.device_class == SensorDeviceClass.ENUM and rval not in self.options:
-            _LOGGER.error(
-                "Sensor %s provides state value '%s', which is not in the list of known options. Please consider opening an issue at https://github.com/bretterer/home-assistant-rivian/issues with the following info: 'field: \"%s\" / value: \"%s\"'",
-                self.name,
-                rval,
-                self.entity_description.field,
-                val,
-            )
-            self.options.append(rval)
-        return rval
-
-    @property
-    def extra_state_attributes(self) -> Mapping[str, Any] | None:
-        """Return the state attributes of the device."""
-        try:
-            entity = self.coordinator.data[self.entity_description.field]
-            if entity is None:
-                return None
-            if self.entity_description.value_lambda is None:
-                return {
-                    "last_update": entity["timeStamp"],
-                }
-            return {
-                "native_value": entity["value"],
-                "last_update": entity["timeStamp"],
-                "history": str(entity["history"]),
-            }
-        except KeyError:
-            return None
+        if self.device_class == SensorDeviceClass.ENUM:
+            if (val := val.lower()) not in self.options:
+                _LOGGER.error(
+                    "Sensor %s provides state value '%s', which is not in the list of known options. Please consider opening an issue at https://github.com/bretterer/home-assistant-rivian/issues with the following info: 'field: \"%s\" / value: \"%s\"'",
+                    self.name,
+                    val,
+                    self.entity_description.field,
+                    val,
+                )
+                self.options.append(val)
+        return val
 
 
 class RivianChargingSensorEntity(RivianChargingEntity, SensorEntity):
@@ -154,11 +136,11 @@ class RivianChargingSensorEntity(RivianChargingEntity, SensorEntity):
     @property
     def native_value(self) -> str | float | None:
         """Return the value reported by the sensor."""
+        if value_fn := self.entity_description.value_fn:
+            return value_fn(self.coordinator)
         val = self.coordinator.data.get(self.entity_description.field)
         if isinstance(val, dict):
             val = val["value"]
-        if value_fn := self.entity_description.value_lambda:
-            return value_fn(val)
         return val
 
     @property
@@ -174,15 +156,15 @@ class RivianChargingSensorEntity(RivianChargingEntity, SensorEntity):
 CHARGING_SENSORS: Final[tuple[RivianSensorEntityDescription, ...]] = (
     RivianSensorEntityDescription(
         key="charging_cost",
+        translation_key="charging_cost",
         field="currentPrice",
-        name="Charging Cost",
         device_class=SensorDeviceClass.MONETARY,
         state_class=SensorStateClass.TOTAL,
     ),
     RivianSensorEntityDescription(
         key="charging_energy_delivered",
+        translation_key="charging_energy_delivered",
         field="totalChargedEnergy",
-        name="Charging Energy Delivered",
         device_class=SensorDeviceClass.ENERGY,
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         state_class=SensorStateClass.TOTAL,
@@ -190,8 +172,8 @@ CHARGING_SENSORS: Final[tuple[RivianSensorEntityDescription, ...]] = (
     ),
     RivianSensorEntityDescription(
         key="charging_range_added",
+        translation_key="charging_range_added",
         field="rangeAddedThisSession",
-        name="Charging Range Added",
         device_class=SensorDeviceClass.DISTANCE,
         native_unit_of_measurement=UnitOfLength.KILOMETERS,
         state_class=SensorStateClass.TOTAL_INCREASING,
@@ -199,8 +181,8 @@ CHARGING_SENSORS: Final[tuple[RivianSensorEntityDescription, ...]] = (
     ),
     RivianSensorEntityDescription(
         key="charging_rate",
+        translation_key="charging_rate",
         field="kilometersChargedPerHour",
-        name="Charging Rate",
         device_class=SensorDeviceClass.SPEED,
         native_unit_of_measurement=UnitOfSpeed.KILOMETERS_PER_HOUR,
         state_class=SensorStateClass.MEASUREMENT,
@@ -208,25 +190,27 @@ CHARGING_SENSORS: Final[tuple[RivianSensorEntityDescription, ...]] = (
     ),
     RivianSensorEntityDescription(
         key="charging_speed",
+        translation_key="charging_speed",
         field="power",
-        name="Charging Speed",
         device_class=SensorDeviceClass.POWER,
         native_unit_of_measurement=UnitOfPower.KILO_WATT,
         state_class=SensorStateClass.MEASUREMENT,
     ),
     RivianSensorEntityDescription(
         key="charging_start_time",
+        translation_key="charging_start_time",
         field="startTime",
-        name="Charging Start Time",
         device_class=SensorDeviceClass.TIMESTAMP,
-        value_lambda=lambda val: datetime.strptime(val, RIVIAN_TIMESTAMP_FORMAT)
-        if val
-        else val,
+        value_fn=lambda coor: (
+            datetime.strptime(val, RIVIAN_TIMESTAMP_FORMAT)
+            if (val := coor.data.get("startTime"))
+            else val
+        ),
     ),
     RivianSensorEntityDescription(
         key="charging_time_elapsed",
+        translation_key="charging_time_elapsed",
         field="timeElapsed",
-        name="Charging Time Elapsed",
         device_class=SensorDeviceClass.DURATION,
         native_unit_of_measurement=UnitOfTime.SECONDS,
         state_class=SensorStateClass.TOTAL_INCREASING,
@@ -251,37 +235,34 @@ class RivianWallboxSensorEntity(RivianWallboxEntity, SensorEntity):
 WALLBOX_SENSORS = (
     RivianWallboxSensorEntityDescription(
         key="charging_status",
-        field="chargingStatus",
-        name="Charging status",
-        icon="mdi:ev-plug-type1",
-        device_class=SensorDeviceClass.ENUM,
-        options=["unavailable", "available", "disconnected", "plugged_in", "charging"],
         translation_key="charging_status",
+        field="chargingStatus",
+        device_class=SensorDeviceClass.ENUM,
+        options=["available", "charging", "disconnected", "plugged_in", "unavailable"],
     ),
     RivianWallboxSensorEntityDescription(
         key="amperage",
+        translation_key="amperage",
         field="currentAmps",
-        name="Amperage",
         device_class=SensorDeviceClass.CURRENT,
-        entity_category=EntityCategory.DIAGNOSTIC,
         native_unit_of_measurement=UnitOfElectricCurrent.AMPERE,
         state_class=SensorStateClass.MEASUREMENT,
     ),
     RivianWallboxSensorEntityDescription(
         key="amperage_maximum",
+        translation_key="amperage_maximum",
         field="maxAmps",
-        name="Amperage maximum",
         device_class=SensorDeviceClass.CURRENT,
         entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
         native_unit_of_measurement=UnitOfElectricCurrent.AMPERE,
         state_class=SensorStateClass.MEASUREMENT,
     ),
     RivianWallboxSensorEntityDescription(
         key="power",
+        translation_key="power",
         field="power",
-        name="Power",
         device_class=SensorDeviceClass.POWER,
-        entity_category=EntityCategory.DIAGNOSTIC,
         native_unit_of_measurement=UnitOfPower.WATT,
         state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=1,
@@ -289,54 +270,64 @@ WALLBOX_SENSORS = (
     ),
     RivianWallboxSensorEntityDescription(
         key="power_maximum",
+        translation_key="power_maximum",
         field="maxPower",
-        name="Power maximum",
         device_class=SensorDeviceClass.POWER,
         entity_category=EntityCategory.DIAGNOSTIC,
-        native_unit_of_measurement=UnitOfPower.WATT,
+        entity_registry_enabled_default=False,
+        native_unit_of_measurement=UnitOfPower.KILO_WATT,
         state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=1,
         suggested_unit_of_measurement=UnitOfPower.KILO_WATT,
     ),
     RivianWallboxSensorEntityDescription(
         key="voltage",
+        translation_key="voltage",
         field="currentVoltage",
-        name="Voltage",
         device_class=SensorDeviceClass.VOLTAGE,
-        entity_category=EntityCategory.DIAGNOSTIC,
         native_unit_of_measurement=UnitOfElectricPotential.VOLT,
         state_class=SensorStateClass.MEASUREMENT,
     ),
     RivianWallboxSensorEntityDescription(
         key="voltage_maximum",
+        translation_key="voltage_maximum",
         field="maxVoltage",
-        name="Voltage maximum",
         device_class=SensorDeviceClass.VOLTAGE,
         entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
         native_unit_of_measurement=UnitOfElectricPotential.VOLT,
         state_class=SensorStateClass.MEASUREMENT,
+    ),
+    RivianWallboxSensorEntityDescription(
+        key="ssid",
+        translation_key="ssid",
+        field="wifiId",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
     ),
 )
 
 DRIVER_SENSORS: Final[tuple[RivianSensorEntityDescription, ...]] = (
     RivianSensorEntityDescription(
         key="drivers",
-        icon="mdi:account-multiple",
-        name="Drivers",
+        translation_key="drivers",
         field="invitedUsers",
-        value_lambda=lambda data: len(
-            [user for user in (data or []) if user["__typename"] == "ProvisionedUser"]
+        value_fn=lambda coor: len(
+            [
+                user
+                for user in (coor.data.get("invitedUsers") or [])
+                if user["__typename"] == "ProvisionedUser"
+            ]
         ),
     ),
     RivianSensorEntityDescription(
         key="keys",
-        icon="mdi:car-key",
-        name="Keys",
+        translation_key="keys",
         field="invitedUsers",
-        value_lambda=lambda data: len(
+        value_fn=lambda coor: len(
             [
                 keys
-                for user in (data or [])
+                for user in (coor.data.get("invitedUsers") or [])
                 if user["__typename"] == "ProvisionedUser"
                 for keys in user.get("devices", [])
             ]
@@ -368,8 +359,7 @@ class RivianDriverSensorEntity(RivianEntity[DriverKeyCoordinator], SensorEntity)
     def native_value(self) -> int:
         """Return the value reported by the sensor."""
         if self.coordinator.data:
-            data = self.coordinator.data.get(self.entity_description.field)
-            return self.entity_description.value_lambda(data)
+            return self.entity_description.value_fn(self.coordinator)
         return 0
 
     @property
