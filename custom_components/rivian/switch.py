@@ -70,6 +70,23 @@ SWITCHES: Final[tuple[RivianSwitchEntityDescription, ...]] = (
             command=VehicleCommand.CABIN_HVAC_STEERING_HEAT, params={"level": 1}
         ),
     ),
+    # NOTE: Climate Hold requires Rivian software 2025.38+ and rivian-python-client
+    # with CLIMATE_HOLD_ON/CLIMATE_HOLD_OFF commands. If these commands are not available
+    # in the installed rivian-python-client version, this switch will fail to operate.
+    # State fields (cabinHoldStatus, cabinHoldNotification) are confirmed in GraphQL subscription.
+    # Duration is controlled by the vehicle firmware and cannot be set via the mobile app API.
+    RivianSwitchEntityDescription(
+        key="cabin_climate_hold",
+        icon="mdi:hvac",
+        name="Cabin Climate Hold",
+        is_on=lambda coor: coor.get("cabinHoldStatus") in ("on", "ON", "On"),
+        turn_off=lambda coor: coor.send_vehicle_command(
+            command=VehicleCommand.CLIMATE_HOLD_OFF
+        ),
+        turn_on=lambda coor: coor.send_vehicle_command(
+            command=VehicleCommand.CLIMATE_HOLD_ON
+        ),
+    ),
 )
 
 

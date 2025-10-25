@@ -365,6 +365,8 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         self, command: VehicleCommand, params: dict[str, Any] | None = None
     ) -> None:
         """Send a command to the vehicle."""
+        _LOGGER.debug("Sending command %s with params: %s", command, params)
+
         if self.get("powerState") == "sleep" and command != VehicleCommand.WAKE_VEHICLE:
             await self.send_vehicle_command(VehicleCommand.WAKE_VEHICLE)
             try:
