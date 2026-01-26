@@ -96,9 +96,10 @@ class RivianClimateEntity(RivianVehicleControlEntity, ClimateEntity):
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         """Set new target hvac mode."""
         if hvac_mode == HVACMode.HEAT:
-            return await self.coordinator.send_vehicle_command(
+            await self.coordinator.send_vehicle_command(
                 command=VehicleCommand.CABIN_HVAC_DEFROST_DEFOG, params={"level": 1}
             )
+            return
         await self.coordinator.send_vehicle_command(
             command=VehicleCommand.VEHICLE_CABIN_PRECONDITION_DISABLE
             if hvac_mode == HVACMode.OFF
@@ -108,9 +109,10 @@ class RivianClimateEntity(RivianVehicleControlEntity, ClimateEntity):
     async def async_set_preset_mode(self, preset_mode: str) -> None:
         """Set new preset mode."""
         if preset_mode == DEFROST_DEFOG:
-            return await self.coordinator.send_vehicle_command(
+            await self.coordinator.send_vehicle_command(
                 command=VehicleCommand.CABIN_HVAC_DEFROST_DEFOG, params={"level": 1}
             )
+            return
         await self.async_set_temperature(
             temperature={"LO": 0, "HI": 63.5}.get(preset_mode)
         )

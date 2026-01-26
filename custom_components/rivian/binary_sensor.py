@@ -7,7 +7,6 @@ from typing import Any
 
 from homeassistant.components.binary_sensor import BinarySensorEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -20,7 +19,7 @@ from .entity import RivianVehicleEntity
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
-    """Set up the sensor entities"""
+    """Set up the binary sensor entities."""
     data: dict[str, Any] = hass.data[DOMAIN][entry.entry_id]
     vehicles: dict[str, Any] = data[ATTR_VEHICLE]
     coordinators: dict[str, VehicleCoordinator] = data[ATTR_COORDINATOR][ATTR_VEHICLE]
@@ -63,7 +62,7 @@ class RivianBinarySensorEntity(RivianVehicleEntity, BinarySensorEntity):
         return super().available
 
     @property
-    def is_on(self) -> bool:
+    def is_on(self) -> bool | None:
         """Return true if sensor is on."""
         fields = self.entity_description.field
         if self._aggregate:
@@ -75,7 +74,7 @@ class RivianBinarySensorEntity(RivianVehicleEntity, BinarySensorEntity):
             values = [values] if isinstance(values, str) else values
             result = val in values
             return result if not self.entity_description.negate else not result
-        return STATE_UNAVAILABLE
+        return None
 
     @property
     def extra_state_attributes(self) -> Mapping[str, Any] | None:

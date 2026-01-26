@@ -37,7 +37,7 @@ UPDATE_DESCRIPTION = UpdateEntityDescription(
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
-    """Set up the sensor entities"""
+    """Set up the update entities."""
     data: dict[str, Any] = hass.data[DOMAIN][entry.entry_id]
     vehicles: dict[str, Any] = data[ATTR_VEHICLE]
     coordinators: dict[str, VehicleCoordinator] = data[ATTR_COORDINATOR][ATTR_VEHICLE]
@@ -126,7 +126,7 @@ class RivianUpdateEntity(RivianVehicleEntity, UpdateEntity):
             raise RivianBadRequestError(
                 f"Software update is {status}, please try again later"
             )
-        return await self.coordinator.send_vehicle_command(
+        await self.coordinator.send_vehicle_command(
             VehicleCommand.OTA_INSTALL_NOW_ACKNOWLEDGE
         )
 
@@ -141,7 +141,7 @@ class RivianUpdateEntity(RivianVehicleEntity, UpdateEntity):
                 url = details["url"]
             else:
                 url = data["currentOTAUpdateDetails"]["url"]
-        except:  # pylint: disable=bare-except
+        except Exception:  # pylint: disable=broad-except
             url = self._rivian_software_url
         return f"[Read release announcement]({url})"
 
@@ -149,4 +149,4 @@ class RivianUpdateEntity(RivianVehicleEntity, UpdateEntity):
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
         self._update_version_info()
-        return super()._handle_coordinator_update()
+        super()._handle_coordinator_update()

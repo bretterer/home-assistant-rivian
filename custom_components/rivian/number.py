@@ -40,7 +40,7 @@ NUMBERS: Final[tuple[RivianNumberEntityDescription, ...]] = (
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
-    """Set up the number entities"""
+    """Set up the number entities."""
     data: dict[str, Any] = hass.data[DOMAIN][entry.entry_id]
     vehicles: dict[str, dict[str, Any]] = data[ATTR_VEHICLE]
     coordinators: dict[str, VehicleCoordinator] = data[ATTR_COORDINATOR][ATTR_VEHICLE]
@@ -60,7 +60,7 @@ class RivianNumberEntity(RivianVehicleControlEntity, NumberEntity):
     entity_description: RivianNumberEntityDescription
 
     @property
-    def native_value(self) -> str | None:
+    def native_value(self) -> float | None:
         """Return the value reported by the number."""
         return self._get_value(self.entity_description.field)
 

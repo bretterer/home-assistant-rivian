@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from ast import Expression
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -87,7 +86,7 @@ class RivianSensorEntityDescription(SensorEntityDescription):
 
     field: str
     value_fn: Callable[[VehicleCoordinator], Any] | None = None
-    value_lambda: Expression | None = None
+    value_lambda: Callable[[Any], Any] | None = None
 
 
 @dataclass(kw_only=True)
