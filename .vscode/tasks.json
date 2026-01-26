@@ -1,4 +1,40 @@
 {
     "version": "2.0.0",
-    "tasks": []
+    "tasks": [
+        {
+            "label": "Run Home Assistant",
+            "type": "shell",
+            "command": "python3 -m homeassistant -c config",
+            "problemMatcher": [],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "new"
+            }
+        },
+        {
+            "label": "Lint (ruff check)",
+            "type": "shell",
+            "command": "ruff check custom_components/",
+            "problemMatcher": [],
+            "group": "test"
+        },
+        {
+            "label": "Format (ruff format)",
+            "type": "shell",
+            "command": "ruff format custom_components/",
+            "problemMatcher": [],
+            "group": "test"
+        },
+        {
+            "label": "Lint and Fix",
+            "type": "shell",
+            "command": "ruff check --fix custom_components/ && ruff format custom_components/",
+            "problemMatcher": [],
+            "group": "test"
+        }
+    ]
 }
