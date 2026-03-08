@@ -84,7 +84,7 @@ async def validate_vehicle_control(
     user = UserCoordinator(
         hass=hass, config_entry=entry, client=api, include_phones=True
     )
-    await user.async_config_entry_first_refresh()
+    await user.async_refresh()
     user_id = user.data["id"]
     vehicles = user.get_vehicles()
     vehicle_control = user_input.get(CONF_VEHICLE_CONTROL, [])
