@@ -20,7 +20,6 @@ from .entity import RivianVehicleControlEntity
 _LOGGER = logging.getLogger(__name__)
 
 LEVEL_MAP = {"Off": "0", "On": "1", "Level_1": "2", "Level_2": "3", "Level_3": "4"}
-OFF_ON = ["Off", "On"]
 LEVELS = ["Off", "Level_1", "Level_2", "Level_3"]
 
 
@@ -97,7 +96,7 @@ SELECTS: Final[tuple[RivianSelectEntityDescription, ...]] = (
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
-    """Set up the select entities"""
+    """Set up the select entities."""
     data: dict[str, Any] = hass.data[DOMAIN][entry.entry_id]
     vehicles: dict[str, dict[str, Any]] = data[ATTR_VEHICLE]
     coordinators: dict[str, VehicleCoordinator] = data[ATTR_COORDINATOR][ATTR_VEHICLE]

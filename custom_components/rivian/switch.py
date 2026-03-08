@@ -76,7 +76,7 @@ SWITCHES: Final[tuple[RivianSwitchEntityDescription, ...]] = (
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
-    """Set up the sensor entities"""
+    """Set up the switch entities."""
     data: dict[str, Any] = hass.data[DOMAIN][entry.entry_id]
     vehicles: dict[str, dict[str, Any]] = data[ATTR_VEHICLE]
     coordinators: dict[str, VehicleCoordinator] = data[ATTR_COORDINATOR][ATTR_VEHICLE]
@@ -91,7 +91,7 @@ async def async_setup_entry(
 
 
 class RivianSwitchEntity(RivianVehicleControlEntity, SwitchEntity):
-    """Representation of a Rivian sensor entity."""
+    """Representation of a Rivian switch entity."""
 
     entity_description: RivianSwitchEntityDescription
 
@@ -111,7 +111,7 @@ class RivianSwitchEntity(RivianVehicleControlEntity, SwitchEntity):
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the entity off."""
-        return await self.entity_description.turn_off(self.coordinator)
+        await self.entity_description.turn_off(self.coordinator)
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the entity on."""

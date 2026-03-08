@@ -21,7 +21,7 @@ LOCATION_DESCRIPTION = RivianTrackerEntityDescription(key="location", name="Loca
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
-    """Set up the Rivain binary_sensors by config_entry."""
+    """Set up the device tracker entities."""
     data: dict[str, Any] = hass.data[DOMAIN][entry.entry_id]
     vehicles: dict[str, Any] = data[ATTR_VEHICLE]
     coordinators: dict[str, VehicleCoordinator] = data[ATTR_COORDINATOR][ATTR_VEHICLE]

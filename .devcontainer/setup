@@ -1,13 +1,26 @@
 #!/usr/bin/env bash
 
-sudo apt-get update && sudo apt-get install libturbojpeg0 -y
-
 set -e
 
 cd "$(dirname "$0")/.."
 
+# Install system dependencies
+sudo apt-get update && sudo apt-get install -y libturbojpeg0
+
+# Install Python dependencies
+python3 -m pip install --upgrade pip
 python3 -m pip install --requirement requirements.txt
 
+# Setup pre-commit hooks
 pre-commit install
 
+# Create config directory and symlink custom_components
 mkdir -p config
+if [ ! -L config/custom_components ]; then
+    ln -sf "$(pwd)/custom_components" config/custom_components
+fi
+
+# Copy default configuration if not exists
+if [ ! -f config/configuration.yaml ]; then
+    cp .devcontainer/configuration.yaml config/configuration.yaml
+fi

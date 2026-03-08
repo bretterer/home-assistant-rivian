@@ -195,7 +195,7 @@ class RivianFlowHandler(ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
     def __init__(self):
-        """Initalize"""
+        """Initialize."""
         self._rivian: Rivian | None = None
         self._data = {}
         self._errors = {}

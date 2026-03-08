@@ -4,6 +4,9 @@ logger:
   default: info
   logs:
     custom_components.rivian: debug
+    rivian: debug
 
-# If you need to debug uncomment the line below (doc: https://www.home-assistant.io/integrations/debugpy/)
-debugpy:
+# Uncomment to enable remote debugging (https://www.home-assistant.io/integrations/debugpy/)
+# debugpy:
+#   start: true
+#   wait: false

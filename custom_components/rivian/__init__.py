@@ -144,7 +144,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Handle removal of an entry."""
     if public_key := entry.options.get("public_key"):
-        client = client = get_rivian_api_from_entry(hass, entry)
+        client = get_rivian_api_from_entry(hass, entry)
         coordinator = UserCoordinator(
             hass=hass, config_entry=entry, client=client, include_phones=True
         )
