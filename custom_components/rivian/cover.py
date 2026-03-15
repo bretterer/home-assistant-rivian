@@ -33,6 +33,18 @@ WINDOWS: Final[tuple[str, ...]] = (
 COVERS: Final[dict[str | None, tuple[RivianCoverEntityDescription, ...]]] = {
     None: (
         RivianCoverEntityDescription(
+            key="frunk",
+            device_class=CoverDeviceClass.DOOR,
+            name="Front Trunk",
+            is_closed=lambda coor: coor.get("closureFrunkClosed") != "open",
+            close_cover=lambda coor: coor.send_vehicle_command(
+                command=VehicleCommand.CLOSE_FRUNK
+            ),
+            open_cover=lambda coor: coor.send_vehicle_command(
+                command=VehicleCommand.OPEN_FRUNK
+            ),
+        ),
+        RivianCoverEntityDescription(
             key="windows",
             device_class=CoverDeviceClass.WINDOW,
             name="Windows",
@@ -70,20 +82,6 @@ COVERS: Final[dict[str | None, tuple[RivianCoverEntityDescription, ...]]] = {
             ),
             open_cover=lambda coor: coor.send_vehicle_command(
                 command=VehicleCommand.OPEN_LIFTGATE_UNLATCH_TAILGATE
-            ),
-        ),
-    ),
-    "FRUNK_NXT_ACT": (
-        RivianCoverEntityDescription(
-            key="frunk",
-            device_class=CoverDeviceClass.DOOR,
-            name="Front Trunk",
-            is_closed=lambda coor: coor.get("closureFrunkClosed") != "open",
-            close_cover=lambda coor: coor.send_vehicle_command(
-                command=VehicleCommand.CLOSE_FRUNK
-            ),
-            open_cover=lambda coor: coor.send_vehicle_command(
-                command=VehicleCommand.OPEN_FRUNK
             ),
         ),
     ),
