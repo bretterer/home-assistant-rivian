@@ -141,6 +141,9 @@ class ChargingCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         super().__init__(hass=hass, config_entry=config_entry, client=client)
         self.vehicle_id = vehicle_id
 
+    async def _async_update_data(self) -> dict:
+        return {}
+
     async def _fetch_data(self) -> ClientResponse:
         """Fetch the data."""
         return await self.api.get_live_charging_session(
