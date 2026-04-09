@@ -53,12 +53,21 @@ async def async_setup_entry(
     vehicles: dict[str, dict[str, Any]] = data[ATTR_VEHICLE]
     coordinators: dict[str, VehicleCoordinator] = data[ATTR_COORDINATOR][ATTR_VEHICLE]
 
-    entities = [
-        RivianNumberEntity(coordinators[vehicle_id], entry, description, vehicle)
-        for vehicle_id, vehicle in vehicles.items()
-        if vehicle.get("phone_identity_id")
-        for description in NUMBERS
-    ]
+    entities: list[NumberEntity] = []
+    for vehicle_id, vehicle in vehicles.items():
+        if not vehicle.get("phone_identity_id"):
+            continue
+        for description in NUMBERS:
+            entities.append(
+                RivianNumberEntity(
+                    coordinators[vehicle_id], entry, description, vehicle
+                )
+            )
+        entities.append(
+            RivianChargingScheduleNumberEntity(
+                coordinators[vehicle_id], entry, vehicle
+            )
+        )
     async_add_entities(entities)
 
 
