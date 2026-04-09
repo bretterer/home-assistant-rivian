@@ -299,6 +299,9 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         self.drivers_coordinator = DriverKeyCoordinator(
             hass=hass, config_entry=config_entry, client=client, vehicle_id=vehicle_id
         )
+        self.charging_schedule_coordinator = ChargingScheduleCoordinator(
+            hass=hass, config_entry=config_entry, client=client, vehicle_id=vehicle_id
+        )
         self._initial = asyncio.Event()
         self._unsub_handler: Coroutine[None, None, None] | None = None
         self._awake = asyncio.Event()
