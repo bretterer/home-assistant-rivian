@@ -42,6 +42,7 @@ NUMBERS: Final[tuple[RivianNumberEntityDescription, ...]] = (
 
 CHARGE_CURRENT_LIMIT_DESCRIPTION = NumberEntityDescription(
     key="charge_current_limit",
+    name="Charge Current Limit",
 )
 
 
@@ -136,7 +137,7 @@ class RivianChargingScheduleNumberEntity(RivianVehicleControlEntity, NumberEntit
         schedules = self.coordinator.charging_schedule_coordinator.data
         if schedules:
             return True
-        return self._get_value("gnssLocation") is not None
+        return self.coordinator.data.get("gnssLocation") is not None
 
     @property
     def native_value(self) -> int | None:
@@ -155,7 +156,9 @@ class RivianChargingScheduleNumberEntity(RivianVehicleControlEntity, NumberEntit
             schedule = dict(schedules[0])
             schedule["amperage"] = int(value)
         else:
-            location = self._get_value("gnssLocation")
+            location = self.coordinator.data.get("gnssLocation")
+            if location is None:
+                return
             schedule = {
                 "weekDays": _ALL_WEEKDAYS,
                 "startTime": 0,
