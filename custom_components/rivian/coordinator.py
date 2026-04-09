@@ -194,6 +194,35 @@ class DriverKeyCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         )
 
 
+class ChargingScheduleCoordinator(RivianDataUpdateCoordinator[list[dict[str, Any]]]):
+    """Charging schedule data update coordinator for Rivian."""
+
+    key = "getVehicle"
+    _update_interval_seconds = 30 * 60  # 30 minutes
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        config_entry: ConfigEntry,
+        client: Rivian,
+        vehicle_id: str,
+    ) -> None:
+        """Initialize the coordinator."""
+        super().__init__(hass=hass, config_entry=config_entry, client=client)
+        self.vehicle_id = vehicle_id
+
+    async def _fetch_data(self) -> ClientResponse:
+        """Fetch charging schedule data."""
+        return await self.api.get_charging_schedules(self.vehicle_id)
+
+    async def _async_update_data(self) -> list[dict[str, Any]]:
+        """Get the latest charging schedule data."""
+        vehicle_data = await super()._async_update_data()
+        if isinstance(vehicle_data, dict):
+            return vehicle_data.get("chargingSchedules", [])
+        return []
+
+
 class UserCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
     """User data update coordinator for Rivian."""
 
