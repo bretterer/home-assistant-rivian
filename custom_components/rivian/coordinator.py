@@ -141,6 +141,23 @@ class ChargingCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         super().__init__(hass=hass, config_entry=config_entry, client=client)
         self.vehicle_id = vehicle_id
 
+    async def _async_update_data(self) -> dict[str, Any]:
+        """Get the latest charging data from Rivian.
+
+        Overrides the base class to gracefully handle the deprecated
+        getLiveSessionData API endpoint (renamed to getLiveSessionHistory
+        by Rivian). Until the upstream rivian-python-client library is
+        updated, we return cached/empty data instead of crashing.
+        """
+        try:
+            return await super()._async_update_data()
+        except UpdateFailed:
+            _LOGGER.warning(
+                "Charging data unavailable (getLiveSessionData API deprecated by Rivian). "
+                "Charging sensors will not update until the upstream library is fixed"
+            )
+            return self.data or {}
+
     async def _fetch_data(self) -> ClientResponse:
         """Fetch the data."""
         return await self.api.get_live_charging_session(
