@@ -141,6 +141,9 @@ class ChargingCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         super().__init__(hass=hass, config_entry=config_entry, client=client)
         self.vehicle_id = vehicle_id
 
+    async def _async_update_data(self) -> dict:
+        return {}
+
     async def _fetch_data(self) -> ClientResponse:
         """Fetch the data."""
         return await self.api.get_live_charging_session(
@@ -426,3 +429,87 @@ class WallboxCoordinator(RivianDataUpdateCoordinator[list[dict[str, Any]]]):
     async def _fetch_data(self) -> ClientResponse:
         """Fetch the data."""
         return await self.api.get_registered_wallboxes()
+
+class ChargingScheduleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
+    """Charging Schedule data update coordinator for Rivian."""
+
+    key = "getVehicle"
+    _update_interval_seconds = 15 * 60  # 15 minutes
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        config_entry: ConfigEntry,
+        client: Rivian,
+        vehicle_id: str,
+    ) -> None:
+        """Initialize the coordinator."""
+        super().__init__(hass=hass, config_entry=config_entry, client=client)
+        self.vehicle_id = vehicle_id
+
+    async def _fetch_data(self) -> ClientResponse:
+        """Fetch the data."""
+        url = "https://rivian.com/api/gql/gateway/graphql"
+        headers = {
+            "A-Sess": self.api._app_session_token,
+            "U-Sess": self.api._user_session_token,
+            "Apollographql-Client-Name": "com.rivian.ios.consumer-apollo-ios",
+        }
+        query = """
+        query getVehicle($id: String!) {
+            getVehicle(id: $id) {
+                chargingSchedules {
+                    startTime
+                    duration
+                    location {
+                        latitude
+                        longitude
+                    }
+                    amperage
+                    enabled
+                    weekDays
+                }
+            }
+        }
+        """
+        graphql_json = {
+            "operationName": "getVehicle",
+            "query": query,
+            "variables": {"id": self.vehicle_id},
+        }
+        return await self.api._Rivian__graphql_query(headers, url, graphql_json)
+
+    async def set_charging_schedule(self, schedules: list[dict[str, Any]]) -> None:
+        """Update the charging schedule."""
+        url = "https://rivian.com/api/gql/gateway/graphql"
+        headers = {
+            "A-Sess": self.api._app_session_token,
+            "U-Sess": self.api._user_session_token,
+            "Csrf-Token": self.api._csrf_token,
+            "Apollographql-Client-Name": "com.rivian.ios.consumer-apollo-ios",
+        }
+        query = """
+        mutation setChargingSchedules($vehicleId: String!, $chargingSchedules: [InputChargingSchedule!]!) {
+            setChargingSchedules(vehicleId: $vehicleId, chargingSchedules: $chargingSchedules) {
+                success
+            }
+        }
+        """
+        graphql_json = {
+            "operationName": "setChargingSchedules",
+            "query": query,
+            "variables": {
+                "vehicleId": self.vehicle_id,
+                "chargingSchedules": schedules
+            },
+        }
+        resp = await self.api._Rivian__graphql_query(headers, url, graphql_json)
+        if resp.status == 200:
+            data = await resp.json()
+            if data.get("data", {}).get("setChargingSchedules", {}).get("success"):
+                self.data["chargingSchedules"] = schedules
+                self.async_set_updated_data(self.data)
+            else:
+                _LOGGER.error("Failed to set charging schedule: %s", data)
+        else:
+            resp.raise_for_status()

@@ -15,6 +15,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .const import ATTR_COORDINATOR, ATTR_USER, DOMAIN
 from .coordinator import (
     ChargingCoordinator,
+    ChargingScheduleCoordinator,
     RivianDataUpdateCoordinator,
     UserCoordinator,
     VehicleCoordinator,
@@ -173,3 +174,39 @@ class RivianWallboxEntity(RivianEntity[WallboxCoordinator]):
         if self.wallbox != wallbox:
             self.wallbox = wallbox
             self.async_write_ha_state()
+
+class RivianChargingScheduleEntity(RivianEntity[ChargingScheduleCoordinator]):
+    """Base class for Rivian Charging Schedule entities."""
+
+    def __init__(
+        self,
+        coordinator: ChargingScheduleCoordinator,
+        vehicle: dict[str, Any],
+    ) -> None:
+        """Construct a Rivian vehicle entity."""
+        super().__init__(coordinator)
+        self._vin = (vin := vehicle["vin"])
+        
+        name = vehicle["name"]
+        model = vehicle["model"]
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, vin), (DOMAIN, vehicle["id"])},
+            name=name if name else model,
+            manufacturer="Rivian",
+            model=model,
+            serial_number=vin,
+        )
+
+    def _get_schedule(self) -> dict[str, Any]:
+        """Get the current schedule or default."""
+        schedules = getattr(self.coordinator, "data", {}).get("chargingSchedules", [])
+        if not schedules:
+            return {
+                "startTime": 0,
+                "duration": 1440,
+                "location": {},
+                "amperage": 48,
+                "enabled": False,
+                "weekDays": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+            }
+        return schedules[0].copy()
