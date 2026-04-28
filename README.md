@@ -103,6 +103,7 @@ Note: If you are having issues with pairing your vehicle, we recommend investing
 | Charger Connection                                  | Binary Sensor  | Plugged in/unplugged status            |
 | Charger Derate Status                               | Sensor         |                                        |
 | Charging Status                                     | Binary Sensor  | Charging/not charging status           |
+| Charging Schedule Days                              | Sensor         |                                        |
 | Charging Time Remaining                             | Sensor         |                                        |
 | Closure State                                       | Binary Sensor  | Open/closed status of all closures     |
 | Defrost/Defog                                       | Binary Sensor  | Running/not running status             |
@@ -202,31 +203,35 @@ Note: If you are having issues with pairing your vehicle, we recommend investing
 
 ### Remote Vehicle Controls
 
-| Name                   | Domain  | Description                                                                                                                                               |
-| ---------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Alarm                  | Switch  | Sound/mute alarm                                                                                                                                          |
-| Cabin Climate          | Climate | Adjust cabin temperature/preset                                                                                                                           |
-| Charge Limit           | Number  | Set battery charge limit percent                                                                                                                          |
-| Charging Enabled       | Switch  | Enable/disable charging while vehicle plugged in and below battery state of charge limit                                                                  |
-| Closures               | Lock    | Lock/unlock all closures                                                                                                                                  |
-| Drop Tailgate          | Button  | Drop tailgate                                                                                                                                             |
-| Front Trunk            | Cover   | Open/close front trunk                                                                                                                                    |
-| Gear Guard Video       | Switch  | Enable/disable gear guard video                                                                                                                           |
-| Liftgate               | Cover   | Open/close liftgate, R1S only                                                                                                                             |
-| Open Gear Tunnel Left  | Button  | Open left gear tunnel                                                                                                                                     |
-| Open Gear Tunnel Right | Button  | Open right gear tunnel                                                                                                                                    |
-| Pair                   | Button  | Inititate Bluetooth pairing from Home Assistant. When pairing is identified as completed, this entity will no longer be created and can safely be deleted |
-| Seat Front Left Heat   | Select  | Set front left seat heat level                                                                                                                            |
-| Seat Front Left Vent   | Select  | Set front right seat vent level                                                                                                                           |
-| Seat Front Right Heat  | Select  | Set front right seat heat level                                                                                                                           |
-| Seat Front Right Vent  | Select  | Set front right seat vent level                                                                                                                           |
-| Seat Rear Left Heat    | Select  | Set rear left seat heat level                                                                                                                             |
-| Seat Rear Right Heat   | Select  | Set rear right seat heat level                                                                                                                            |
-| Software               | Update  | Trigger OTA update, if available                                                                                                                          |
-| Steering Wheel Heat    | Switch  | Turn on/off steering wheel heat                                                                                                                           |
-| Tonneau                | Cover   | Open/close powered tonneau, R1T only                                                                                                                      |
-| Wake                   | Button  | Wake vehicle                                                                                                                                              |
-| Windows                | Cover   | Vent/close all windows                                                                                                                                    |
+| Name                           | Domain  | Description                                                                                                                                               |
+| ------------------------------ | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Alarm                          | Switch  | Sound/mute alarm                                                                                                                                          |
+| Cabin Climate                  | Climate | Adjust cabin temperature/preset                                                                                                                           |
+| Charge Limit                   | Number  | Set battery charge limit percent                                                                                                                          |
+| Charging Enabled               | Switch  | Enable/disable charging while vehicle plugged in and below battery state of charge limit                                                                  |
+| Charging Schedule Amperage     | Number  | Set charging schedule amperage limit                                                                                                                      |
+| Charging Schedule Enabled      | Switch  | Enable/disable charging schedule                                                                                                                          |
+| Charging Schedule End Time     | Time    | Set charging schedule end time                                                                                                                            |
+| Charging Schedule Start Time   | Time    | Set charging schedule start time                                                                                                                          |
+| Closures                       | Lock    | Lock/unlock all closures                                                                                                                                  |
+| Drop Tailgate                  | Button  | Drop tailgate                                                                                                                                             |
+| Front Trunk                    | Cover   | Open/close front trunk                                                                                                                                    |
+| Gear Guard Video               | Switch  | Enable/disable gear guard video                                                                                                                           |
+| Liftgate                       | Cover   | Open/close liftgate, R1S only                                                                                                                             |
+| Open Gear Tunnel Left          | Button  | Open left gear tunnel                                                                                                                                     |
+| Open Gear Tunnel Right         | Button  | Open right gear tunnel                                                                                                                                    |
+| Pair                           | Button  | Inititate Bluetooth pairing from Home Assistant. When pairing is identified as completed, this entity will no longer be created and can safely be deleted |
+| Seat Front Left Heat           | Select  | Set front left seat heat level                                                                                                                            |
+| Seat Front Left Vent           | Select  | Set front right seat vent level                                                                                                                           |
+| Seat Front Right Heat          | Select  | Set front right seat heat level                                                                                                                           |
+| Seat Front Right Vent          | Select  | Set front right seat vent level                                                                                                                           |
+| Seat Rear Left Heat            | Select  | Set rear left seat heat level                                                                                                                             |
+| Seat Rear Right Heat           | Select  | Set rear right seat heat level                                                                                                                            |
+| Software                       | Update  | Trigger OTA update, if available                                                                                                                          |
+| Steering Wheel Heat            | Switch  | Turn on/off steering wheel heat                                                                                                                           |
+| Tonneau                        | Cover   | Open/close powered tonneau, R1T only                                                                                                                      |
+| Wake                           | Button  | Wake vehicle                                                                                                                                              |
+| Windows                        | Cover   | Vent/close all windows                                                                                                                                    |
 
 ## Special Thanks
 

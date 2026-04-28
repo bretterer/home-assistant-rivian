@@ -13,9 +13,9 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import ATTR_COORDINATOR, ATTR_VEHICLE, DOMAIN
-from .coordinator import VehicleCoordinator
 from .data_classes import RivianSwitchEntityDescription
-from .entity import RivianVehicleControlEntity
+from .entity import RivianVehicleControlEntity, RivianChargingScheduleEntity
+from .coordinator import VehicleCoordinator, ChargingScheduleCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -87,6 +87,12 @@ async def async_setup_entry(
         if vehicle.get("phone_identity_id")
         for description in SWITCHES
     ]
+    
+    for vehicle_id, vehicle in vehicles.items():
+        coor = coordinators[vehicle_id]
+        if hasattr(coor, "charging_schedule_coordinator"):
+            entities.append(RivianChargingScheduleEnabledSwitch(coor.charging_schedule_coordinator, vehicle))
+
     async_add_entities(entities)
 
 
@@ -116,3 +122,30 @@ class RivianSwitchEntity(RivianVehicleControlEntity, SwitchEntity):
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the entity on."""
         await self.entity_description.turn_on(self.coordinator)
+
+class RivianChargingScheduleEnabledSwitch(RivianChargingScheduleEntity, SwitchEntity):
+    """Representation of a Rivian charging schedule enabled switch."""
+
+    def __init__(self, coordinator, vehicle):
+        super().__init__(coordinator, vehicle)
+        self._attr_name = "Charging Schedule Enabled"
+        self._attr_unique_id = f"{self._vin}-charging_schedule_enabled"
+        self._attr_icon = "mdi:calendar-clock"
+
+    @property
+    def is_on(self) -> bool:
+        """Return true if the switch is on."""
+        schedule = self._get_schedule()
+        return schedule.get("enabled", False)
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Turn the switch on."""
+        schedule = self._get_schedule()
+        schedule["enabled"] = True
+        await self.coordinator.set_charging_schedule([schedule])
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Turn the switch off."""
+        schedule = self._get_schedule()
+        schedule["enabled"] = False
+        await self.coordinator.set_charging_schedule([schedule])

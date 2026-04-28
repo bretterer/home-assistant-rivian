@@ -16,7 +16,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import ATTR_COORDINATOR, ATTR_VEHICLE, DOMAIN
 from .coordinator import VehicleCoordinator
 from .data_classes import RivianNumberEntityDescription
-from .entity import RivianVehicleControlEntity
+from .entity import RivianVehicleControlEntity, RivianChargingScheduleEntity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -51,6 +51,12 @@ async def async_setup_entry(
         if vehicle.get("phone_identity_id")
         for description in NUMBERS
     ]
+    
+    for vehicle_id, vehicle in vehicles.items():
+        coor = coordinators[vehicle_id]
+        if hasattr(coor, "charging_schedule_coordinator"):
+            entities.append(RivianChargingScheduleAmperage(coor.charging_schedule_coordinator, vehicle))
+
     async_add_entities(entities)
 
 
@@ -67,3 +73,28 @@ class RivianNumberEntity(RivianVehicleControlEntity, NumberEntity):
     async def async_set_native_value(self, value: float) -> None:
         """Set new value."""
         await self.entity_description.set_fn(self.coordinator, value)
+
+class RivianChargingScheduleAmperage(RivianChargingScheduleEntity, NumberEntity):
+    """Representation of a Rivian charging schedule amperage."""
+
+    def __init__(self, coordinator, vehicle):
+        super().__init__(coordinator, vehicle)
+        self._attr_name = "Charging Schedule Amperage"
+        self._attr_unique_id = f"{self._vin}-charging_schedule_amperage"
+        self._attr_icon = "mdi:current-ac"
+        self._attr_native_min_value = 8
+        self._attr_native_max_value = 48
+        self._attr_native_step = 2
+        self._attr_native_unit_of_measurement = "A"
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the value of the entity."""
+        schedule = self._get_schedule()
+        return schedule.get("amperage", 48)
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Set new value."""
+        schedule = self._get_schedule()
+        schedule["amperage"] = int(value)
+        await self.coordinator.set_charging_schedule([schedule])
