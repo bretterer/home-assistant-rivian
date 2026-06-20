@@ -31,6 +31,7 @@ async def async_setup_entry(
             coordinators[vehicle_id], entry, LOCATION_DESCRIPTION, vehicle
         )
         for vehicle_id, vehicle in vehicles.items()
+        if coordinators[vehicle_id].data.get("gnssLocation")
     ]
 
     async_add_entities(entities)
@@ -51,7 +52,7 @@ class RivianDeviceEntity(RivianVehicleEntity, TrackerEntity):
         """Create a Rivian device tracker entity."""
         super().__init__(coordinator, config_entry, description, vehicle)
         self._attribute = "gnssLocation"
-        self._tracker_data = coordinator.data[self._attribute]
+        self._tracker_data = coordinator.data.get(self._attribute, {})
 
     @property
     def force_update(self) -> bool:
@@ -61,12 +62,12 @@ class RivianDeviceEntity(RivianVehicleEntity, TrackerEntity):
     @property
     def latitude(self) -> float | None:
         """Return latitude value of the device."""
-        return self._tracker_data["latitude"]
+        return self._tracker_data.get("latitude")
 
     @property
     def longitude(self) -> float | None:
         """Return longitude value of the device."""
-        return self._tracker_data["longitude"]
+        return self._tracker_data.get("longitude")
 
     @property
     def source_type(self) -> SourceType:
@@ -81,15 +82,17 @@ class RivianDeviceEntity(RivianVehicleEntity, TrackerEntity):
     def extra_state_attributes(self) -> Mapping[str, Any]:
         """Return the state attributes of the device."""
         return {
-            "last_update": self._tracker_data["timeStamp"],
+            "last_update": self._tracker_data.get("timeStamp"),
         }
 
     @callback
     def _handle_coordinator_update(self) -> None:
         """Respond to a DataUpdateCoordinator update."""
-        entity = self.coordinator.data[self._attribute]
+        entity = self.coordinator.data.get(self._attribute)
+        if not entity:
+            return
         try:
-            if entity["timeStamp"] != self._tracker_data["timeStamp"]:
+            if entity["timeStamp"] != self._tracker_data.get("timeStamp"):
                 self._tracker_data = entity
                 self.async_write_ha_state()
         except Exception:  # noqa: BLE001

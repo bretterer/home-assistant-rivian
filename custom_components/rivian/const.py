@@ -1045,7 +1045,6 @@ VEHICLE_STATE_API_FIELDS: Final[set[str]] = {
         for sensor in sensors
         for field in ([sensor.field] if isinstance(sensor.field, str) else sensor.field)
     ),
-    "gnssLocation",
     "otaCurrentVersion",
     "otaCurrentVersionYear",
     "otaCurrentVersionWeek",
