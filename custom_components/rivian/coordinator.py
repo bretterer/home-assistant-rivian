@@ -470,9 +470,12 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         # Route vehicle state fields to VehicleCoordinator
         vehicle_keys = clean.keys() - charging_keys
         if vehicle_keys:
-            vehicle_updates = {
-                k: {"value": clean[k], "history": {clean[k]}} for k in vehicle_keys
-            }
+            vehicle_updates: dict[str, Any] = {}
+            for k in vehicle_keys:
+                if k == "gnssLocation":
+                    vehicle_updates[k] = clean[k]
+                else:
+                    vehicle_updates[k] = {"value": clean[k], "history": {clean[k]}}
             new_data = (self.data or {}) | vehicle_updates
             self.async_set_updated_data(new_data)
             _LOGGER.debug("Vehicle state updated from Parallax (%s): %s", rvm, clean)
