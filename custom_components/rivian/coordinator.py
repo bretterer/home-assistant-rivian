@@ -35,6 +35,7 @@ from .const import (
     VEHICLE_STATE_API_FIELDS,
 )
 from .helpers import redact
+from .parallax_decoder import CHARGING_RVMS, decode_parallax_message
 
 _LOGGER = logging.getLogger(__name__)
 T = TypeVar("T", bound=dict[str, Any] | list[dict[str, Any]])
@@ -132,12 +133,17 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator[T], ABC, Generic[T]):
 
 
 class ChargingCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
-    """Charging data update coordinator for Rivian."""
+    """Charging data update coordinator for Rivian.
+
+    This coordinator receives live charging data from Parallax protobuf
+    messages decoded by the VehicleCoordinator. It no longer polls the
+    deprecated getLiveSessionData REST endpoint.
+    """
 
     key = "getLiveSessionData"
     _unplugged_interval = 15 * 60  # 15 minutes
     _plugged_interval = 30  # 30 seconds
-    _update_interval_seconds = _unplugged_interval  # 15 minutes
+    _update_interval_seconds = 0  # disabled — data is pushed via Parallax
 
     def __init__(
         self,
@@ -150,25 +156,45 @@ class ChargingCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         super().__init__(hass=hass, config_entry=config_entry, client=client)
         self.vehicle_id = vehicle_id
 
+    async def _async_update_data(self) -> dict[str, Any]:
+        """Return current data without polling.
+
+        Charging data is pushed via Parallax messages, so we don't need
+        to poll the (now broken) getLiveSessionData endpoint. This method
+        simply returns any data already received from Parallax, or an
+        empty dict on first load.
+        """
+        return self.data or {}
+
     async def _fetch_data(self) -> ClientResponse:
-        """Fetch the data."""
+        """Fetch the data (legacy fallback, may fail on newer API versions)."""
         return await self.api.get_live_charging_session(
             vin=self.vehicle_id, properties=CHARGING_API_FIELDS
         )
 
-    async def _async_update_data(self) -> dict[str, Any]:
-        """Get the latest data from Rivian, gracefully handling deprecated endpoint failures."""
-        try:
-            return await super()._async_update_data()
-        except Exception as err:  # noqa: BLE001
-            _LOGGER.warning("Live charging session endpoint error: %s", err)
-            return self.data or {}
+    @callback
+    def update_from_parallax(self, decoded: dict[str, Any]) -> None:
+        """Update charging data from decoded Parallax protobuf fields.
+
+        Merges new fields into existing data and notifies listeners.
+        Internal/private fields (prefixed with '_') are excluded.
+        """
+        # Filter out internal decoder fields
+        clean = {k: v for k, v in decoded.items() if not k.startswith("_")}
+        if not clean:
+            return
+
+        new_data = (self.data or {}) | clean
+        self.async_set_updated_data(new_data)
+        _LOGGER.debug("Charging data updated from Parallax: %s", clean)
 
     def adjust_update_interval(self, is_plugged_in: bool) -> None:
-        """Adjust update interval based on plugged in status."""
-        self._set_update_interval(
-            self._plugged_interval if is_plugged_in else self._unplugged_interval
-        )
+        """Adjust update interval based on plugged in status.
+
+        With Parallax push, polling is disabled. This method is kept for
+        backward compatibility with VehicleCoordinator's chargerStatus handler.
+        """
+        pass
 
 
 class DriverKeyCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
@@ -286,6 +312,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         )
         self._initial = asyncio.Event()
         self._unsub_handler: Coroutine[None, None, None] | None = None
+        self._unsub_parallax: Coroutine[None, None, None] | None = None
         self._awake = asyncio.Event()
         self._charging_schedule: dict[str, Any] | None = None
         self._last_schedule_fetch: float = 0.0
@@ -354,6 +381,9 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
                 callback=self._process_new_data,
             )
 
+            # Subscribe to Parallax messages for live charging data
+            await self._subscribe_parallax()
+
             try:
                 await asyncio.wait_for(self._initial.wait(), INITIAL_UPDATE_TIMEOUT)
             except asyncio.TimeoutError as err:
@@ -371,6 +401,43 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
     async def async_shutdown(self) -> None:
         await self._unsubscribe(True)
         return await super().async_shutdown()
+
+    async def _subscribe_parallax(self) -> None:
+        """Subscribe to Parallax messages for live charging data."""
+        try:
+            if not self.api._ws_monitor or not self.api._ws_monitor.connected:
+                return
+            payload = {
+                "operationName": "ParallaxMessages",
+                "query": "subscription ParallaxMessages($vehicleId: String!, $rvms: [String!]) { parallaxMessages(vehicleId: $vehicleId, rvms: $rvms) { payload timestamp rvm } }",
+                "variables": {
+                    "vehicleId": self.vehicle_id,
+                    "rvms": CHARGING_RVMS,
+                },
+            }
+            self._unsub_parallax = await self.api._ws_monitor.start_subscription(
+                payload, self._process_parallax_data
+            )
+            _LOGGER.debug(
+                "Subscribed to Parallax charging RVMs for vehicle %s",
+                self.vehicle_id,
+            )
+        except Exception:  # pylint: disable=broad-except
+            _LOGGER.warning("Failed to subscribe to Parallax messages", exc_info=True)
+
+    @callback
+    def _process_parallax_data(self, data: dict[str, Any]) -> None:
+        """Process incoming Parallax subscription messages."""
+        if not (payload := data.get("payload")) or not (pdata := payload.get("data")):
+            return
+        px = pdata.get("parallaxMessages")
+        if not px:
+            return
+        rvm = px.get("rvm", "")
+        payload_b64 = px.get("payload", "")
+        decoded = decode_parallax_message(rvm, payload_b64)
+        if decoded:
+            self.charging_coordinator.update_from_parallax(decoded)
 
     @callback
     def _process_new_data(self, data: dict[str, Any]) -> None:
@@ -424,6 +491,9 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
 
     async def _unsubscribe(self, close_monitor: bool = False):
         """Unsubscribe."""
+        if unsub := self._unsub_parallax:
+            await unsub()
+            self._unsub_parallax = None
         if unsub := self._unsub_handler:
             await unsub()
             self._unsub_handler = None
