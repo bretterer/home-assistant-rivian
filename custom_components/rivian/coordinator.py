@@ -185,6 +185,14 @@ class ChargingCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             return
 
         new_data = (self.data or {}) | clean
+
+        # Track session start time when active charging begins
+        if clean.get("power", 0) > 0 and not new_data.get("startTime"):
+            from datetime import datetime, timezone
+
+            now = datetime.now(timezone.utc)
+            new_data["startTime"] = now.strftime("%Y-%m-%dT%H:%M:%S.%f%z")
+
         self.async_set_updated_data(new_data)
         _LOGGER.debug("Charging data updated from Parallax: %s", clean)
 

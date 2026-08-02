@@ -1,0 +1,180 @@
+"""Unit tests for the Parallax protobuf decoder."""
+
+from __future__ import annotations
+
+import base64
+import os
+import struct
+import sys
+import unittest
+
+# Add custom_components/rivian to path directly to avoid loading package __init__.py
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../custom_components/rivian")))
+
+from parallax_decoder import (
+    CHARGING_RVMS,
+    RVM_DECODERS,
+    _decode_protobuf_fields,
+    _decode_varint,
+    decode_battery_state,
+    decode_charge_session_breakdown,
+    decode_charging_session_status,
+    decode_parallax_message,
+    decode_time_estimation,
+)
+
+
+class TestProtobufPrimitives(unittest.TestCase):
+    """Test low-level protobuf decoding primitives."""
+
+    def test_decode_varint_single_byte(self) -> None:
+        """Test decoding single byte varints."""
+        val, offset = _decode_varint(b"\x00", 0)
+        self.assertEqual(val, 0)
+        self.assertEqual(offset, 1)
+
+        val, offset = _decode_varint(b"\x01", 0)
+        self.assertEqual(val, 1)
+        self.assertEqual(offset, 1)
+
+        val, offset = _decode_varint(b"\x7f", 0)
+        self.assertEqual(val, 127)
+        self.assertEqual(offset, 1)
+
+    def test_decode_varint_multi_byte(self) -> None:
+        """Test decoding multi-byte varints (e.g. 300 = 0xAC 0x02)."""
+        data = b"\xac\x02"
+        val, offset = _decode_varint(data, 0)
+        self.assertEqual(val, 300)
+        self.assertEqual(offset, 2)
+
+    def test_decode_protobuf_fields_varint(self) -> None:
+        """Test field decoding for wire type 0 (varint)."""
+        # field 1 (tag = 1<<3 | 0 = 8), value = 150 (0x96 0x01)
+        raw = b"\x08\x96\x01"
+        fields = _decode_protobuf_fields(raw)
+        self.assertEqual(len(fields), 1)
+        self.assertEqual(fields[0], (1, 0, 150))
+
+    def test_decode_protobuf_fields_fixed64(self) -> None:
+        """Test field decoding for wire type 1 (64-bit double)."""
+        # field 2 (tag = 2<<3 | 1 = 17), value = 111.52 (double)
+        packed_double = struct.pack("<d", 111.52)
+        raw = b"\x11" + packed_double
+        fields = _decode_protobuf_fields(raw)
+        self.assertEqual(len(fields), 1)
+        field_num, wire_type, val = fields[0]
+        self.assertEqual(field_num, 2)
+        self.assertEqual(wire_type, 1)
+        self.assertAlmostEqual(val, 111.52, places=4)
+
+    def test_decode_protobuf_fields_fixed32(self) -> None:
+        """Test field decoding for wire type 5 (32-bit float)."""
+        # field 9 (tag = 9<<3 | 5 = 77), value = 5.75 (float)
+        packed_float = struct.pack("<f", 5.75)
+        raw = bytes([77]) + packed_float
+        fields = _decode_protobuf_fields(raw)
+        self.assertEqual(len(fields), 1)
+        field_num, wire_type, val = fields[0]
+        self.assertEqual(field_num, 9)
+        self.assertEqual(wire_type, 5)
+        self.assertAlmostEqual(val, 5.75, places=2)
+
+    def test_decode_protobuf_fields_length_delimited(self) -> None:
+        """Test field decoding for wire type 2 (length-delimited)."""
+        # field 3 (tag = 3<<3 | 2 = 26), length = 4, value = b"test"
+        raw = b"\x1a\x04test"
+        fields = _decode_protobuf_fields(raw)
+        self.assertEqual(len(fields), 1)
+        self.assertEqual(fields[0], (3, 2, b"test"))
+
+    def test_decode_protobuf_truncated_data(self) -> None:
+        """Test graceful handling of truncated protobuf data."""
+        # tag indicates 64-bit float, but only 2 bytes follow
+        raw = b"\x11\x00\x00"
+        fields = _decode_protobuf_fields(raw)
+        self.assertEqual(fields, [])
+
+
+class TestParallaxDecoders(unittest.TestCase):
+    """Test specific RVM topic decoders."""
+
+    def test_decode_battery_state(self) -> None:
+        """Test energy.high_voltage.battery_state decoder."""
+        # Nested message: inner field 1 (soc=79.1 double), inner field 2 (capacity=111.52 double)
+        inner = (
+            b"\x09" + struct.pack("<d", 79.1) +
+            b"\x11" + struct.pack("<d", 111.52)
+        )
+        # Outer message: field 1 (tag 10), length of inner
+        outer = bytes([10, len(inner)]) + inner
+        payload_b64 = base64.b64encode(outer).decode()
+
+        result = decode_battery_state(payload_b64)
+        self.assertEqual(result.get("soc"), 79.1)
+        self.assertEqual(result.get("pack_energy_kwh"), 111.52)
+
+    def test_decode_battery_state_empty_and_corrupt(self) -> None:
+        """Test battery_state decoder on empty and corrupt inputs."""
+        self.assertEqual(decode_battery_state(""), {})
+        self.assertEqual(decode_battery_state("not-valid-base64!"), {})
+
+    def test_decode_charge_session_breakdown(self) -> None:
+        """Test energy_edge_compute.graphs.charge_session_breakdown decoder."""
+        # field 1 = totalKwh (float: 0.6), field 9 = power (float: 5.7)
+        raw = (
+            bytes([13]) + struct.pack("<f", 0.6) +
+            bytes([77]) + struct.pack("<f", 5.7)
+        )
+        payload_b64 = base64.b64encode(raw).decode()
+
+        result = decode_charge_session_breakdown(payload_b64)
+        self.assertEqual(result.get("totalChargedEnergy"), 0.6)
+        self.assertEqual(result.get("power"), 5.7)
+        self.assertAlmostEqual(result.get("rangeAddedThisSession"), round(0.6 * 3.5, 1), places=1)
+        self.assertAlmostEqual(result.get("kilometersChargedPerHour"), round(5.7 * 3.5, 1), places=1)
+
+    def test_decode_charging_session_status(self) -> None:
+        """Test charging.session.status decoder."""
+        # field 1 = plugConnectionStatus (1), field 2 = displayStatus (3), field 3 = evseType (2)
+        raw = b"\x08\x01\x10\x03\x18\x02"
+        payload_b64 = base64.b64encode(raw).decode()
+
+        result = decode_charging_session_status(payload_b64)
+        self.assertEqual(result.get("plugConnectionStatus"), 1)
+        self.assertEqual(result.get("displayStatus"), 3)
+        self.assertEqual(result.get("evseType"), 2)
+
+    def test_decode_time_estimation(self) -> None:
+        """Test charging.session.time_estimation decoder."""
+        # field 1 = timeToEndOfCharge (3600 seconds) -> tag 8, varint 3600 (0x90 0x1c)
+        raw = b"\x08\x90\x1c"
+        payload_b64 = base64.b64encode(raw).decode()
+
+        result = decode_time_estimation(payload_b64)
+        self.assertEqual(result.get("timeToEndOfCharge"), 3600)
+
+    def test_decode_parallax_message_dispatch(self) -> None:
+        """Test decode_parallax_message dispatching."""
+        # Known topic
+        raw = b"\x08\x90\x1c"
+        payload_b64 = base64.b64encode(raw).decode()
+        res = decode_parallax_message("charging.session.time_estimation", payload_b64)
+        self.assertIsNotNone(res)
+        self.assertEqual(res.get("timeToEndOfCharge"), 3600)
+
+        # Unknown topic
+        unknown = decode_parallax_message("unknown.topic.rvm", payload_b64)
+        self.assertIsNone(unknown)
+
+    def test_registered_charging_rvms(self) -> None:
+        """Verify standard charging RVM topics are defined."""
+        self.assertIn("energy.high_voltage.battery_state", CHARGING_RVMS)
+        self.assertIn("energy_edge_compute.graphs.charge_session_breakdown", CHARGING_RVMS)
+        self.assertIn("charging.session.status", CHARGING_RVMS)
+        self.assertIn("charging.session.time_estimation", CHARGING_RVMS)
+        self.assertIn("charging.session.soc_slider", CHARGING_RVMS)
+
+
+if __name__ == "__main__":
+    unittest.main()
