@@ -22,10 +22,13 @@ from parallax_decoder import (
     decode_charge_session_breakdown,
     decode_charging_session_status,
     decode_closures,
+    decode_defrost,
+    decode_gnss,
     decode_locks,
     decode_odometer,
     decode_parallax_message,
     decode_power_state,
+    decode_preconditioning,
     decode_time_estimation,
     decode_tires,
 )
@@ -234,6 +237,47 @@ class TestParallaxDecoders(unittest.TestCase):
         result_sleep = decode_power_state(payload_b64_sleep)
         self.assertEqual(result_sleep.get("powerState"), "sleep")
 
+    def test_decode_gnss(self) -> None:
+        """Test dynamics.vehicle.gnss decoder."""
+        # field 1 = lat (33.0834), field 2 = lon (-80.1465)
+        raw = (
+            b"\x09" + struct.pack("<d", 33.0834) +
+            b"\x11" + struct.pack("<d", -80.1465)
+        )
+        payload_b64 = base64.b64encode(raw).decode()
+        result = decode_gnss(payload_b64)
+        self.assertIn("gnssLocation", result)
+        self.assertEqual(result["gnssLocation"]["latitude"], 33.0834)
+        self.assertEqual(result["gnssLocation"]["longitude"], -80.1465)
+
+    def test_decode_preconditioning(self) -> None:
+        """Test comfort.cabin.cabin_preconditioning_status decoder."""
+        # field 1 = 4 (active)
+        raw_active = b"\x08\x04"
+        res_active = decode_preconditioning(base64.b64encode(raw_active).decode())
+        self.assertEqual(res_active.get("cabinPreconditioningStatus"), "active")
+
+        # field 1 = 1 (initiate)
+        raw_init = b"\x08\x01"
+        res_init = decode_preconditioning(base64.b64encode(raw_init).decode())
+        self.assertEqual(res_init.get("cabinPreconditioningStatus"), "initiate")
+
+        # empty payload (off)
+        res_off = decode_preconditioning("")
+        self.assertEqual(res_off.get("cabinPreconditioningStatus"), "off")
+
+    def test_decode_defrost(self) -> None:
+        """Test comfort.cabin.defrost_defog_status decoder."""
+        # field 1 = 2 (Defrost)
+        raw_defrost = b"\x08\x02"
+        res_defrost = decode_defrost(base64.b64encode(raw_defrost).decode())
+        self.assertEqual(res_defrost.get("defrostDefogStatus"), "Defrost")
+
+        # field 1 = 4 (Off)
+        raw_off = b"\x08\x04"
+        res_off = decode_defrost(base64.b64encode(raw_off).decode())
+        self.assertEqual(res_off.get("defrostDefogStatus"), "Off")
+
     def test_decode_parallax_message_dispatch(self) -> None:
         """Test decode_parallax_message dispatching."""
         # Known topic
@@ -250,6 +294,13 @@ class TestParallaxDecoders(unittest.TestCase):
         self.assertIsNotNone(res_odo)
         self.assertIn("vehicleMileage", res_odo)
 
+        # GNSS topic
+        raw_gnss = b"\x09" + struct.pack("<d", 33.0834) + b"\x11" + struct.pack("<d", -80.1465)
+        b64_gnss = base64.b64encode(raw_gnss).decode()
+        res_gnss = decode_parallax_message("dynamics.vehicle.gnss", b64_gnss)
+        self.assertIsNotNone(res_gnss)
+        self.assertIn("gnssLocation", res_gnss)
+
         # Unknown topic
         unknown = decode_parallax_message("unknown.topic.rvm", payload_b64)
         self.assertIsNone(unknown)
@@ -263,6 +314,9 @@ class TestParallaxDecoders(unittest.TestCase):
         self.assertIn("charging.session.soc_slider", CHARGING_RVMS)
         self.assertIn("dynamics.vehicle.odometer", PARALLAX_RVMS)
         self.assertIn("dynamics.tires.state", PARALLAX_RVMS)
+        self.assertIn("dynamics.vehicle.gnss", PARALLAX_RVMS)
+        self.assertIn("comfort.cabin.cabin_preconditioning_status", PARALLAX_RVMS)
+        self.assertIn("comfort.cabin.defrost_defog_status", PARALLAX_RVMS)
 
 
 if __name__ == "__main__":

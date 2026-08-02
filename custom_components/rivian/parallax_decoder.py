@@ -431,6 +431,80 @@ def decode_power_state(payload_b64: str) -> dict[str, Any]:
         return {}
 
 
+def decode_gnss(payload_b64: str) -> dict[str, Any]:
+    """Decode dynamics.vehicle.gnss.
+
+    Returns dict with keys:
+        - gnssLocation: {"latitude": float, "longitude": float}
+    """
+    if not payload_b64:
+        return {}
+    try:
+        data = base64.b64decode(payload_b64)
+        fields = _decode_protobuf_fields(data)
+        lat = None
+        lon = None
+        for field_num, wire_type, value in fields:
+            if field_num == 1 and wire_type == 1:  # latitude (double)
+                lat = round(value, 6)
+            elif field_num == 2 and wire_type == 1:  # longitude (double)
+                lon = round(value, 6)
+
+        if lat is not None and lon is not None:
+            return {"gnssLocation": {"latitude": lat, "longitude": lon}}
+        return {}
+    except Exception:
+        _LOGGER.debug("Failed to decode gnss payload", exc_info=True)
+        return {}
+
+
+def decode_preconditioning(payload_b64: str) -> dict[str, Any]:
+    """Decode comfort.cabin.cabin_preconditioning_status.
+
+    Returns dict with keys:
+        - cabinPreconditioningStatus: str ("active", "initiate", "off")
+    """
+    if not payload_b64:
+        return {"cabinPreconditioningStatus": "off"}
+    try:
+        data = base64.b64decode(payload_b64)
+        fields = _decode_protobuf_fields(data)
+        status_val = None
+        for field_num, wire_type, value in fields:
+            if field_num == 1 and wire_type == 0:
+                status_val = value
+
+        if status_val == 4:
+            return {"cabinPreconditioningStatus": "active"}
+        elif status_val in (1, 2):
+            return {"cabinPreconditioningStatus": "initiate"}
+        return {"cabinPreconditioningStatus": "off"}
+    except Exception:
+        _LOGGER.debug("Failed to decode preconditioning payload", exc_info=True)
+        return {}
+
+
+def decode_defrost(payload_b64: str) -> dict[str, Any]:
+    """Decode comfort.cabin.defrost_defog_status.
+
+    Returns dict with keys:
+        - defrostDefogStatus: str ("Defrost", "Off")
+    """
+    if not payload_b64:
+        return {}
+    try:
+        data = base64.b64decode(payload_b64)
+        fields = _decode_protobuf_fields(data)
+        result: dict[str, Any] = {}
+        for field_num, wire_type, value in fields:
+            if field_num == 1 and wire_type == 0:
+                result["defrostDefogStatus"] = "Defrost" if value == 2 else "Off"
+        return result
+    except Exception:
+        _LOGGER.debug("Failed to decode defrost payload", exc_info=True)
+        return {}
+
+
 # Map of RVM topic -> decoder function
 RVM_DECODERS: dict[str, callable] = {
     "energy.high_voltage.battery_state": decode_battery_state,
@@ -439,9 +513,12 @@ RVM_DECODERS: dict[str, callable] = {
     "charging.session.time_estimation": decode_time_estimation,
     "dynamics.vehicle.odometer": decode_odometer,
     "dynamics.tires.state": decode_tires,
+    "dynamics.vehicle.gnss": decode_gnss,
     "body.closures.states": decode_closures,
     "body.locks.states": decode_locks,
     "comfort.cabin.cabin_temperatures": decode_cabin_temperatures,
+    "comfort.cabin.cabin_preconditioning_status": decode_preconditioning,
+    "comfort.cabin.defrost_defog_status": decode_defrost,
     "vehicle.power.state": decode_power_state,
 }
 
