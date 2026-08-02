@@ -215,15 +215,238 @@ def decode_time_estimation(payload_b64: str) -> dict[str, Any]:
         return {}
 
 
+def decode_odometer(payload_b64: str) -> dict[str, Any]:
+    """Decode dynamics.vehicle.odometer.
+
+    Returns dict with keys:
+        - vehicleMileage: float (meters)
+    """
+    if not payload_b64:
+        return {}
+    try:
+        data = base64.b64decode(payload_b64)
+        fields = _decode_protobuf_fields(data)
+        result: dict[str, Any] = {}
+
+        for field_num, wire_type, value in fields:
+            if field_num == 1 and wire_type == 0:
+                # Value is distance in miles; HA expects meters (1 mile = 1609.344 meters)
+                result["vehicleMileage"] = round(value * 1609.344, 1)
+
+        return result
+    except Exception:
+        _LOGGER.debug("Failed to decode odometer payload", exc_info=True)
+        return {}
+
+
+TIRE_POSITION_MAP = {
+    1: "FrontLeft",
+    2: "FrontRight",
+    3: "RearLeft",
+    4: "RearRight",
+}
+
+
+def decode_tires(payload_b64: str) -> dict[str, Any]:
+    """Decode dynamics.tires.state.
+
+    Returns dict with keys:
+        - tirePressureFrontLeft, tirePressureFrontRight, etc. (bar)
+        - tirePressureStatusFrontLeft, etc. ("Ok")
+    """
+    if not payload_b64:
+        return {}
+    try:
+        data = base64.b64decode(payload_b64)
+        fields = _decode_protobuf_fields(data)
+        result: dict[str, Any] = {}
+
+        for field_num, wire_type, value in fields:
+            if field_num == 2 and wire_type == 2:  # Repeated nested tire state
+                inner = _decode_protobuf_fields(value)
+                pos = None
+                status = None
+                pressure = None
+                for in_num, in_type, in_val in inner:
+                    if in_num == 1 and in_type == 0:
+                        pos = in_val
+                    elif in_num == 2 and in_type == 0:
+                        status = "Ok" if in_val == 1 else "Warning"
+                    elif in_num == 3 and in_type == 1:  # Double (bar)
+                        pressure = round(in_val, 2)
+
+                if pos and pos in TIRE_POSITION_MAP:
+                    suffix = TIRE_POSITION_MAP[pos]
+                    if pressure is not None:
+                        result[f"tirePressure{suffix}"] = pressure
+                    if status is not None:
+                        result[f"tirePressureStatus{suffix}"] = status
+
+        return result
+    except Exception:
+        _LOGGER.debug("Failed to decode tires payload", exc_info=True)
+        return {}
+
+
+CLOSURE_MAP = {
+    1: "doorFrontLeftClosed",
+    2: "doorFrontRightClosed",
+    3: "doorRearLeftClosed",
+    4: "doorRearRightClosed",
+    5: "closureFrunkClosed",
+    6: "closureSideBinLeftClosed",
+    7: "closureLiftgateClosed",
+}
+
+
+def decode_closures(payload_b64: str) -> dict[str, Any]:
+    """Decode body.closures.states.
+
+    Returns dict with keys:
+        - doorFrontLeftClosed, doorFrontRightClosed, closureFrunkClosed, etc. ("closed" / "open")
+    """
+    if not payload_b64:
+        return {}
+    try:
+        data = base64.b64decode(payload_b64)
+        fields = _decode_protobuf_fields(data)
+        result: dict[str, Any] = {}
+
+        for field_num, wire_type, value in fields:
+            if field_num == 1 and wire_type == 2:  # Repeated nested closure state
+                inner = _decode_protobuf_fields(value)
+                cid = None
+                state_val = None
+                for in_num, in_type, in_val in inner:
+                    if in_num == 1 and in_type == 0:
+                        cid = in_val
+                    elif in_num == 2 and in_type == 0:
+                        state_val = in_val
+
+                if cid and cid in CLOSURE_MAP and state_val is not None:
+                    # 1 = open, 2 = closed
+                    result[CLOSURE_MAP[cid]] = "closed" if state_val == 2 else "open"
+
+        return result
+    except Exception:
+        _LOGGER.debug("Failed to decode closures payload", exc_info=True)
+        return {}
+
+
+LOCK_MAP = {
+    1: "doorFrontLeftLocked",
+    2: "doorFrontRightLocked",
+    3: "doorRearLeftLocked",
+    4: "doorRearRightLocked",
+    5: "closureFrunkLocked",
+    7: "closureLiftgateLocked",
+}
+
+
+def decode_locks(payload_b64: str) -> dict[str, Any]:
+    """Decode body.locks.states.
+
+    Returns dict with keys:
+        - doorFrontLeftLocked, closureFrunkLocked, etc. ("locked" / "unlocked")
+    """
+    if not payload_b64:
+        return {}
+    try:
+        data = base64.b64decode(payload_b64)
+        fields = _decode_protobuf_fields(data)
+        result: dict[str, Any] = {}
+
+        for field_num, wire_type, value in fields:
+            if field_num == 1 and wire_type == 2:  # Repeated nested lock state
+                inner = _decode_protobuf_fields(value)
+                lid = None
+                state_val = None
+                for in_num, in_type, in_val in inner:
+                    if in_num == 1 and in_type == 0:
+                        lid = in_val
+                    elif in_num == 2 and in_type == 0:
+                        state_val = in_val
+
+                if lid and lid in LOCK_MAP and state_val is not None:
+                    # 1 = unlocked, 2 = locked
+                    result[LOCK_MAP[lid]] = "locked" if state_val == 2 else "unlocked"
+
+        return result
+    except Exception:
+        _LOGGER.debug("Failed to decode locks payload", exc_info=True)
+        return {}
+
+
+def decode_cabin_temperatures(payload_b64: str) -> dict[str, Any]:
+    """Decode comfort.cabin.cabin_temperatures.
+
+    Returns dict with keys:
+        - cabinClimateInteriorTemperature: float (Celsius)
+    """
+    if not payload_b64:
+        return {}
+    try:
+        data = base64.b64decode(payload_b64)
+        fields = _decode_protobuf_fields(data)
+        result: dict[str, Any] = {}
+
+        for field_num, wire_type, value in fields:
+            if field_num == 4 and wire_type == 5:  # interior temp (float, Celsius)
+                result["cabinClimateInteriorTemperature"] = round(value, 1)
+
+        return result
+    except Exception:
+        _LOGGER.debug("Failed to decode cabin temperatures payload", exc_info=True)
+        return {}
+
+
+POWER_STATE_MAP = {
+    1: "sleep",
+    2: "standby",
+    3: "ready",
+    4: "go",
+}
+
+
+def decode_power_state(payload_b64: str) -> dict[str, Any]:
+    """Decode vehicle.power.state.
+
+    Returns dict with keys:
+        - powerState: str ("sleep", "standby", "ready", "go")
+    """
+    if not payload_b64:
+        return {}
+    try:
+        data = base64.b64decode(payload_b64)
+        fields = _decode_protobuf_fields(data)
+        result: dict[str, Any] = {}
+
+        for field_num, wire_type, value in fields:
+            if field_num == 1 and wire_type == 0:
+                result["powerState"] = POWER_STATE_MAP.get(value, "standby")
+
+        return result
+    except Exception:
+        _LOGGER.debug("Failed to decode power state payload", exc_info=True)
+        return {}
+
+
 # Map of RVM topic -> decoder function
 RVM_DECODERS: dict[str, callable] = {
     "energy.high_voltage.battery_state": decode_battery_state,
     "energy_edge_compute.graphs.charge_session_breakdown": decode_charge_session_breakdown,
     "charging.session.status": decode_charging_session_status,
     "charging.session.time_estimation": decode_time_estimation,
+    "dynamics.vehicle.odometer": decode_odometer,
+    "dynamics.tires.state": decode_tires,
+    "body.closures.states": decode_closures,
+    "body.locks.states": decode_locks,
+    "comfort.cabin.cabin_temperatures": decode_cabin_temperatures,
+    "vehicle.power.state": decode_power_state,
 }
 
-# RVMs that the ChargingCoordinator should subscribe to for live charging data
+# Full list of Parallax RVMs subscribed for vehicle & charging telemetry
+PARALLAX_RVMS: list[str] = list(RVM_DECODERS.keys())
 CHARGING_RVMS: list[str] = [
     "energy.high_voltage.battery_state",
     "energy_edge_compute.graphs.charge_session_breakdown",
