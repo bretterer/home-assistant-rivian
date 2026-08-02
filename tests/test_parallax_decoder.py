@@ -13,14 +13,21 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../c
 
 from parallax_decoder import (
     CHARGING_RVMS,
+    PARALLAX_RVMS,
     RVM_DECODERS,
     _decode_protobuf_fields,
     _decode_varint,
     decode_battery_state,
+    decode_cabin_temperatures,
     decode_charge_session_breakdown,
     decode_charging_session_status,
+    decode_closures,
+    decode_locks,
+    decode_odometer,
     decode_parallax_message,
+    decode_power_state,
     decode_time_estimation,
+    decode_tires,
 )
 
 
@@ -154,6 +161,79 @@ class TestParallaxDecoders(unittest.TestCase):
         result = decode_time_estimation(payload_b64)
         self.assertEqual(result.get("timeToEndOfCharge"), 3600)
 
+    def test_decode_odometer(self) -> None:
+        """Test dynamics.vehicle.odometer decoder."""
+        # field 1 = varint 17114 (miles) -> converted to meters
+        # 17114 = 0xda 0x85 0x01 -> tag 1<<3|0 = 8 -> b"\x08\xda\x85\x01"
+        raw = b"\x08\xda\x85\x01"
+        payload_b64 = base64.b64encode(raw).decode()
+
+        result = decode_odometer(payload_b64)
+        expected_meters = round(17114 * 1609.344, 1)
+        self.assertEqual(result.get("vehicleMileage"), expected_meters)
+
+    def test_decode_tires(self) -> None:
+        """Test dynamics.tires.state decoder."""
+        # Nested tire: pos=1 (FL), status=1 (Ok), pressure=3.48 (double)
+        inner = (
+            b"\x08\x01" +  # field 1 = 1 (FL)
+            b"\x10\x01" +  # field 2 = 1 (status Ok)
+            b"\x19" + struct.pack("<d", 3.48)  # field 3 = 3.48 (double)
+        )
+        outer = bytes([18, len(inner)]) + inner
+        payload_b64 = base64.b64encode(outer).decode()
+
+        result = decode_tires(payload_b64)
+        self.assertEqual(result.get("tirePressureFrontLeft"), 3.48)
+        self.assertEqual(result.get("tirePressureStatusFrontLeft"), "Ok")
+
+    def test_decode_closures(self) -> None:
+        """Test body.closures.states decoder."""
+        # Closure 1 (FL door, state 2=closed), Closure 5 (Frunk, state 1=open)
+        inner1 = b"\x08\x01\x10\x02"  # id 1, state 2 (closed)
+        inner2 = b"\x08\x05\x10\x01"  # id 5, state 1 (open)
+        outer = bytes([10, len(inner1)]) + inner1 + bytes([10, len(inner2)]) + inner2
+        payload_b64 = base64.b64encode(outer).decode()
+
+        result = decode_closures(payload_b64)
+        self.assertEqual(result.get("doorFrontLeftClosed"), "closed")
+        self.assertEqual(result.get("closureFrunkClosed"), "open")
+
+    def test_decode_locks(self) -> None:
+        """Test body.locks.states decoder."""
+        # Lock 1 (FL door, state 2=locked), Lock 2 (FR door, state 1=unlocked)
+        inner1 = b"\x08\x01\x10\x02"
+        inner2 = b"\x08\x02\x10\x01"
+        outer = bytes([10, len(inner1)]) + inner1 + bytes([10, len(inner2)]) + inner2
+        payload_b64 = base64.b64encode(outer).decode()
+
+        result = decode_locks(payload_b64)
+        self.assertEqual(result.get("doorFrontLeftLocked"), "locked")
+        self.assertEqual(result.get("doorFrontRightLocked"), "unlocked")
+
+    def test_decode_cabin_temperatures(self) -> None:
+        """Test comfort.cabin.cabin_temperatures decoder."""
+        # field 4 (tag 4<<3|5 = 37), float 23.5
+        raw = bytes([37]) + struct.pack("<f", 23.5)
+        payload_b64 = base64.b64encode(raw).decode()
+
+        result = decode_cabin_temperatures(payload_b64)
+        self.assertEqual(result.get("cabinClimateInteriorTemperature"), 23.5)
+
+    def test_decode_power_state(self) -> None:
+        """Test vehicle.power.state decoder."""
+        # field 1 = 4 (go / drive)
+        raw = b"\x08\x04"
+        payload_b64 = base64.b64encode(raw).decode()
+        result = decode_power_state(payload_b64)
+        self.assertEqual(result.get("powerState"), "go")
+
+        # field 1 = 1 (sleep)
+        raw_sleep = b"\x08\x01"
+        payload_b64_sleep = base64.b64encode(raw_sleep).decode()
+        result_sleep = decode_power_state(payload_b64_sleep)
+        self.assertEqual(result_sleep.get("powerState"), "sleep")
+
     def test_decode_parallax_message_dispatch(self) -> None:
         """Test decode_parallax_message dispatching."""
         # Known topic
@@ -162,6 +242,13 @@ class TestParallaxDecoders(unittest.TestCase):
         res = decode_parallax_message("charging.session.time_estimation", payload_b64)
         self.assertIsNotNone(res)
         self.assertEqual(res.get("timeToEndOfCharge"), 3600)
+
+        # Odometer topic
+        raw_odo = b"\x08\xda\x85\x01"
+        b64_odo = base64.b64encode(raw_odo).decode()
+        res_odo = decode_parallax_message("dynamics.vehicle.odometer", b64_odo)
+        self.assertIsNotNone(res_odo)
+        self.assertIn("vehicleMileage", res_odo)
 
         # Unknown topic
         unknown = decode_parallax_message("unknown.topic.rvm", payload_b64)
@@ -174,6 +261,8 @@ class TestParallaxDecoders(unittest.TestCase):
         self.assertIn("charging.session.status", CHARGING_RVMS)
         self.assertIn("charging.session.time_estimation", CHARGING_RVMS)
         self.assertIn("charging.session.soc_slider", CHARGING_RVMS)
+        self.assertIn("dynamics.vehicle.odometer", PARALLAX_RVMS)
+        self.assertIn("dynamics.tires.state", PARALLAX_RVMS)
 
 
 if __name__ == "__main__":

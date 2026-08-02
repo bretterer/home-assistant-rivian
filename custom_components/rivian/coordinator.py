@@ -35,7 +35,7 @@ from .const import (
     VEHICLE_STATE_API_FIELDS,
 )
 from .helpers import redact
-from .parallax_decoder import CHARGING_RVMS, decode_parallax_message
+from .parallax_decoder import PARALLAX_RVMS, decode_parallax_message
 
 _LOGGER = logging.getLogger(__name__)
 T = TypeVar("T", bound=dict[str, Any] | list[dict[str, Any]])
@@ -411,7 +411,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         return await super().async_shutdown()
 
     async def _subscribe_parallax(self) -> None:
-        """Subscribe to Parallax messages for live charging data."""
+        """Subscribe to Parallax messages for live vehicle and charging telemetry."""
         try:
             if not self.api._ws_monitor or not self.api._ws_monitor.connected:
                 return
@@ -420,14 +420,15 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
                 "query": "subscription ParallaxMessages($vehicleId: String!, $rvms: [String!]) { parallaxMessages(vehicleId: $vehicleId, rvms: $rvms) { payload timestamp rvm } }",
                 "variables": {
                     "vehicleId": self.vehicle_id,
-                    "rvms": CHARGING_RVMS,
+                    "rvms": PARALLAX_RVMS,
                 },
             }
             self._unsub_parallax = await self.api._ws_monitor.start_subscription(
                 payload, self._process_parallax_data
             )
             _LOGGER.debug(
-                "Subscribed to Parallax charging RVMs for vehicle %s",
+                "Subscribed to %d Parallax RVMs for vehicle %s",
+                len(PARALLAX_RVMS),
                 self.vehicle_id,
             )
         except Exception:  # pylint: disable=broad-except
@@ -444,8 +445,37 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         rvm = px.get("rvm", "")
         payload_b64 = px.get("payload", "")
         decoded = decode_parallax_message(rvm, payload_b64)
-        if decoded:
-            self.charging_coordinator.update_from_parallax(decoded)
+        if not decoded:
+            return
+
+        clean = {k: v for k, v in decoded.items() if not k.startswith("_")}
+        if not clean:
+            return
+
+        # Route charging fields to ChargingCoordinator
+        charging_keys = clean.keys() & {
+            "totalChargedEnergy",
+            "power",
+            "timeToEndOfCharge",
+            "plugConnectionStatus",
+            "displayStatus",
+            "evseType",
+            "rangeAddedThisSession",
+            "kilometersChargedPerHour",
+            "timeElapsed",
+        }
+        if charging_keys:
+            self.charging_coordinator.update_from_parallax(clean)
+
+        # Route vehicle state fields to VehicleCoordinator
+        vehicle_keys = clean.keys() - charging_keys
+        if vehicle_keys:
+            vehicle_updates = {
+                k: {"value": clean[k], "history": {clean[k]}} for k in vehicle_keys
+            }
+            new_data = (self.data or {}) | vehicle_updates
+            self.async_set_updated_data(new_data)
+            _LOGGER.debug("Vehicle state updated from Parallax (%s): %s", rvm, clean)
 
     @callback
     def _process_new_data(self, data: dict[str, Any]) -> None:
