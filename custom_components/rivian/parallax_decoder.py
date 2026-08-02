@@ -141,9 +141,17 @@ def decode_charge_session_breakdown(payload_b64: str) -> dict[str, Any]:
             elif field_num == 13 and wire_type == 0:  # chargingState enum
                 result["_charging_state"] = value
 
-        # Estimate range added: ~3.5 km/kWh is a reasonable Rivian average
+        # Estimate range added: ~3.5 km/kWh (~2.17 mi/kWh) is a typical Rivian average
         if total_kwh > 0:
             result["rangeAddedThisSession"] = round(total_kwh * 3.5, 1)
+
+        # Derive charge rate (km/h) from current power (kW)
+        if "power" in result:
+            p = result["power"]
+            result["kilometersChargedPerHour"] = round(p * 3.5, 1) if p > 0 else 0.0
+
+        if "_time_field_7" in result:
+            result["timeElapsed"] = result["_time_field_7"]
 
         return result
     except Exception:
