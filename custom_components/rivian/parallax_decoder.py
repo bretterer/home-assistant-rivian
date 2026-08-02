@@ -435,7 +435,8 @@ def decode_gnss(payload_b64: str) -> dict[str, Any]:
     """Decode dynamics.vehicle.gnss.
 
     Returns dict with keys:
-        - gnssLocation: {"latitude": float, "longitude": float}
+        - gnssLocation: {"latitude": float, "longitude": float, "timeStamp": str}
+        - gnssAltitude: float (meters)
     """
     if not payload_b64:
         return {}
@@ -444,15 +445,28 @@ def decode_gnss(payload_b64: str) -> dict[str, Any]:
         fields = _decode_protobuf_fields(data)
         lat = None
         lon = None
+        alt = None
         for field_num, wire_type, value in fields:
             if field_num == 1 and wire_type == 1:  # latitude (double)
                 lat = round(value, 6)
             elif field_num == 2 and wire_type == 1:  # longitude (double)
                 lon = round(value, 6)
+            elif field_num == 3 and wire_type == 1:  # altitude (double)
+                alt = round(value, 1)
 
+        result: dict[str, Any] = {}
         if lat is not None and lon is not None:
-            return {"gnssLocation": {"latitude": lat, "longitude": lon}}
-        return {}
+            from datetime import datetime, timezone
+
+            now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f%z")
+            result["gnssLocation"] = {
+                "latitude": lat,
+                "longitude": lon,
+                "timeStamp": now_iso,
+            }
+        if alt is not None:
+            result["gnssAltitude"] = alt
+        return result
     except Exception:
         _LOGGER.debug("Failed to decode gnss payload", exc_info=True)
         return {}
