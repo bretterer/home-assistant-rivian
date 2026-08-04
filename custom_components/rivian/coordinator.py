@@ -189,47 +189,20 @@ class ChargingCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         from datetime import datetime, timezone
 
         now = datetime.now(timezone.utc)
-
-        # Detect active charging session transitions
-        new_session = False
-        power = clean.get("power")
-        if power is not None:
-            if power > 0:
-                if not self._is_charging:
-                    self._is_charging = True
-                    self._session_start_time = now
-                    new_session = True
-            else:
-                self._is_charging = False
-                self._session_start_time = None
-
         new_data = dict(self.data or {})
-        if new_session:
-            new_data["timeElapsed"] = 0
-            new_data["startTime"] = self._session_start_time.strftime(
-                "%Y-%m-%dT%H:%M:%S.%f%z"
-            )
+
+        # If a verified startTime arrives from graph data that differs from existing,
+        # it indicates a brand new charging session.
+        if "startTime" in clean:
+            old_start = new_data.get("startTime")
+            if old_start and old_start != clean["startTime"]:
+                # New session started - clear old session metrics
+                new_data.clear()
+            new_data["startTime"] = clean["startTime"]
+        elif not new_data.get("startTime") and clean.get("power", 0) > 0:
+            new_data["startTime"] = now.strftime("%Y-%m-%dT%H:%M:%S.%f%z")
 
         new_data.update(clean)
-
-        # Prioritize verified startTime from Parallax graph data if available
-        if "startTime" in clean:
-            new_data["startTime"] = clean["startTime"]
-            try:
-                self._session_start_time = datetime.strptime(
-                    clean["startTime"], "%Y-%m-%dT%H:%M:%S.%f%z"
-                )
-            except Exception:
-                pass
-        elif self._is_charging and not new_data.get("startTime"):
-            new_data["startTime"] = (self._session_start_time or now).strftime(
-                "%Y-%m-%dT%H:%M:%S.%f%z"
-            )
-
-        # Track elapsed time if active charging
-        if "timeElapsed" not in clean and self._is_charging and self._session_start_time:
-            elapsed = int((now - self._session_start_time).total_seconds())
-            new_data["timeElapsed"] = max(0, elapsed)
 
         self.async_set_updated_data(new_data)
         _LOGGER.debug("Charging data updated from Parallax: %s", clean)
@@ -564,10 +537,6 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             if not is_charging:
                 # Reset instantaneous charging metrics when not actively charging
                 items["timeToEndOfCharge"] = {"value": 0, "history": {0}}
-                self.charging_coordinator.update_from_parallax({
-                    "power": 0.0,
-                    "kilometersChargedPerHour": 0.0,
-                })
 
         if not (prev_items := (self.data or {})):
             return items
