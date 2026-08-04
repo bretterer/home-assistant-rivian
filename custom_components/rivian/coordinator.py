@@ -155,6 +155,8 @@ class ChargingCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         """Initialize the coordinator."""
         super().__init__(hass=hass, config_entry=config_entry, client=client)
         self.vehicle_id = vehicle_id
+        self._is_charging: bool = False
+        self._session_start_time: datetime | None = None
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Return current data without polling.
@@ -184,14 +186,34 @@ class ChargingCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         if not clean:
             return
 
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
+
+        # Detect active charging session transitions
+        power = clean.get("power")
+        if power is not None:
+            if power > 0:
+                if not self._is_charging:
+                    self._is_charging = True
+                    self._session_start_time = now
+            else:
+                self._is_charging = False
+
         new_data = (self.data or {}) | clean
 
-        # Track session start time when active charging begins
-        if clean.get("power", 0) > 0 and not new_data.get("startTime"):
-            from datetime import datetime, timezone
+        # Prioritize verified startTime from Parallax graph data if available
+        if "startTime" in clean:
+            new_data["startTime"] = clean["startTime"]
+        elif self._is_charging and self._session_start_time:
+            new_data["startTime"] = self._session_start_time.strftime(
+                "%Y-%m-%dT%H:%M:%S.%f%z"
+            )
 
-            now = datetime.now(timezone.utc)
-            new_data["startTime"] = now.strftime("%Y-%m-%dT%H:%M:%S.%f%z")
+        # Track elapsed time if active charging
+        if "timeElapsed" not in clean and self._is_charging and self._session_start_time:
+            elapsed = int((now - self._session_start_time).total_seconds())
+            new_data["timeElapsed"] = max(0, elapsed)
 
         self.async_set_updated_data(new_data)
         _LOGGER.debug("Charging data updated from Parallax: %s", clean)
