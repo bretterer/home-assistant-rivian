@@ -567,6 +567,9 @@ def decode_charging_graph_global(payload_b64: str) -> dict[str, Any]:
 
         if "power" in last_seg:
             result["power"] = last_seg["power"]
+        else:
+            result["power"] = 0.0
+            result["kilometersChargedPerHour"] = 0.0
 
         return result
     except Exception:
