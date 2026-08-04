@@ -550,8 +550,12 @@ def decode_charging_graph_global(payload_b64: str) -> dict[str, Any]:
         if not segments:
             return {}
 
-        first_seg = segments[0]
-        last_seg = segments[-1]
+        active_segments = [
+            s for s in segments if s.get("power", 0) > 0 or s.get("state") == 3
+        ]
+
+        first_seg = active_segments[0] if active_segments else segments[0]
+        last_seg = active_segments[-1] if active_segments else segments[-1]
         result: dict[str, Any] = {}
 
         if "start_ms" in first_seg:
@@ -560,13 +564,21 @@ def decode_charging_graph_global(payload_b64: str) -> dict[str, Any]:
             st = datetime.fromtimestamp(first_seg["start_ms"] / 1000, timezone.utc)
             result["startTime"] = st.strftime("%Y-%m-%dT%H:%M:%S.%f%z")
 
-        if "start_ms" in first_seg and "end_ms" in last_seg:
+        if active_segments and "start_ms" in first_seg and "end_ms" in last_seg:
             result["timeElapsed"] = max(
                 0, int((last_seg["end_ms"] - first_seg["start_ms"]) / 1000)
             )
+        elif not active_segments:
+            result["timeElapsed"] = 0
 
-        if "power" in last_seg:
-            result["power"] = last_seg["power"]
+        latest_segment = segments[-1]
+        if (
+            "power" in latest_segment
+            and latest_segment.get("power", 0) > 0
+            and latest_segment.get("state") != 8
+        ):
+            result["power"] = latest_segment["power"]
+            result["kilometersChargedPerHour"] = round(result["power"] * 3.5, 1)
         else:
             result["power"] = 0.0
             result["kilometersChargedPerHour"] = 0.0
