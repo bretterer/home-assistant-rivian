@@ -20,6 +20,7 @@ from parallax_decoder import (
     decode_battery_state,
     decode_cabin_temperatures,
     decode_charge_session_breakdown,
+    decode_charging_graph_global,
     decode_charging_session_status,
     decode_closures,
     decode_defrost,
@@ -143,6 +144,23 @@ class TestParallaxDecoders(unittest.TestCase):
         self.assertEqual(result.get("power"), 5.7)
         self.assertAlmostEqual(result.get("rangeAddedThisSession"), round(0.6 * 3.5, 1), places=1)
         self.assertAlmostEqual(result.get("kilometersChargedPerHour"), round(5.7 * 3.5, 1), places=1)
+
+    def test_decode_charging_graph_global(self) -> None:
+        """Test energy_edge_compute.graphs.charging_graph_global decoder."""
+        # Segment 1: start_ms=1785695977217, power=5.8, end_ms=1785696037217
+        seg1 = (
+            b"\x08\x48" +  # field 1: soc = 72
+            bytes([21]) + struct.pack("<f", 5.8) +  # field 2: power = 5.8
+            b"\x18\x81\xfe\x98\x9e\xfc3" +  # field 3: start_ms = 1785695977217
+            b"\x20\xe1\xd2\x9c\x9e\xfc3"    # field 4: end_ms = 1785696037217
+        )
+        outer = bytes([10, len(seg1)]) + seg1
+        payload_b64 = base64.b64encode(outer).decode()
+
+        result = decode_charging_graph_global(payload_b64)
+        self.assertIn("startTime", result)
+        self.assertEqual(result.get("timeElapsed"), 60)
+        self.assertEqual(result.get("power"), 5.8)
 
     def test_decode_charging_session_status(self) -> None:
         """Test charging.session.status decoder."""
