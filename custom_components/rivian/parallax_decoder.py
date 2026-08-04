@@ -150,9 +150,6 @@ def decode_charge_session_breakdown(payload_b64: str) -> dict[str, Any]:
             p = result["power"]
             result["kilometersChargedPerHour"] = round(p * 3.5, 1) if p > 0 else 0.0
 
-        if "_time_field_7" in result:
-            result["timeElapsed"] = result["_time_field_7"]
-
         return result
     except Exception:
         _LOGGER.debug(
@@ -519,10 +516,71 @@ def decode_defrost(payload_b64: str) -> dict[str, Any]:
         return {}
 
 
+def decode_charging_graph_global(payload_b64: str) -> dict[str, Any]:
+    """Decode energy_edge_compute.graphs.charging_graph_global (APK: k70/k).
+
+    Returns dict with keys:
+        - startTime: str (ISO format timestamp of session start)
+        - timeElapsed: int (seconds elapsed since session start)
+        - power: float (kW, latest segment power)
+    """
+    if not payload_b64:
+        return {}
+    try:
+        data = base64.b64decode(payload_b64)
+        outer = _decode_protobuf_fields(data)
+        segments = []
+        for field_num, wire_type, value in outer:
+            if field_num == 1 and wire_type == 2:
+                inner = _decode_protobuf_fields(value)
+                seg: dict[str, Any] = {}
+                for in_num, in_wt, in_val in inner:
+                    if in_num == 1 and in_wt == 0:
+                        seg["soc"] = in_val
+                    elif in_num == 2 and in_wt == 5:
+                        seg["power"] = round(in_val, 2)
+                    elif in_num == 3 and in_wt == 0:
+                        seg["start_ms"] = in_val
+                    elif in_num == 4 and in_wt == 0:
+                        seg["end_ms"] = in_val
+                    elif in_num == 6 and in_wt == 0:
+                        seg["state"] = in_val
+                segments.append(seg)
+
+        if not segments:
+            return {}
+
+        first_seg = segments[0]
+        last_seg = segments[-1]
+        result: dict[str, Any] = {}
+
+        if "start_ms" in first_seg:
+            from datetime import datetime, timezone
+
+            st = datetime.fromtimestamp(first_seg["start_ms"] / 1000, timezone.utc)
+            result["startTime"] = st.strftime("%Y-%m-%dT%H:%M:%S.%f%z")
+
+        if "start_ms" in first_seg and "end_ms" in last_seg:
+            result["timeElapsed"] = max(
+                0, int((last_seg["end_ms"] - first_seg["start_ms"]) / 1000)
+            )
+
+        if "power" in last_seg:
+            result["power"] = last_seg["power"]
+
+        return result
+    except Exception:
+        _LOGGER.debug(
+            "Failed to decode charging_graph_global payload", exc_info=True
+        )
+        return {}
+
+
 # Map of RVM topic -> decoder function
 RVM_DECODERS: dict[str, callable] = {
     "energy.high_voltage.battery_state": decode_battery_state,
     "energy_edge_compute.graphs.charge_session_breakdown": decode_charge_session_breakdown,
+    "energy_edge_compute.graphs.charging_graph_global": decode_charging_graph_global,
     "charging.session.status": decode_charging_session_status,
     "charging.session.time_estimation": decode_time_estimation,
     "dynamics.vehicle.odometer": decode_odometer,
