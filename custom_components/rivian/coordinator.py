@@ -501,12 +501,14 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             "rangeAddedThisSession",
             "kilometersChargedPerHour",
             "timeElapsed",
+            "startTime",
         }
         if charging_keys:
             self.charging_coordinator.update_from_parallax(clean)
 
         # Route vehicle state fields to VehicleCoordinator
-        vehicle_keys = clean.keys() - charging_keys
+        # Note: timeToEndOfCharge is defined in VEHICLE_SENSORS, so it updates VehicleCoordinator too
+        vehicle_keys = (clean.keys() - charging_keys) | (clean.keys() & {"timeToEndOfCharge"})
         if vehicle_keys:
             vehicle_updates: dict[str, Any] = {}
             for k in vehicle_keys:
@@ -550,9 +552,22 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             else:
                 self._awake.set()
         if charger_status := items.get("chargerStatus"):
-            self.charging_coordinator.adjust_update_interval(
-                is_plugged_in=charger_status.get("value") != "chrgr_sts_not_connected"
+            raw_status = str(charger_status.get("value", "")).lower()
+            is_charging = (
+                "charging" in raw_status
+                and "not" not in raw_status
+                and "disconnected" not in raw_status
             )
+            self.charging_coordinator.adjust_update_interval(
+                is_plugged_in=raw_status != "chrgr_sts_not_connected"
+            )
+            if not is_charging:
+                # Reset instantaneous charging metrics when not actively charging
+                items["timeToEndOfCharge"] = {"value": 0, "history": {0}}
+                self.charging_coordinator.update_from_parallax({
+                    "power": 0.0,
+                    "kilometersChargedPerHour": 0.0,
+                })
 
         if not (prev_items := (self.data or {})):
             return items
