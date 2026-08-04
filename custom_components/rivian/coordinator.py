@@ -191,22 +191,38 @@ class ChargingCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         now = datetime.now(timezone.utc)
 
         # Detect active charging session transitions
+        new_session = False
         power = clean.get("power")
         if power is not None:
             if power > 0:
                 if not self._is_charging:
                     self._is_charging = True
                     self._session_start_time = now
+                    new_session = True
             else:
                 self._is_charging = False
+                self._session_start_time = None
 
-        new_data = (self.data or {}) | clean
+        new_data = dict(self.data or {})
+        if new_session:
+            new_data["timeElapsed"] = 0
+            new_data["startTime"] = self._session_start_time.strftime(
+                "%Y-%m-%dT%H:%M:%S.%f%z"
+            )
+
+        new_data.update(clean)
 
         # Prioritize verified startTime from Parallax graph data if available
         if "startTime" in clean:
             new_data["startTime"] = clean["startTime"]
-        elif self._is_charging and self._session_start_time:
-            new_data["startTime"] = self._session_start_time.strftime(
+            try:
+                self._session_start_time = datetime.strptime(
+                    clean["startTime"], "%Y-%m-%dT%H:%M:%S.%f%z"
+                )
+            except Exception:
+                pass
+        elif self._is_charging and not new_data.get("startTime"):
+            new_data["startTime"] = (self._session_start_time or now).strftime(
                 "%Y-%m-%dT%H:%M:%S.%f%z"
             )
 
