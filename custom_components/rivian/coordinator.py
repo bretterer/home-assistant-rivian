@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 import asyncio
-from collections.abc import Coroutine
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta, timezone
 import logging
 import time
@@ -18,6 +18,7 @@ from rivian.exceptions import (
     RivianExpiredTokenError,
     RivianUnauthenticated,
 )
+from rivian.parallax import decode_parallax_message
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
@@ -35,7 +36,6 @@ from .const import (
     VEHICLE_STATE_API_FIELDS,
 )
 from .helpers import redact
-from .parallax_decoder import PARALLAX_RVMS, decode_parallax_message
 
 _LOGGER = logging.getLogger(__name__)
 T = TypeVar("T", bound=dict[str, Any] | list[dict[str, Any]])
@@ -186,8 +186,6 @@ class ChargingCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         if not clean:
             return
 
-        from datetime import datetime, timezone
-
         now = datetime.now(timezone.utc)
         new_data = dict(self.data or {})
 
@@ -213,7 +211,6 @@ class ChargingCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         With Parallax push, polling is disabled. This method is kept for
         backward compatibility with VehicleCoordinator's chargerStatus handler.
         """
-        pass
 
 
 class DriverKeyCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
@@ -330,8 +327,8 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             hass=hass, config_entry=config_entry, client=client, vehicle_id=vehicle_id
         )
         self._initial = asyncio.Event()
-        self._unsub_handler: Coroutine[None, None, None] | None = None
-        self._unsub_parallax: Coroutine[None, None, None] | None = None
+        self._unsub_handler: Callable[[], Awaitable[None]] | None = None
+        self._unsub_parallax: Callable[[], Awaitable[None]] | None = None
         self._awake = asyncio.Event()
         self._charging_schedule: dict[str, Any] | None = None
         self._last_schedule_fetch: float = 0.0
@@ -401,7 +398,10 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             )
 
             # Subscribe to Parallax messages for live charging data
-            await self._subscribe_parallax()
+            self._unsub_parallax = await self.api.subscribe_for_parallax_messages(
+                vehicle_id=self.vehicle_id,
+                callback=self._process_parallax_data,
+            )
 
             try:
                 await asyncio.wait_for(self._initial.wait(), INITIAL_UPDATE_TIMEOUT)
@@ -421,30 +421,6 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         await self._unsubscribe(True)
         return await super().async_shutdown()
 
-    async def _subscribe_parallax(self) -> None:
-        """Subscribe to Parallax messages for live vehicle and charging telemetry."""
-        try:
-            if not self.api._ws_monitor or not self.api._ws_monitor.connected:
-                return
-            payload = {
-                "operationName": "ParallaxMessages",
-                "query": "subscription ParallaxMessages($vehicleId: String!, $rvms: [String!]) { parallaxMessages(vehicleId: $vehicleId, rvms: $rvms) { payload timestamp rvm } }",
-                "variables": {
-                    "vehicleId": self.vehicle_id,
-                    "rvms": PARALLAX_RVMS,
-                },
-            }
-            self._unsub_parallax = await self.api._ws_monitor.start_subscription(
-                payload, self._process_parallax_data
-            )
-            _LOGGER.debug(
-                "Subscribed to %d Parallax RVMs for vehicle %s",
-                len(PARALLAX_RVMS),
-                self.vehicle_id,
-            )
-        except Exception:  # pylint: disable=broad-except
-            _LOGGER.warning("Failed to subscribe to Parallax messages", exc_info=True)
-
     @callback
     def _process_parallax_data(self, data: dict[str, Any]) -> None:
         """Process incoming Parallax subscription messages."""
@@ -453,9 +429,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         px = pdata.get("parallaxMessages")
         if not px:
             return
-        rvm = px.get("rvm", "")
-        payload_b64 = px.get("payload", "")
-        decoded = decode_parallax_message(rvm, payload_b64)
+        decoded = decode_parallax_message(**px)
         if not decoded:
             return
 
@@ -481,7 +455,9 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
 
         # Route vehicle state fields to VehicleCoordinator
         # Note: timeToEndOfCharge is defined in VEHICLE_SENSORS, so it updates VehicleCoordinator too
-        vehicle_keys = (clean.keys() - charging_keys) | (clean.keys() & {"timeToEndOfCharge"})
+        vehicle_keys = (clean.keys() - charging_keys) | (
+            clean.keys() & {"timeToEndOfCharge"}
+        )
         if vehicle_keys:
             vehicle_updates: dict[str, Any] = {}
             for k in vehicle_keys:
@@ -491,7 +467,9 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
                     vehicle_updates[k] = {"value": clean[k], "history": {clean[k]}}
             new_data = (self.data or {}) | vehicle_updates
             self.async_set_updated_data(new_data)
-            _LOGGER.debug("Vehicle state updated from Parallax (%s): %s", rvm, clean)
+            _LOGGER.debug(
+                "Vehicle state updated from Parallax (%s): %s", px.get("rvm"), clean
+            )
 
     @callback
     def _process_new_data(self, data: dict[str, Any]) -> None:
