@@ -7,8 +7,7 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta, timezone
 import logging
-import time
-from typing import Any, Generic, TypeVar
+from typing import Any, Final, Generic, TypeVar
 
 from aiohttp import ClientResponse
 from rivian import Rivian, VehicleCommand
@@ -46,6 +45,21 @@ T = TypeVar("T", bound=dict[str, Any] | list[dict[str, Any]])
 INITIAL_UPDATE_TIMEOUT = 60
 CHARGING_SCHEDULE_COOL_OFF = 10
 CHARGING_SCHEDULE_REFRESH_INTERVAL = 900
+
+CHARGING_STATE_KEYS: Final[frozenset[str]] = frozenset(
+    {
+        "displayStatus",
+        "evseType",
+        "kilometersChargedPerHour",
+        "plugConnectionStatus",
+        "power",
+        "rangeAddedThisSession",
+        "startTime",
+        "timeElapsed",
+        "timeToEndOfCharge",
+        "totalChargedEnergy",
+    }
+)
 
 
 class RivianDataUpdateCoordinator(DataUpdateCoordinator[T], ABC, Generic[T]):
@@ -438,19 +452,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             return
 
         # Route charging fields to ChargingCoordinator
-        charging_keys = clean.keys() & {
-            "totalChargedEnergy",
-            "power",
-            "timeToEndOfCharge",
-            "plugConnectionStatus",
-            "displayStatus",
-            "evseType",
-            "rangeAddedThisSession",
-            "kilometersChargedPerHour",
-            "timeElapsed",
-            "startTime",
-        }
-        if charging_keys:
+        if charging_keys := clean.keys() & CHARGING_STATE_KEYS:
             self.charging_coordinator.update_from_parallax(clean)
 
         # Route vehicle state fields to VehicleCoordinator

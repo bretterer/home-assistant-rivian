@@ -80,10 +80,10 @@ class RivianDeviceEntity(RivianVehicleEntity, TrackerEntity):
         return SourceType.GPS
 
     @property
-    def extra_state_attributes(self) -> Mapping[str, Any]:
+    def extra_state_attributes(self) -> Mapping[str, Any] | None:
         """Return the state attributes of the device."""
         if not self._tracker_data:
-            return {}
+            return None
         return {
             "last_update": self._tracker_data.get("timeStamp"),
         }
