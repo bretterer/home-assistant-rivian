@@ -1066,16 +1066,22 @@ VEHICLE_STATE_SANS_TPMS_API_FIELDS: Final[set[str]] = VEHICLE_STATE_API_FIELDS ^
     "tirePressureRearRight",
 }
 
-CHARGING_API_FIELDS: Final[set[str]] = {
-    "currentCurrency",
-    "currentPrice",
-    "kilometersChargedPerHour",
-    "power",
-    "rangeAddedThisSession",
-    "startTime",
-    "timeElapsed",
-    "totalChargedEnergy",
-}
+CHARGING_STATE_KEYS: Final[frozenset[str]] = frozenset(
+    {
+        "currentCurrency",
+        "currentPrice",
+        "displayStatus",
+        "evseType",
+        "kilometersChargedPerHour",
+        "plugConnectionStatus",
+        "power",
+        "rangeAddedThisSession",
+        "startTime",
+        "timeElapsed",
+        "timeToEndOfCharge",
+        "totalChargedEnergy",
+    }
+)
 
 WEEK_DAYS_ORDERED: Final[tuple[str, ...]] = (
     "Monday",
