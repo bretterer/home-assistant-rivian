@@ -9,19 +9,23 @@ This is an unofficial Home Assistant custom integration for Rivian vehicles. It 
 ## Development Commands
 
 ### Setup (in devcontainer or local)
+
 ```bash
 pip install -r requirements.txt
 pre-commit install
 ```
 
 ### Linting
+
 ```bash
 ruff check custom_components/
 ruff format custom_components/
 ```
 
 ### Running Home Assistant for Testing
+
 Use VS Code devcontainer (recommended) - opens at port 8123. The devcontainer automatically:
+
 - Installs dependencies via `.devcontainer/setup`
 - Creates `config/` directory for HA configuration
 - Configures debug logging for `custom_components.rivian`
@@ -31,6 +35,7 @@ Use VS Code devcontainer (recommended) - opens at port 8123. The devcontainer au
 ### Core Components
 
 **Entry Point (`__init__.py`):**
+
 - Sets up coordinators and forwards platform setup
 - Creates `UserCoordinator` first to get vehicle list
 - Creates a `VehicleCoordinator` per vehicle
@@ -38,6 +43,7 @@ Use VS Code devcontainer (recommended) - opens at port 8123. The devcontainer au
 - Stores everything in `hass.data[DOMAIN][entry_id]`
 
 **Data Coordinators (`coordinator.py`):**
+
 - `RivianDataUpdateCoordinator` - Abstract base with error handling and exponential backoff
 - `UserCoordinator` - Fetches user info and vehicle list
 - `VehicleCoordinator` - Subscribes to real-time vehicle state updates via WebSocket
@@ -47,6 +53,7 @@ Use VS Code devcontainer (recommended) - opens at port 8123. The devcontainer au
 - `VehicleImageCoordinator` - Fetches vehicle images on-demand
 
 **Entity Base Classes (`entity.py`):**
+
 - `RivianEntity` - Generic base
 - `RivianVehicleEntity` - For vehicle sensors/binary sensors
 - `RivianVehicleControlEntity` - For commands (checks gear=park, zone restrictions, pairing status)
@@ -69,23 +76,26 @@ Dictionaries `SENSORS` and `BINARY_SENSORS` keyed by vehicle type ("R1", "R1T", 
 ### Vehicle Control
 
 Remote commands require:
+
 - 2FA enabled on Rivian account
 - Bluetooth pairing (one-time, in-vehicle)
 - Vehicle in "Park" gear
 - Optionally restricted by Home Assistant zones
 
 Commands flow through `VehicleCoordinator.send_vehicle_command()` which:
+
 - Wakes vehicle if sleeping
 - Uses enrolled phone credentials from config entry options
 
 ### Platform Files
 
 Each platform (sensor, binary_sensor, button, climate, cover, lock, number, select, switch, update, device_tracker, image) has its own module that:
+
 1. Defines entity descriptions specific to that platform
 2. Implements `async_setup_entry()` to create entities
 3. Extends the appropriate base entity class
 
 ## Key Dependencies
 
-- `rivian-python-client[ble]==2.0.0` - Core API client (includes BLE support for pairing)
+- `rivian-python-client[ble]==2.1.0` - Core API client (includes BLE support for pairing)
 - `homeassistant>=2025.1.0` - Home Assistant core
