@@ -28,7 +28,6 @@ from .const import (
     ATTR_COORDINATOR,
     ATTR_USER,
     ATTR_VEHICLE,
-    CHARGING_API_FIELDS,
     DEFAULT_CHARGING_SCHEDULE,
     DOMAIN,
     INVALID_SENSOR_STATES,
@@ -157,7 +156,7 @@ class ChargingCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
     key = "getLiveSessionData"
     _unplugged_interval = 15 * 60  # 15 minutes
     _plugged_interval = 30  # 30 seconds
-    _update_interval_seconds = 0  # disabled — data is pushed via Parallax
+    _update_interval_seconds = 0  # disabled - data is pushed via Parallax
 
     def __init__(
         self,
@@ -183,10 +182,8 @@ class ChargingCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         return self.data or {}
 
     async def _fetch_data(self) -> ClientResponse:
-        """Fetch the data (legacy fallback, may fail on newer API versions)."""
-        return await self.api.get_live_charging_session(
-            vin=self.vehicle_id, properties=CHARGING_API_FIELDS
-        )
+        """Fetch the data."""
+        raise NotImplementedError("Polling live session data no longer allowed")
 
     @callback
     def update_from_parallax(self, decoded: dict[str, Any]) -> None:
