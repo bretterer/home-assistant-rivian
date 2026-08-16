@@ -449,6 +449,16 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             for k in vehicle_keys:
                 if k == "gnssLocation":
                     vehicle_updates[k] = clean[k]
+                elif k == "vehicleMileage":
+                    # Parallax encodes odometer as integer km; GraphQL provides float meters.
+                    # Both sources active causes oscillation that corrupts utility meters.
+                    # Only accept Parallax value if >= stored (monotonic increase).
+                    prev_val = (
+                        (self.data or {}).get("vehicleMileage", {}).get("value", 0)
+                    )
+                    new_val = clean[k]
+                    if isinstance(new_val, (int, float)) and new_val >= prev_val:
+                        vehicle_updates[k] = {"value": new_val, "history": {new_val}}
                 else:
                     vehicle_updates[k] = {"value": clean[k], "history": {clean[k]}}
             new_data = (self.data or {}) | vehicle_updates
