@@ -93,8 +93,8 @@ DRIVE_MODE_MAP = {
 }
 
 
-SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
-    "R1": (
+SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]] = {
+    ("R1", "R2"): (
         RivianSensorEntityDescription(
             key="active_driver",
             translation_key="active_driver",
@@ -648,7 +648,7 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             entity_category=EntityCategory.DIAGNOSTIC,
         ),
     ),
-    "R1S": (
+    ("R1S", "R2"): (
         RivianSensorEntityDescription(
             key="liftgate_next_action",
             field="closureLiftgateNextAction",
@@ -657,8 +657,10 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
         ),
     ),
 }
-BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]] = {
-    "R1": (
+BINARY_SENSORS: Final[
+    dict[tuple[str, ...], tuple[RivianBinarySensorEntityDescription, ...]]
+] = {
+    ("R1", "R2"): (
         RivianBinarySensorEntityDescription(
             key="alarm_sound_status",
             field="alarmSoundStatus",
@@ -959,7 +961,7 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             on_value="on",
         ),
     ),
-    "R1T": (
+    ("R1T"): (
         RivianBinarySensorEntityDescription(
             key="closure_side_bin_left_closed",
             field="closureSideBinLeftClosed",
@@ -1003,7 +1005,7 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             on_value="unlocked",
         ),
     ),
-    "R1S": (
+    ("R1S", "R2"): (
         RivianBinarySensorEntityDescription(
             key="closure_liftgate_closed",
             field="closureLiftgateClosed",
