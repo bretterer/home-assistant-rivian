@@ -72,7 +72,8 @@ async def async_setup_entry(
             vehicle_coordinators[vehicle_id], entry, description, vehicle
         )
         for vehicle_id, vehicle in vehicles.items()
-        for model, descriptions in SENSORS.items()
+        for models, descriptions in SENSORS.items()
+        for model in models
         if model in vehicle["model"]
         for description in descriptions
     ]

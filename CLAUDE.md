@@ -64,7 +64,7 @@ Use VS Code devcontainer (recommended) - opens at port 8123. The devcontainer au
 Custom dataclasses extending HA entity descriptions with Rivian-specific fields like `field` (API field name), `value_lambda`, `on_value`, etc.
 
 **Sensor Definitions (`const.py`):**
-Dictionaries `SENSORS` and `BINARY_SENSORS` keyed by vehicle type ("R1", "R1T", "R1S") containing entity descriptions.
+Dictionaries `SENSORS` and `BINARY_SENSORS` keyed by vehicle type ("R1", "R1T", "R1S", "R2") containing entity descriptions.
 
 ### Data Flow
 

@@ -27,7 +27,8 @@ async def async_setup_entry(
     entities = [
         RivianBinarySensorEntity(coordinators[vehicle_id], entry, description, vehicle)
         for vehicle_id, vehicle in vehicles.items()
-        for model, descriptions in BINARY_SENSORS.items()
+        for models, descriptions in BINARY_SENSORS.items()
+        for model in models
         if model in vehicle["model"]
         for description in descriptions
     ]
