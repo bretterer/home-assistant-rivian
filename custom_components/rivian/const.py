@@ -657,9 +657,8 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
         ),
     ),
     # R2 telemetry currently only confirms the fields below as present on the
-    # vehicle-state websocket subscription (see
-    # https://github.com/bretterer/home-assistant-rivian/issues/<TBD> for the
-    # captured debug log). The remaining "R1" fields are not yet confirmed for
+    # vehicle-state websocket subscription 
+    # The remaining "R1" fields are not yet confirmed for
     # R2 and are intentionally left out until verified, rather than assumed.
     "R2": (
         RivianSensorEntityDescription(
