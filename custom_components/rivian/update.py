@@ -69,8 +69,10 @@ class RivianUpdateEntity(RivianVehicleEntity, UpdateEntity):
         self._update_version_info()
 
     def _update_version_info(self) -> None:
-        current_version = self._get_value("otaCurrentVersion")
-        if (latest_version := self._get_value("otaAvailableVersion")) == "0.0.0":
+        current_version = self._get_value("otaCurrentVersion") or "0.0.0"
+        if (
+            latest_version := self._get_value("otaAvailableVersion") or current_version
+        ) == "0.0.0":
             latest_version = current_version
         current_hash = self._get_value("otaCurrentVersionGitHash")
         if (latest_hash := self._get_value("otaAvailableVersionGitHash")) == "":
