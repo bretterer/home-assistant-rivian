@@ -656,6 +656,148 @@ SENSORS: Final[dict[str, tuple[RivianSensorEntityDescription, ...]]] = {
             icon="mdi:gesture-tap-button",
         ),
     ),
+    # R2 telemetry currently only confirms the fields below as present on the
+    # vehicle-state websocket subscription (see
+    # https://github.com/bretterer/home-assistant-rivian/issues/<TBD> for the
+    # captured debug log). The remaining "R1" fields are not yet confirmed for
+    # R2 and are intentionally left out until verified, rather than assumed.
+    "R2": (
+        RivianSensorEntityDescription(
+            key="active_driver",
+            translation_key="active_driver",
+            field="activeDriverName",
+        ),
+        RivianSensorEntityDescription(
+            key="battery_level",
+            field="batteryLevel",
+            name="Battery State of Charge",
+            device_class=SensorDeviceClass.BATTERY,
+            native_unit_of_measurement=PERCENTAGE,
+            state_class=SensorStateClass.MEASUREMENT,
+            suggested_display_precision=1,
+        ),
+        RivianSensorEntityDescription(
+            key="battery_limit",
+            field="batteryLimit",
+            name="Battery State of Charge Limit",
+            icon="mdi:battery-charging-80",
+            native_unit_of_measurement=PERCENTAGE,
+        ),
+        RivianSensorEntityDescription(
+            key="battery_capacity",
+            field="batteryCapacity",
+            name="Battery Capacity",
+            device_class=SensorDeviceClass.ENERGY_STORAGE,
+            native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+            state_class=SensorStateClass.MEASUREMENT,
+            icon="mdi:battery-check",
+            suggested_display_precision=2,
+        ),
+        RivianSensorEntityDescription(
+            key="distance_to_empty",
+            field="distanceToEmpty",
+            name="Estimated Vehicle Range",
+            icon="mdi:map-marker-distance",
+            device_class=SensorDeviceClass.DISTANCE,
+            native_unit_of_measurement=UnitOfLength.KILOMETERS,
+            state_class=SensorStateClass.MEASUREMENT,
+            suggested_display_precision=1,
+        ),
+        RivianSensorEntityDescription(
+            key="drive_mode",
+            field="driveMode",
+            name="Drive Mode",
+            icon="mdi:car-speed-limiter",
+            device_class=SensorDeviceClass.ENUM,
+            options=list(DRIVE_MODE_MAP.values()),
+            value_lambda=lambda v: DRIVE_MODE_MAP.get(v, v),
+        ),
+        RivianSensorEntityDescription(
+            key="service_mode",
+            field="serviceMode",
+            name="Service Mode",
+            icon="mdi:account-wrench",
+        ),
+        RivianSensorEntityDescription(
+            key="time_to_end_of_charge",
+            field="timeToEndOfCharge",
+            name="Charging Time Remaining",
+            device_class=SensorDeviceClass.DURATION,
+            native_unit_of_measurement=UnitOfTime.MINUTES,
+            state_class=SensorStateClass.MEASUREMENT,
+        ),
+        RivianSensorEntityDescription(
+            key="tire_pressure_front_left",
+            field="tirePressureFrontLeft",
+            name="Tire Pressure Front Left",
+            icon="mdi:tire",
+            device_class=SensorDeviceClass.PRESSURE,
+            native_unit_of_measurement=UnitOfPressure.BAR,
+            state_class=SensorStateClass.MEASUREMENT,
+        ),
+        RivianSensorEntityDescription(
+            key="tire_pressure_front_right",
+            field="tirePressureFrontRight",
+            name="Tire Pressure Front Right",
+            icon="mdi:tire",
+            device_class=SensorDeviceClass.PRESSURE,
+            native_unit_of_measurement=UnitOfPressure.BAR,
+            state_class=SensorStateClass.MEASUREMENT,
+        ),
+        RivianSensorEntityDescription(
+            key="tire_pressure_rear_left",
+            field="tirePressureRearLeft",
+            name="Tire Pressure Rear Left",
+            icon="mdi:tire",
+            device_class=SensorDeviceClass.PRESSURE,
+            native_unit_of_measurement=UnitOfPressure.BAR,
+            state_class=SensorStateClass.MEASUREMENT,
+        ),
+        RivianSensorEntityDescription(
+            key="tire_pressure_rear_right",
+            field="tirePressureRearRight",
+            name="Tire Pressure Rear Right",
+            icon="mdi:tire",
+            device_class=SensorDeviceClass.PRESSURE,
+            native_unit_of_measurement=UnitOfPressure.BAR,
+            state_class=SensorStateClass.MEASUREMENT,
+        ),
+        RivianSensorEntityDescription(
+            key="tire_pressure_status_front_left",
+            field="tirePressureStatusFrontLeft",
+            name="Tire Pressure Front Left Status",
+            icon="mdi:tire",
+        ),
+        RivianSensorEntityDescription(
+            key="tire_pressure_status_front_right",
+            field="tirePressureStatusFrontRight",
+            name="Tire Pressure Front Right Status",
+            icon="mdi:tire",
+        ),
+        RivianSensorEntityDescription(
+            key="tire_pressure_status_rear_left",
+            field="tirePressureStatusRearLeft",
+            name="Tire Pressure Rear Left Status",
+            icon="mdi:tire",
+        ),
+        RivianSensorEntityDescription(
+            key="tire_pressure_status_rear_right",
+            field="tirePressureStatusRearRight",
+            name="Tire Pressure Rear Right Status",
+            icon="mdi:tire",
+        ),
+        RivianSensorEntityDescription(
+            key="vehicle_mileage",
+            field="vehicleMileage",
+            name="Odometer",
+            icon="mdi:counter",
+            device_class=SensorDeviceClass.DISTANCE,
+            native_unit_of_measurement=UnitOfLength.METERS,
+            state_class=SensorStateClass.TOTAL_INCREASING,
+            suggested_display_precision=1,
+            suggested_unit_of_measurement=UnitOfLength.MILES,
+        ),
+    ),
 }
 BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]] = {
     "R1": (
@@ -1033,6 +1175,17 @@ BINARY_SENSORS: Final[dict[str, tuple[RivianBinarySensorEntityDescription, ...]]
             icon="mdi:car-seat-heater",
             device_class=BinarySensorDeviceClass.RUNNING,
             on_value=["Level_1", "Level_2", "Level_3"],
+        ),
+    ),
+    # See the matching comment on SENSORS["R2"] above — only confirmed fields
+    # are included here.
+    "R2": (
+        RivianBinarySensorEntityDescription(
+            key="charger_state",
+            field="chargerState",
+            name="Charging Status",
+            device_class=BinarySensorDeviceClass.BATTERY_CHARGING,
+            on_value=["charging_active", "charging_connecting"],
         ),
     ),
 }
