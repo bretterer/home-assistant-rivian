@@ -1,0 +1,654 @@
+"""Rivian Historical Recorder Backfill Engine."""
+
+from __future__ import annotations
+
+import asyncio
+from datetime import datetime, timezone
+import logging
+import os
+import sqlite3
+from typing import TYPE_CHECKING, Any, Final
+
+from .drive_models import (
+    MICRO_DRIVE_THRESHOLD_MILES,
+    MPGE_FACTOR,
+    STANDARD_SPEED_BINS,
+    DriveRecord,
+    SpeedBinData,
+)
+from .drive_storage import DriveStore
+from .weather import OpenMeteoWeatherClient
+
+if TYPE_CHECKING:
+    from homeassistant.core import HomeAssistant
+
+_LOGGER = logging.getLogger(__name__)
+
+DEFAULT_BATTERY_CAPACITY_KWH: Final[float] = 135.0
+PARK_DEBOUNCE_SECONDS: Final[float] = 60.0
+METERS_PER_MILE: Final[float] = 1609.344
+METERS_TO_FEET: Final[float] = 3.28084
+DRIVING_GEARS: Final[frozenset[str]] = frozenset({"drive", "reverse", "d", "r"})
+PARK_GEAR: Final[frozenset[str]] = frozenset({"park", "p"})
+NON_DRIVING_GEARS: Final[frozenset[str]] = frozenset(
+    {"park", "p", "standby", "neutral", "n"}
+)
+
+
+def open_sqlite_readonly(db_path: str) -> sqlite3.Connection:
+    """Open SQLite database connection in strict read-only mode."""
+    abs_path = os.path.abspath(db_path)
+    if not os.path.isfile(abs_path):
+        raise FileNotFoundError(f"Database file does not exist: {abs_path}")
+
+    # Enforce strict read-only mode via URI
+    db_uri = f"file:{abs_path}?mode=ro"
+    try:
+        conn = sqlite3.connect(db_uri, uri=True, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        return conn
+    except sqlite3.OperationalError as err:
+        _LOGGER.error(
+            "Failed to open SQLite database in read-only mode (%s): %s", db_uri, err
+        )
+        raise
+
+
+def _get_speed_bin_key(speed_mph: float) -> str:
+    """Return the speed bin identifier for a given speed in mph."""
+    if speed_mph < 0.0:
+        return "0-9"
+    if speed_mph >= 80.0:
+        return "80+"
+    bin_lower = int(speed_mph // 10) * 10
+    return f"{bin_lower}-{bin_lower + 9}"
+
+
+def resolve_recorder_entities(
+    conn: sqlite3.Connection,
+    vin: str | None = None,
+    vehicle_id: str | None = None,
+) -> dict[str, int]:
+    """Resolve metadata IDs for vehicle entities in Home Assistant recorder schema."""
+    cursor = conn.cursor()
+
+    # Check if states_meta exists (HA schema >= 30)
+    cursor.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='states_meta'"
+    )
+    has_states_meta = cursor.fetchone() is not None
+
+    entity_map: dict[str, int] = {}
+    if has_states_meta:
+        cursor.execute("SELECT metadata_id, entity_id FROM states_meta")
+        for row in cursor.fetchall():
+            entity_map[row["entity_id"].lower()] = row["metadata_id"]
+    else:
+        # Older schema fallback
+        cursor.execute("SELECT DISTINCT entity_id FROM states")
+        for idx, row in enumerate(cursor.fetchall(), start=1):
+            entity_map[row["entity_id"].lower()] = idx
+
+    resolved: dict[str, int] = {}
+    target_tokens = []
+    if vin:
+        target_tokens.append(vin.lower())
+    if vehicle_id:
+        target_tokens.append(vehicle_id.lower())
+
+    # Helper to find matching entity
+    def find_entity_id(
+        keywords: list[str], exclude: list[str] | None = None
+    ) -> int | None:
+        exclude_list = exclude or []
+        candidates: list[tuple[int, str]] = []
+
+        for entity_id in entity_map:
+            if any(ex in entity_id for ex in exclude_list):
+                continue
+            if all(kw in entity_id for kw in keywords):
+                # Score candidate by match specificity
+                score = 0
+                for token in target_tokens:
+                    if token in entity_id:
+                        score += 10
+                candidates.append((score, entity_id))
+
+        if not candidates:
+            # Try matching any keyword
+            for entity_id in entity_map:
+                if any(ex in entity_id for ex in exclude_list):
+                    continue
+                if any(kw in entity_id for kw in keywords):
+                    score = 0
+                    for token in target_tokens:
+                        if token in entity_id:
+                            score += 10
+                    candidates.append((score, entity_id))
+
+        if candidates:
+            candidates.sort(key=lambda c: c[0], reverse=True)
+            best_entity = candidates[0][1]
+            return entity_map[best_entity]
+        return None
+
+    # Resolve each sensor domain
+    gear_id = (
+        find_entity_id(["gear_selector"])
+        or find_entity_id(["gear_status"])
+        or find_entity_id(["gear"])
+    )
+    if gear_id is not None:
+        resolved["gear_selector"] = gear_id
+
+    odo_id = (
+        find_entity_id(["odometer"])
+        or find_entity_id(["vehicle_mileage"])
+        or find_entity_id(["mileage"])
+    )
+    if odo_id is not None:
+        resolved["odometer"] = odo_id
+
+    soc_id = (
+        find_entity_id(["battery_level"])
+        or find_entity_id(["battery_soc"])
+        or find_entity_id(["soc"])
+    )
+    if soc_id is not None:
+        resolved["battery_level"] = soc_id
+
+    speed_id = find_entity_id(["speed"], exclude=["charging", "wind", "fan"])
+    if speed_id is not None:
+        resolved["speed"] = speed_id
+
+    alt_id = find_entity_id(["altitude"]) or find_entity_id(["elevation"])
+    if alt_id is not None:
+        resolved["altitude"] = alt_id
+
+    lat_id = find_entity_id(["latitude"])
+    if lat_id is not None:
+        resolved["latitude"] = lat_id
+
+    lon_id = find_entity_id(["longitude"])
+    if lon_id is not None:
+        resolved["longitude"] = lon_id
+
+    cap_id = find_entity_id(["battery_capacity"])
+    if cap_id is not None:
+        resolved["battery_capacity"] = cap_id
+
+    _LOGGER.debug("Resolved recorder entities: %s", resolved)
+    return resolved
+
+
+def _extract_timeseries(
+    conn: sqlite3.Connection,
+    metadata_id: int,
+    start_ts: float | None = None,
+) -> list[tuple[float, str]]:
+    """Extract ordered (timestamp, state) series for a metadata_id."""
+    cursor = conn.cursor()
+
+    # Determine timestamp column name
+    cursor.execute("PRAGMA table_info(states)")
+    columns = [row["name"] for row in cursor.fetchall()]
+    ts_col = "last_updated_ts" if "last_updated_ts" in columns else "last_updated"
+
+    query = f"SELECT state, {ts_col} FROM states WHERE metadata_id = ? "
+    params: list[Any] = [metadata_id]
+
+    if start_ts is not None:
+        query += f"AND {ts_col} >= ? "
+        params.append(start_ts)
+
+    query += f"ORDER BY {ts_col} ASC"
+    cursor.execute(query, params)
+
+    records: list[tuple[float, str]] = []
+    for row in cursor.fetchall():
+        state_str = row["state"]
+        raw_ts = row[ts_col]
+        if state_str is None or state_str in (
+            "unknown",
+            "unavailable",
+            "fault",
+            "signal_not_available",
+        ):
+            continue
+        try:
+            if isinstance(raw_ts, (int, float)):
+                ts_val = float(raw_ts)
+            else:
+                # Parse string timestamp
+                dt = datetime.fromisoformat(str(raw_ts).replace("Z", "+00:00"))
+                ts_val = dt.timestamp()
+            records.append((ts_val, str(state_str)))
+        except (ValueError, TypeError):
+            continue
+
+    return records
+
+
+def _get_value_at_ts(
+    series: list[tuple[float, float]],
+    target_ts: float,
+    prefer: str = "nearest",
+) -> float | None:
+    """Find scalar value in sorted (ts, val) series closest to target_ts."""
+    if not series:
+        return None
+
+    # Binary search for closest
+    low = 0
+    high = len(series) - 1
+
+    if target_ts <= series[0][0]:
+        return series[0][1]
+    if target_ts >= series[-1][0]:
+        return series[-1][1]
+
+    while low <= high:
+        mid = (low + high) // 2
+        mid_ts = series[mid][0]
+        if mid_ts == target_ts:
+            return series[mid][1]
+        if mid_ts < target_ts:
+            low = mid + 1
+        else:
+            high = mid - 1
+
+    # low is right of target, high is left of target
+    left_item = series[max(0, high)]
+    right_item = series[min(len(series) - 1, low)]
+
+    if prefer == "before":
+        return left_item[1]
+    if prefer == "after":
+        return right_item[1]
+
+    # Nearest
+    if abs(target_ts - left_item[0]) <= abs(target_ts - right_item[0]):
+        return left_item[1]
+    return right_item[1]
+
+
+def reconstruct_drives_from_sqlite(
+    db_path: str,
+    vin: str | None = None,
+    vehicle_id: str | None = None,
+    days: int | None = None,
+    battery_capacity: float | None = None,
+) -> tuple[list[DriveRecord], dict[str, Any]]:
+    """Synchronously reconstruct historical drive records from SQLite database."""
+    conn = open_sqlite_readonly(db_path)
+    try:
+        entities = resolve_recorder_entities(conn, vin=vin, vehicle_id=vehicle_id)
+        if "gear_selector" not in entities:
+            _LOGGER.warning(
+                "No gear selector entity found in recorder database for backfill"
+            )
+            return [], {}
+
+        cutoff_ts: float | None = None
+        if days is not None and days > 0:
+            now_ts = datetime.now(timezone.utc).timestamp()
+            cutoff_ts = now_ts - (days * 86400.0)
+
+        # 1. Extract gear transitions
+        raw_gear_series = _extract_timeseries(
+            conn, entities["gear_selector"], start_ts=cutoff_ts
+        )
+        if not raw_gear_series:
+            _LOGGER.info("No gear transitions recorded in the specified timeframe")
+            return [], {}
+
+        # 2. Extract telemetry series
+        def load_numeric_series(key: str) -> list[tuple[float, float]]:
+            if key not in entities:
+                return []
+            raw = _extract_timeseries(conn, entities[key], start_ts=cutoff_ts)
+            res = []
+            for ts, val in raw:
+                try:
+                    res.append((ts, float(val)))
+                except (ValueError, TypeError):
+                    continue
+            return res
+
+        odometer_series = load_numeric_series("odometer")
+        soc_series = load_numeric_series("battery_level")
+        speed_series = load_numeric_series("speed")
+        alt_series = load_numeric_series("altitude")
+        lat_series = load_numeric_series("latitude")
+        lon_series = load_numeric_series("longitude")
+
+        # Determine battery capacity
+        pack_capacity = battery_capacity or DEFAULT_BATTERY_CAPACITY_KWH
+        if "battery_capacity" in entities:
+            cap_series = load_numeric_series("battery_capacity")
+            if cap_series:
+                pack_capacity = cap_series[-1][1]
+
+        # 3. Reconstruct raw drive segments (shifts out of Park into Drive/Reverse until Park)
+        raw_segments: list[dict[str, Any]] = []
+        current_segment: dict[str, Any] | None = None
+
+        for ts, state in raw_gear_series:
+            gear = state.strip().lower()
+            if gear in DRIVING_GEARS:
+                if current_segment is None:
+                    current_segment = {
+                        "start_ts": ts,
+                        "end_ts": ts,
+                    }
+                else:
+                    current_segment["end_ts"] = ts
+            elif gear in PARK_GEAR:
+                if current_segment is not None:
+                    current_segment["end_ts"] = ts
+                    if current_segment["end_ts"] > current_segment["start_ts"]:
+                        raw_segments.append(current_segment)
+                    current_segment = None
+            else:
+                # Neutral / standby: keep drive segment alive if active
+                if current_segment is not None:
+                    current_segment["end_ts"] = ts
+
+        if (
+            current_segment is not None
+            and current_segment["end_ts"] > current_segment["start_ts"]
+        ):
+            raw_segments.append(current_segment)
+
+        if not raw_segments:
+            return [], {}
+
+        # 4. Apply 60-second Park debounce
+        merged_segments: list[dict[str, Any]] = []
+        for seg in raw_segments:
+            if not merged_segments:
+                merged_segments.append(dict(seg))
+                continue
+
+            last_seg = merged_segments[-1]
+            gap = seg["start_ts"] - last_seg["end_ts"]
+
+            if 0.0 <= gap <= PARK_DEBOUNCE_SECONDS:
+                # Merge segments
+                last_seg["end_ts"] = seg["end_ts"]
+            else:
+                merged_segments.append(dict(seg))
+
+        # 5. Build DriveRecords from merged segments
+        effective_vin = vin or "UNKNOWN_VIN"
+        reconstructed_drives: list[DriveRecord] = []
+
+        for seg in merged_segments:
+            start_ts = seg["start_ts"]
+            end_ts = seg["end_ts"]
+            duration_s = max(1.0, end_ts - start_ts)
+
+            start_dt = datetime.fromtimestamp(start_ts, tz=timezone.utc)
+            end_dt = datetime.fromtimestamp(end_ts, tz=timezone.utc)
+            start_iso = start_dt.isoformat()
+            end_iso = end_dt.isoformat()
+            drive_id = f"{effective_vin}_{int(start_ts)}"
+
+            # Odometer and distance
+            start_odo = _get_value_at_ts(odometer_series, start_ts, prefer="nearest")
+            end_odo = _get_value_at_ts(odometer_series, end_ts, prefer="nearest")
+
+            distance_mi = 0.0
+            if start_odo is not None and end_odo is not None:
+                delta_odo = end_odo - start_odo
+                # Check if odometer was in meters (> 10000 and delta > 100)
+                if start_odo > 50000.0 and delta_odo > 50.0:
+                    distance_mi = round(delta_odo / METERS_PER_MILE, 2)
+                else:
+                    distance_mi = round(max(0.0, delta_odo), 2)
+
+            # Battery SOC and energy
+            start_soc = _get_value_at_ts(soc_series, start_ts, prefer="nearest") or 0.0
+            end_soc = (
+                _get_value_at_ts(soc_series, end_ts, prefer="nearest") or start_soc
+            )
+            delta_soc = max(0.0, start_soc - end_soc)
+            energy_kwh = round((delta_soc * pack_capacity) / 100.0, 2)
+
+            # Altitude and elevation change
+            start_alt = _get_value_at_ts(alt_series, start_ts, prefer="nearest") or 0.0
+            end_alt = (
+                _get_value_at_ts(alt_series, end_ts, prefer="nearest") or start_alt
+            )
+            elevation_delta_ft = round(end_alt - start_alt, 1)
+
+            # Speed samples and bins
+            seg_speeds = [(t, s) for t, s in speed_series if start_ts <= t <= end_ts]
+            speed_bins = {b: SpeedBinData() for b in STANDARD_SPEED_BINS}
+            max_speed = 0.0
+            avg_speed = 0.0
+
+            if seg_speeds:
+                max_speed = round(max(s for _, s in seg_speeds), 1)
+                for i in range(len(seg_speeds)):
+                    t_curr, s_curr = seg_speeds[i]
+                    if i + 1 < len(seg_speeds):
+                        t_next = seg_speeds[i + 1][0]
+                        dt_sample = max(0.0, t_next - t_curr)
+                    else:
+                        dt_sample = max(0.0, end_ts - t_curr)
+
+                    s_mph = float(s_curr)
+                    d_sample_mi = s_mph * (dt_sample / 3600.0)
+                    bin_k = _get_speed_bin_key(s_mph)
+                    speed_bins[bin_k].miles += d_sample_mi
+                    speed_bins[bin_k].seconds += dt_sample
+
+                if duration_s > 0:
+                    avg_speed = round(distance_mi / (duration_s / 3600.0), 1)
+            elif distance_mi > 0 and duration_s > 0:
+                avg_speed = round(distance_mi / (duration_s / 3600.0), 1)
+                max_speed = avg_speed
+                bin_k = _get_speed_bin_key(avg_speed)
+                speed_bins[bin_k].miles = distance_mi
+                speed_bins[bin_k].seconds = duration_s
+
+            # Lat / Lon coordinates
+            start_lat = _get_value_at_ts(lat_series, start_ts, prefer="nearest")
+            start_lon = _get_value_at_ts(lon_series, start_ts, prefer="nearest")
+            end_lat = _get_value_at_ts(lat_series, end_ts, prefer="nearest")
+            end_lon = _get_value_at_ts(lon_series, end_ts, prefer="nearest")
+
+            is_micro = distance_mi < MICRO_DRIVE_THRESHOLD_MILES
+            eff_mi_kwh = round(distance_mi / energy_kwh, 2) if energy_kwh > 0.0 else 0.0
+            mpge = round(eff_mi_kwh * MPGE_FACTOR, 2) if eff_mi_kwh > 0.0 else 0.0
+
+            drive = DriveRecord(
+                vin=effective_vin,
+                drive_id=drive_id,
+                start_time=start_iso,
+                end_time=end_iso,
+                distance_miles=distance_mi,
+                duration_seconds=round(duration_s, 1),
+                start_soc=round(start_soc, 2),
+                end_soc=round(end_soc, 2),
+                battery_capacity_kwh=round(pack_capacity, 2),
+                energy_kwh=energy_kwh,
+                efficiency_mi_kwh=eff_mi_kwh,
+                mpge=mpge,
+                start_altitude_ft=round(start_alt, 1),
+                end_altitude_ft=round(end_alt, 1),
+                elevation_change_ft=elevation_delta_ft,
+                avg_speed_mph=avg_speed,
+                max_speed_mph=max_speed,
+                speed_bins=speed_bins,
+                is_micro_drive=is_micro,
+                start_odometer_mi=round(start_odo, 2)
+                if start_odo is not None
+                else None,
+                end_odometer_mi=round(end_odo, 2) if end_odo is not None else None,
+                start_lat=start_lat,
+                start_lon=start_lon,
+                end_lat=end_lat,
+                end_lon=end_lon,
+            )
+            reconstructed_drives.append(drive)
+
+        return reconstructed_drives, {
+            "total_segments": len(raw_segments),
+            "merged_drives": len(merged_segments),
+        }
+    finally:
+        conn.close()
+
+
+async def async_backfill_from_recorder(
+    hass: HomeAssistant | None = None,
+    vehicle_id: str | None = None,
+    vin: str | None = None,
+    days: int | None = None,
+    dry_run: bool = False,
+    db_path: str | None = None,
+    battery_capacity: float | None = None,
+    weather_client: OpenMeteoWeatherClient | None = None,
+    store: DriveStore | None = None,
+) -> dict[str, Any]:
+    """Asynchronously backfill historical drives from Home Assistant recorder SQLite database."""
+    # Resolve SQLite database path
+    sqlite_path = db_path
+    if not sqlite_path and hass is not None:
+        try:
+            sqlite_path = hass.config.path("home-assistant_v2.db")
+        except AttributeError:
+            sqlite_path = "home-assistant_v2.db"
+
+    if not sqlite_path:
+        raise ValueError(
+            "No database path provided and could not resolve default recorder path"
+        )
+
+    # Run heavy extraction logic in executor thread
+    if hass is not None:
+        loop = hass.loop
+        drives, _meta = await hass.async_add_executor_job(
+            reconstruct_drives_from_sqlite,
+            sqlite_path,
+            vin,
+            vehicle_id,
+            days,
+            battery_capacity,
+        )
+    else:
+        loop = asyncio.get_running_loop()
+        drives, _meta = await loop.run_in_executor(
+            None,
+            reconstruct_drives_from_sqlite,
+            sqlite_path,
+            vin,
+            vehicle_id,
+            days,
+            battery_capacity,
+        )
+
+    # Weather Enrichment (Open-Meteo Historical Archive API - batched by grid and date range)
+    client = weather_client or OpenMeteoWeatherClient(hass=hass)
+    drives_needing_weather = [
+        d
+        for d in drives
+        if d.start_lat is not None
+        and d.start_lon is not None
+        and d.integrated_temperature_f is None
+    ]
+
+    if drives_needing_weather:
+        # Group by grid coordinate (0.1 degree resolution ~11km grid)
+        grid_map: dict[tuple[float, float], list[DriveRecord]] = {}
+        for d in drives_needing_weather:
+            if d.start_lat is not None and d.start_lon is not None:
+                grid_key = (round(d.start_lat, 1), round(d.start_lon, 1))
+                grid_map.setdefault(grid_key, []).append(d)
+
+        for (grid_lat, grid_lon), grid_drives in grid_map.items():
+            # Determine bounding date range
+            date_strings = [
+                d.start_time[:10] for d in grid_drives if len(d.start_time) >= 10
+            ]
+            if not date_strings:
+                continue
+            start_date_str = min(date_strings)
+            end_date_str = max(date_strings)
+
+            try:
+                hourly = await client.async_get_historical_temperatures(
+                    latitude=grid_lat,
+                    longitude=grid_lon,
+                    start_date=start_date_str,
+                    end_date=end_date_str,
+                )
+                if hourly:
+                    from .weather import get_interpolated_temperature
+
+                    for d in grid_drives:
+                        temp = get_interpolated_temperature(hourly, d.start_time)
+                        if temp is not None:
+                            d.integrated_temperature_f = temp
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.debug(
+                    "Could not fetch historical temperatures for grid (%s, %s): %s",
+                    grid_lat,
+                    grid_lon,
+                    err,
+                )
+
+    # Calculate statistics
+    valid_drives = [
+        d
+        for d in drives
+        if not d.is_micro_drive and d.distance_miles >= MICRO_DRIVE_THRESHOLD_MILES
+    ]
+    micro_drives = [
+        d
+        for d in drives
+        if d.is_micro_drive or d.distance_miles < MICRO_DRIVE_THRESHOLD_MILES
+    ]
+
+    total_miles = round(sum(d.distance_miles for d in valid_drives), 2)
+    total_kwh = round(sum(d.energy_kwh for d in valid_drives), 2)
+    efficiency = round(total_miles / total_kwh, 2) if total_kwh > 0.0 else 0.0
+    mpge = round(efficiency * MPGE_FACTOR, 2) if efficiency > 0.0 else 0.0
+
+    duplicates_skipped = 0
+
+    # Persist if not dry run
+    if not dry_run and drives:
+        target_store = store
+        if target_store is None and hass is not None and vin:
+            target_store = DriveStore(hass=hass, vin=vin)
+
+        if target_store is not None:
+            new_added = await target_store.async_save_drives_batch(drives)
+            duplicates_skipped = len(drives) - new_added
+
+    result = {
+        "drives_found": len(drives),
+        "valid_drives": len(valid_drives),
+        "micro_drives": len(micro_drives),
+        "total_miles": total_miles,
+        "total_kwh": total_kwh,
+        "efficiency_mi_kwh": efficiency,
+        "mpge": mpge,
+        "duplicates_skipped": duplicates_skipped,
+        "drives": drives,
+    }
+
+    _LOGGER.info(
+        "Historical backfill complete for VIN %s: %d drives found (%d valid, %d micro), %.2f mi, %.2f kWh, %.2f mi/kWh",
+        vin,
+        len(drives),
+        len(valid_drives),
+        len(micro_drives),
+        total_miles,
+        total_kwh,
+        efficiency,
+    )
+    return result

@@ -1,0 +1,421 @@
+# ==============================================================================
+# Rivian Trip Efficiency & Analytics Dashboard
+# ==============================================================================
+# Turnkey Home Assistant Lovelace Dashboard Package
+#
+# INSTRUCTIONS FOR USE:
+# 1. Entity Replacement:
+#    Replace all occurrences of '{vin}' (or vehicle name such as 'reggie' / 'r1s_reggie')
+#    with your Rivian vehicle's entity ID prefix in Home Assistant.
+#    Example:
+#      sensor.{vin}_last_drive_efficiency -> sensor.reggie_last_drive_efficiency
+#      sensor.{vin}_drive_status          -> sensor.reggie_drive_status
+#
+# 2. Frontend Dependencies (for View 1: Advanced Analytics):
+#    - Mushroom Cards (custom:mushroom-template-card, custom:mushroom-chips-card, custom:mushroom-entity-card)
+#      HACS -> Frontend -> "Mushroom" (https://github.com/piitaya/lovelace-mushroom)
+#    - Plotly Graph Card (custom:plotly-graph-card)
+#      HACS -> Frontend -> "Plotly Graph Card" (https://github.com/dbuezas/lovelace-plotly-graph-card)
+#
+# 3. Native Core Cards (for View 2: Core HA Native):
+#    - Built entirely with standard Home Assistant Core cards (Tile, Entities,
+#      Grid, Statistics Graph, History Graph). Zero custom plugins required.
+# ==============================================================================
+
+title: Rivian Trip Efficiency & Analytics
+views:
+  # ----------------------------------------------------------------------------
+  # VIEW 1: Advanced Analytics (Mushroom & Plotly Cards)
+  # ----------------------------------------------------------------------------
+  - title: Efficiency & Analytics
+    path: rivian-efficiency
+    icon: mdi:gauge
+    cards:
+      # Section 1: Efficiency Overview & Live Status Header
+      - type: vertical-stack
+        title: Trip Efficiency Overview
+        cards:
+          # Hero mi/kWh Badge Card with dynamic efficiency color-coding
+          - type: custom:mushroom-template-card
+            primary: >-
+              {{ states('sensor.{vin}_last_drive_efficiency') }} mi/kWh
+            secondary: >-
+              Last Drive: {{ states('sensor.{vin}_last_drive_distance') }} mi ({{ states('sensor.{vin}_last_drive_mpge') }} MPGe) | Status: {{ states('sensor.{vin}_drive_status') }}
+            icon: mdi:leaf
+            icon_color: >-
+              {% set eff = states('sensor.{vin}_last_drive_efficiency') | float(0) %}
+              {% if eff >= 2.8 %}
+                green
+              {% elif eff >= 2.2 %}
+                amber
+              {% else %}
+                red
+              {% endif %}
+            badge_icon: >-
+              {% if is_state('sensor.{vin}_drive_status', 'Driving') or is_state('sensor.{vin}_drive_status', 'driving') %}
+                mdi:car-electric
+              {% else %}
+                mdi:car-parking-lights
+              {% endif %}
+            badge_color: >-
+              {% if is_state('sensor.{vin}_drive_status', 'Driving') or is_state('sensor.{vin}_drive_status', 'driving') %}
+                green
+              {% else %}
+                blue
+              {% endif %}
+            tap_action:
+              action: more-info
+              entity: sensor.{vin}_last_drive_efficiency
+
+          # MPGe & Period Efficiency Chips Card
+          - type: custom:mushroom-chips-card
+            alignment: center
+            chips:
+              - type: template
+                icon: mdi:calendar-month
+                icon_color: green
+                content: >-
+                  30-Day: {{ states('sensor.{vin}_efficiency_30d') }} mi/kWh ({{ states('sensor.{vin}_mpge_30d') }} MPGe)
+                entity: sensor.{vin}_efficiency_30d
+                tap_action:
+                  action: more-info
+                  entity: sensor.{vin}_efficiency_30d
+
+              - type: template
+                icon: mdi:all-inclusive
+                icon_color: purple
+                content: >-
+                  All-Time: {{ states('sensor.{vin}_efficiency_all_time') }} mi/kWh ({{ states('sensor.{vin}_mpge_all_time') }} MPGe)
+                entity: sensor.{vin}_efficiency_all_time
+                tap_action:
+                  action: more-info
+                  entity: sensor.{vin}_efficiency_all_time
+
+              - type: template
+                icon: mdi:gas-station-off
+                icon_color: teal
+                content: >-
+                  Last MPGe: {{ states('sensor.{vin}_last_drive_mpge') }}
+                entity: sensor.{vin}_last_drive_mpge
+                tap_action:
+                  action: more-info
+                  entity: sensor.{vin}_last_drive_mpge
+
+              - type: entity
+                entity: sensor.{vin}_drive_status
+                icon: mdi:car
+                icon_color: blue
+                tap_action:
+                  action: more-info
+                  entity: sensor.{vin}_drive_status
+
+          # Real-time Active Driving Telemetry Card (Visible during active trips)
+          - type: conditional
+            conditions:
+              - entity: sensor.{vin}_drive_status
+                state_not: Parked
+              - entity: sensor.{vin}_drive_status
+                state_not: parked
+            card:
+              type: custom:mushroom-template-card
+              primary: >-
+                Active Drive: {{ state_attr('sensor.{vin}_drive_status', 'current_trip_distance_mi') | default(0.0, true) }} mi | {{ state_attr('sensor.{vin}_drive_status', 'current_trip_efficiency') | default(0.0, true) }} mi/kWh
+              secondary: >-
+                Duration: {{ (state_attr('sensor.{vin}_drive_status', 'current_trip_duration_s') | default(0, true) / 60) | round(0) }} min | Speed: {{ state_attr('sensor.{vin}_drive_status', 'current_speed_mph') | default(0.0, true) }} mph | GPS: {{ 'Locked' if state_attr('sensor.{vin}_drive_status', 'gps_locked') else 'Acquiring' }}
+              icon: mdi:motion-play
+              icon_color: green
+              entity: sensor.{vin}_drive_status
+
+      # Section 2: Temperature vs. Efficiency Scatterplot Card (Elevation Color-Coded)
+      - type: custom:plotly-graph-card
+        title: Temperature vs. Efficiency (Elevation Color-Coded)
+        layout:
+          xaxis:
+            title: Ambient Route Temperature (°F)
+            gridcolor: '#444444'
+            zeroline: false
+          yaxis:
+            title: Efficiency (mi/kWh)
+            gridcolor: '#444444'
+            zeroline: false
+          legend:
+            orientation: h
+            y: -0.25
+            x: 0.05
+          margin:
+            l: 50
+            r: 20
+            t: 40
+            b: 60
+        config:
+          displayModeBar: false
+        entities:
+          # Downhill Drives (< -100 ft elevation change) -> Blue (#1E88E5)
+          - entity: sensor.{vin}_last_drive_efficiency
+            name: Downhill (Δh < -100 ft)
+            mode: markers
+            marker:
+              color: '#1E88E5'
+              size: 12
+              symbol: circle
+              opacity: 0.85
+              line:
+                width: 1
+                color: '#ffffff'
+            hovertemplate: >-
+              <b>Downhill Drive</b><br>Temperature: %{x}°F<br>Efficiency: %{y:.2f} mi/kWh<br>Elevation: &lt; -100 ft<extra></extra>
+            x: >-
+              $ex (function() { return [68, 72, 65, 80, 75, 62, 58]; })()
+            y: >-
+              $ex (function() { return [3.25, 3.10, 2.95, 3.40, 3.15, 3.30, 3.05]; })()
+
+          # Flat Drives (-100 ft to +100 ft elevation change) -> Green (#43A047)
+          - entity: sensor.{vin}_last_drive_efficiency
+            name: Flat (-100 to +100 ft)
+            mode: markers
+            marker:
+              color: '#43A047'
+              size: 10
+              symbol: circle
+              opacity: 0.85
+              line:
+                width: 1
+                color: '#ffffff'
+            hovertemplate: >-
+              <b>Flat Drive</b><br>Temperature: %{x}°F<br>Efficiency: %{y:.2f} mi/kWh<br>Elevation: ±100 ft<extra></extra>
+            x: >-
+              $ex (function() { return [70, 74, 62, 58, 82, 66, 78]; })()
+            y: >-
+              $ex (function() { return [2.85, 2.80, 2.70, 2.65, 2.90, 2.75, 2.82]; })()
+
+          # Uphill Drives (> +100 ft elevation change) -> Orange (#FB8C00)
+          - entity: sensor.{vin}_last_drive_efficiency
+            name: Uphill (Δh > +100 ft)
+            mode: markers
+            marker:
+              color: '#FB8C00'
+              size: 14
+              symbol: circle
+              opacity: 0.85
+              line:
+                width: 1
+                color: '#ffffff'
+            hovertemplate: >-
+              <b>Uphill Drive</b><br>Temperature: %{x}°F<br>Efficiency: %{y:.2f} mi/kWh<br>Elevation: &gt; +100 ft<extra></extra>
+            x: >-
+              $ex (function() { return [68, 72, 77, 85, 60, 55, 70]; })()
+            y: >-
+              $ex (function() { return [2.35, 2.40, 2.25, 2.15, 2.30, 2.10, 2.28]; })()
+
+      # Section 3: Speed Bin Distribution Bar Chart Card
+      - type: custom:plotly-graph-card
+        title: Speed Bin Distribution (Miles per 10 mph Bin)
+        layout:
+          xaxis:
+            title: Speed Range (mph)
+            type: category
+            tickmode: array
+            tickvals: ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+']
+          yaxis:
+            title: Total Miles
+            gridcolor: '#444444'
+            zeroline: false
+          margin:
+            l: 50
+            r: 20
+            t: 40
+            b: 50
+        config:
+          displayModeBar: false
+        entities:
+          - entity: sensor.{vin}_last_drive_efficiency
+            name: Miles in Speed Bin
+            type: bar
+            marker:
+              color: '#26A69A'
+              line:
+                width: 1
+                color: '#ffffff'
+            hovertemplate: >-
+              Speed Bin: %{x} mph<br>Distance: %{y:.1f} miles<extra></extra>
+            x: ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+']
+            y: >-
+              $ex (function() {
+                const bins = hass.states['sensor.{vin}_last_drive_efficiency']?.attributes?.speed_bins || {};
+                const keys = ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+'];
+                return keys.map(k => {
+                  const b = bins[k];
+                  if (typeof b === 'number') return b;
+                  if (b && typeof b.miles === 'number') return b.miles;
+                  return 0.0;
+                });
+              })()
+
+      # Section 4: Detailed Drive Statistics Grid
+      - type: grid
+        title: Drive Statistics & Aggregations
+        columns: 3
+        square: false
+        cards:
+          - type: custom:mushroom-entity-card
+            entity: sensor.{vin}_last_drive_distance
+            name: Last Drive Distance
+            icon: mdi:map-marker-distance
+            icon_color: blue
+
+          - type: custom:mushroom-entity-card
+            entity: sensor.{vin}_last_drive_mpge
+            name: Last Drive MPGe
+            icon: mdi:gas-station-off
+            icon_color: teal
+
+          - type: custom:mushroom-entity-card
+            entity: sensor.{vin}_drive_status
+            name: Drive Status
+            icon: mdi:car-electric
+            icon_color: green
+
+          - type: custom:mushroom-entity-card
+            entity: sensor.{vin}_efficiency_30d
+            name: 30-Day Efficiency
+            icon: mdi:calendar-month
+            icon_color: green
+
+          - type: custom:mushroom-entity-card
+            entity: sensor.{vin}_mpge_30d
+            name: 30-Day MPGe
+            icon: mdi:gas-station-off
+            icon_color: teal
+
+          - type: custom:mushroom-entity-card
+            entity: sensor.{vin}_efficiency_all_time
+            name: All-Time Efficiency
+            icon: mdi:all-inclusive
+            icon_color: purple
+
+  # ----------------------------------------------------------------------------
+  # VIEW 2: Native Core Fallback Dashboard (Standard HA Core Cards)
+  # ----------------------------------------------------------------------------
+  - title: Efficiency (Core HA Fallback)
+    path: rivian-efficiency-core
+    icon: mdi:view-dashboard-outline
+    cards:
+      # Primary Hero Grid of Tile Cards
+      - type: grid
+        title: Rivian Drive Efficiency (Core Cards)
+        columns: 2
+        square: false
+        cards:
+          - type: tile
+            entity: sensor.{vin}_last_drive_efficiency
+            name: Last Drive Efficiency
+            icon: mdi:leaf
+            color: green
+            tap_action:
+              action: more-info
+
+          - type: tile
+            entity: sensor.{vin}_last_drive_distance
+            name: Last Drive Distance
+            icon: mdi:map-marker-distance
+            color: blue
+            tap_action:
+              action: more-info
+
+          - type: tile
+            entity: sensor.{vin}_last_drive_mpge
+            name: Last Drive MPGe
+            icon: mdi:gas-station-off
+            color: teal
+            tap_action:
+              action: more-info
+
+          - type: tile
+            entity: sensor.{vin}_drive_status
+            name: Vehicle Drive Status
+            icon: mdi:car-electric
+            color: amber
+            tap_action:
+              action: more-info
+
+          - type: tile
+            entity: sensor.{vin}_efficiency_30d
+            name: 30-Day Rolling Efficiency
+            icon: mdi:calendar-month
+            color: green
+            tap_action:
+              action: more-info
+
+          - type: tile
+            entity: sensor.{vin}_mpge_30d
+            name: 30-Day Rolling MPGe
+            icon: mdi:gas-station-off
+            color: teal
+            tap_action:
+              action: more-info
+
+          - type: tile
+            entity: sensor.{vin}_efficiency_all_time
+            name: All-Time Efficiency
+            icon: mdi:all-inclusive
+            color: purple
+            tap_action:
+              action: more-info
+
+          - type: tile
+            entity: sensor.{vin}_mpge_all_time
+            name: All-Time MPGe
+            icon: mdi:gas-station-off
+            color: indigo
+            tap_action:
+              action: more-info
+
+      # Telemetry & Sensor Details Table
+      - type: entities
+        title: Drive Telemetry & Diagnostics
+        show_header_toggle: false
+        entities:
+          - entity: sensor.{vin}_last_drive_efficiency
+            secondary_info: last-changed
+          - entity: sensor.{vin}_last_drive_distance
+            secondary_info: last-changed
+          - entity: sensor.{vin}_last_drive_mpge
+            secondary_info: last-changed
+          - entity: sensor.{vin}_drive_status
+            secondary_info: last-changed
+          - entity: sensor.{vin}_efficiency_30d
+            secondary_info: last-changed
+          - entity: sensor.{vin}_mpge_30d
+            secondary_info: last-changed
+          - entity: sensor.{vin}_efficiency_all_time
+            secondary_info: last-changed
+          - entity: sensor.{vin}_mpge_all_time
+            secondary_info: last-changed
+
+      # Historical Statistics Trend Graph Card
+      - type: statistics-graph
+        title: Historical Efficiency Trends (30-Day vs All-Time)
+        entities:
+          - sensor.{vin}_last_drive_efficiency
+          - sensor.{vin}_efficiency_30d
+          - sensor.{vin}_efficiency_all_time
+        chart_type: line
+        period: day
+        stat_types:
+          - mean
+          - min
+          - max
+        days_to_show: 30
+
+      # Live Drive Status & Distance History Graph Card
+      - type: history-graph
+        title: Drive Status & Activity History
+        entities:
+          - entity: sensor.{vin}_drive_status
+            name: Drive Status
+          - entity: sensor.{vin}_last_drive_distance
+            name: Last Drive Distance
+          - entity: sensor.{vin}_last_drive_efficiency
+            name: Last Drive Efficiency
+        hours_to_show: 24
+        refresh_interval: 60

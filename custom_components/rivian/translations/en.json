@@ -74,6 +74,34 @@
           "plugged_in": "Plugged in",
           "charging": "Charging"
         }
+      },
+      "last_drive_efficiency": {
+        "name": "Last drive efficiency"
+      },
+      "efficiency_30d": {
+        "name": "Efficiency (30 days)"
+      },
+      "efficiency_all_time": {
+        "name": "Efficiency (all-time)"
+      },
+      "last_drive_distance": {
+        "name": "Last drive distance"
+      },
+      "last_drive_mpge": {
+        "name": "Last drive MPGe"
+      },
+      "mpge_30d": {
+        "name": "MPGe (30 days)"
+      },
+      "mpge_all_time": {
+        "name": "MPGe (all-time)"
+      },
+      "drive_status": {
+        "name": "Drive status",
+        "state": {
+          "parked": "Parked",
+          "driving": "Driving"
+        }
       }
     },
     "switch": {
@@ -87,6 +115,26 @@
       },
       "charging_schedule_end": {
         "name": "Charging schedule end"
+      }
+    }
+  },
+  "services": {
+    "backfill_drive_history": {
+      "name": "Backfill drive history",
+      "description": "Backfill completed drive history from Home Assistant SQLite recorder without writing to the database.",
+      "fields": {
+        "vehicle_id": {
+          "name": "Vehicle ID",
+          "description": "The vehicle ID or VIN to backfill."
+        },
+        "days": {
+          "name": "Days",
+          "description": "Number of historical days to backfill (defaults to all available)."
+        },
+        "dry_run": {
+          "name": "Dry run",
+          "description": "Simulate backfill without writing to storage."
+        }
       }
     }
   },
