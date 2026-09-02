@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+> For the comprehensive architectural reference, directory map, coordinator and entity models, safety rules, and step-by-step developer recipes, see [`CODEBASE.md`](./CODEBASE.md).
+
 ## Project Overview
 
 This is an unofficial Home Assistant custom integration for Rivian vehicles. It uses the `rivian-python-client` library to communicate with Rivian's cloud API via GraphQL subscriptions and REST endpoints.
