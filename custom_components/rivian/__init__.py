@@ -158,8 +158,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         ATTR_DRIVE_STORE: drive_stores,
     }
 
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-
     async def async_handle_backfill(call: ServiceCall) -> None:
         """Handle backfill historical drives service call."""
         vin = call.data.get("vin")
@@ -203,6 +201,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             async_handle_backfill,
             schema=BACKFILL_SERVICE_SCHEMA,
         )
+
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     entry.async_on_unload(entry.add_update_listener(update_listener))
 

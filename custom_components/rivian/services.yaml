@@ -1,0 +1,26 @@
+backfill_drive_history:
+  name: Backfill drive history
+  description: Reconstruct past drive efficiency and MPGe from Home Assistant recorder history without modifying the SQLite database.
+  fields:
+    vin:
+      name: Vehicle VIN
+      description: Specific vehicle VIN to backfill (leave blank for all configured vehicles).
+      example: "7FCTG..."
+      selector:
+        text:
+    days:
+      name: Days
+      description: Number of past days of history to backfill (defaults to all available history).
+      example: 10
+      default: 10
+      selector:
+        number:
+          min: 1
+          max: 365
+          mode: box
+    dry_run:
+      name: Dry run
+      description: If true, analyzes and logs detected drives in Home Assistant logs without saving to storage.
+      default: true
+      selector:
+        boolean:

@@ -123,9 +123,9 @@
       "name": "Backfill drive history",
       "description": "Backfill completed drive history from Home Assistant SQLite recorder without writing to the database.",
       "fields": {
-        "vehicle_id": {
-          "name": "Vehicle ID",
-          "description": "The vehicle ID or VIN to backfill."
+        "vin": {
+          "name": "Vehicle VIN",
+          "description": "The vehicle VIN to backfill (leave empty for all vehicles)."
         },
         "days": {
           "name": "Days",
