@@ -9,7 +9,7 @@ import subprocess
 import sys
 import tempfile
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -533,6 +533,7 @@ class TestServiceRegistration:
                 days=None,
                 dry_run=True,
                 db_path=FIXTURE_DB_PATH,
+                store=ANY,
             )
 
         # Test unload cleans up service

@@ -186,13 +186,30 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 target_vin,
                 dry_run,
             )
+            matched_store = None
+            matched_tracker = None
+            for entry_data in hass.data.get(DOMAIN, {}).values():
+                if isinstance(entry_data, dict):
+                    trackers = entry_data.get(ATTR_DRIVE_TRACKER, {})
+                    stores = entry_data.get(ATTR_DRIVE_STORE, {})
+                    for v_id, trk in trackers.items():
+                        if trk.vin == target_vin:
+                            matched_tracker = trk
+                            matched_store = stores.get(v_id) or trk.store
+                            break
+
             await async_backfill_from_recorder(
                 hass=hass,
                 vin=target_vin,
                 days=days,
                 dry_run=dry_run,
                 db_path=db_path,
+                store=matched_store,
             )
+
+            if not dry_run and matched_tracker is not None:
+                await matched_tracker.store.async_load()
+                matched_tracker._notify_listeners()
 
     if not hass.services.has_service(DOMAIN, SERVICE_BACKFILL_DRIVE_HISTORY):
         hass.services.async_register(

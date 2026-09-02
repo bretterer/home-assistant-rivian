@@ -150,7 +150,9 @@ def resolve_recorder_entities(
         resolved["odometer"] = odo_id
 
     soc_id = (
-        find_entity_id(["battery_level"])
+        find_entity_id(["battery_state_of_charge"])
+        or find_entity_id(["state_of_charge"])
+        or find_entity_id(["battery_level"])
         or find_entity_id(["battery_soc"])
         or find_entity_id(["soc"])
     )
