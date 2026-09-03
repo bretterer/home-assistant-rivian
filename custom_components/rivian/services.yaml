@@ -24,3 +24,29 @@ backfill_drive_history:
       default: true
       selector:
         boolean:
+
+create_efficiency_dashboard:
+  name: Create efficiency dashboard
+  description: Automatically generate and register a turnkey Rivian Efficiency dashboard with bundled Plotly scatterplots and telemetry cards in your Home Assistant sidebar.
+  fields:
+    title:
+      name: Dashboard Title
+      description: Title displayed in the sidebar and header.
+      default: "Rivian Efficiency"
+      example: "Rivian Efficiency"
+      selector:
+        text:
+    icon:
+      name: Sidebar Icon
+      description: Material Design icon for the sidebar navigation.
+      default: "mdi:gauge"
+      example: "mdi:gauge"
+      selector:
+        icon:
+    url_path:
+      name: URL Path
+      description: URL slug for the dashboard.
+      default: "rivian-efficiency"
+      example: "rivian-efficiency"
+      selector:
+        text:

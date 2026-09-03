@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
+from typing import Any
 
 from rivian import Rivian
 import voluptuous as vol
@@ -32,13 +34,34 @@ from .const import (
     ISSUE_URL,
     VERSION,
 )
+
+try:
+    from homeassistant.components.frontend import add_extra_js_url
+except ImportError:
+    def add_extra_js_url(*args: Any, **kwargs: Any) -> None:  # type: ignore[misc]
+        pass
+
+try:
+    from homeassistant.components.http import StaticPathConfig
+except ImportError:
+    class StaticPathConfig:  # type: ignore[no-redef]
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
 from .coordinator import UserCoordinator, VehicleCoordinator, WallboxCoordinator
+from .dashboard_generator import (
+    DEFAULT_ICON,
+    DEFAULT_TITLE,
+    DEFAULT_URL_PATH,
+    async_create_efficiency_dashboard,
+)
 from .drive_storage import DriveStore
 from .drive_tracker import DriveTracker
 from .helpers import get_rivian_api_from_entry
 from .history_backfill import async_backfill_from_recorder
 
 SERVICE_BACKFILL_DRIVE_HISTORY = "backfill_drive_history"
+SERVICE_CREATE_EFFICIENCY_DASHBOARD = "create_efficiency_dashboard"
 
 BACKFILL_SERVICE_SCHEMA = vol.Schema(
     {
@@ -46,6 +69,14 @@ BACKFILL_SERVICE_SCHEMA = vol.Schema(
         vol.Optional("days"): vol.Coerce(int),
         vol.Optional("dry_run", default=False): cv.boolean,
         vol.Optional("db_path"): cv.string,
+    }
+)
+
+CREATE_DASHBOARD_SERVICE_SCHEMA = vol.Schema(
+    {
+        vol.Optional("title", default=DEFAULT_TITLE): cv.string,
+        vol.Optional("icon", default=DEFAULT_ICON): cv.string,
+        vol.Optional("url_path", default=DEFAULT_URL_PATH): cv.string,
     }
 )
 
@@ -65,6 +96,35 @@ PLATFORMS: list[Platform] = [
     Platform.TIME,
     Platform.UPDATE,
 ]
+
+
+async def _async_register_frontend(hass: HomeAssistant) -> None:
+    """Register bundled frontend cards so they load automatically without HACS."""
+    frontend_dir = Path(__file__).parent / "frontend"
+    if not frontend_dir.is_dir():
+        return
+
+    static_url = f"/{DOMAIN}_static"
+    try:
+        await hass.http.async_register_static_paths(
+            [StaticPathConfig(static_url, str(frontend_dir), cache_headers=True)]
+        )
+    except (RuntimeError, ValueError, AttributeError):
+        pass
+
+    plotly_js = frontend_dir / "plotly-graph-card.js"
+    if plotly_js.is_file():
+        try:
+            add_extra_js_url(hass, f"{static_url}/plotly-graph-card.js")
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("Could not add plotly-graph-card.js extra URL: %s", err)
+
+    mushroom_js = frontend_dir / "mushroom.js"
+    if mushroom_js.is_file():
+        try:
+            add_extra_js_url(hass, f"{static_url}/mushroom.js")
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("Could not add mushroom.js extra URL: %s", err)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -211,6 +271,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 await matched_tracker.store.async_load()
                 matched_tracker._notify_listeners()
 
+    async def async_handle_create_dashboard(call: ServiceCall) -> None:
+        """Handle the service call to create or update the turnkey efficiency dashboard."""
+        title = call.data.get("title", DEFAULT_TITLE)
+        icon = call.data.get("icon", DEFAULT_ICON)
+        url_path = call.data.get("url_path", DEFAULT_URL_PATH)
+        await async_create_efficiency_dashboard(
+            hass=hass,
+            title=title,
+            icon=icon,
+            url_path=url_path,
+        )
+
     if not hass.services.has_service(DOMAIN, SERVICE_BACKFILL_DRIVE_HISTORY):
         hass.services.async_register(
             DOMAIN,
@@ -219,6 +291,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             schema=BACKFILL_SERVICE_SCHEMA,
         )
 
+    if not hass.services.has_service(DOMAIN, SERVICE_CREATE_EFFICIENCY_DASHBOARD):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_CREATE_EFFICIENCY_DASHBOARD,
+            async_handle_create_dashboard,
+            schema=CREATE_DASHBOARD_SERVICE_SCHEMA,
+        )
+
+    await _async_register_frontend(hass)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     entry.async_on_unload(entry.add_update_listener(update_listener))
