@@ -606,6 +606,27 @@ class RivianDriveSensorEntity(RivianVehicleEntity, SensorEntity):
                 if key == "efficiency_30d"
                 else self._store.get_stats_all_time()
             )
+            recent_drives = [
+                {
+                    "start_time": d.start_time,
+                    "distance": round(d.distance_miles, 2),
+                    "energy_kwh": round(d.energy_kwh, 2),
+                    "efficiency": round(d.efficiency_mi_kwh, 2),
+                    "mpge": round(d.mpge, 1),
+                    "elevation_change_ft": round(d.elevation_change_ft, 0),
+                    "avg_speed_mph": round(d.avg_speed_mph, 1),
+                    "temp_f": (
+                        round(d.integrated_temperature_f, 1)
+                        if d.integrated_temperature_f is not None
+                        else None
+                    ),
+                }
+                for d in [
+                    drive
+                    for drive in self._store.drives
+                    if not drive.is_micro_drive and drive.distance_miles >= 0.5
+                ][-50:]
+            ]
             return {
                 "mpge": stats.mpge,
                 "total_miles": stats.total_miles,
@@ -614,6 +635,7 @@ class RivianDriveSensorEntity(RivianVehicleEntity, SensorEntity):
                 "total_duration_seconds": stats.total_duration_seconds,
                 "avg_distance_miles": stats.avg_distance_miles,
                 "total_micro_drives": stats.total_micro_drives,
+                "recent_drives": recent_drives,
             }
 
         if key == "last_drive_distance":
