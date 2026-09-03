@@ -606,6 +606,11 @@ class RivianDriveSensorEntity(RivianVehicleEntity, SensorEntity):
                 if key == "efficiency_30d"
                 else self._store.get_stats_all_time()
             )
+            valid_drives = [
+                drive
+                for drive in self._store.drives
+                if not drive.is_micro_drive and drive.distance_miles >= 0.5
+            ]
             recent_drives = [
                 {
                     "start_time": d.start_time,
@@ -642,13 +647,18 @@ class RivianDriveSensorEntity(RivianVehicleEntity, SensorEntity):
                         else {}
                     ),
                 }
-                for d in [
-                    drive
-                    for drive in self._store.drives
-                    if not drive.is_micro_drive and drive.distance_miles >= 0.5
-                ][-50:]
+                for d in valid_drives[-50:]
             ]
-            return {
+
+            recent_segments = []
+            for d in valid_drives:
+                if d.segments:
+                    for s in d.segments:
+                        recent_segments.append(
+                            s.to_dict() if hasattr(s, "to_dict") else s
+                        )
+
+            attrs: dict[str, Any] = {
                 "mpge": stats.mpge,
                 "total_miles": stats.total_miles,
                 "total_kwh": stats.total_kwh,
@@ -658,6 +668,10 @@ class RivianDriveSensorEntity(RivianVehicleEntity, SensorEntity):
                 "total_micro_drives": stats.total_micro_drives,
                 "recent_drives": recent_drives,
             }
+            if recent_segments:
+                attrs["recent_segments"] = recent_segments[-300:]
+
+            return attrs
 
         if key == "last_drive_distance":
             if not last_drive:

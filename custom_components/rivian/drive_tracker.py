@@ -16,6 +16,7 @@ from .drive_models import (
     MPGE_FACTOR,
     STANDARD_SPEED_BINS,
     DriveRecord,
+    DriveSegment,
     DriveState,
     DriveStatus,
     SpeedBinData,
@@ -249,6 +250,12 @@ class DriveTracker:
             "last_weather_sample_distance_mi": 0.0,
             "last_weather_sample_dt": now_dt,
             "distance_miles": 0.0,
+            "segments": [],
+            "current_segment_start_dt": now_dt,
+            "current_segment_start_odo_m": odometer_m,
+            "current_segment_start_soc": battery_soc,
+            "current_segment_start_alt_m": altitude_m,
+            "current_segment_speeds": [],
         }
 
         self.drive_state = DriveState(
@@ -354,6 +361,16 @@ class DriveTracker:
         bin_data.miles += delta_dist_miles
         bin_data.seconds += delta_t_sec
 
+        # Collect speed sample for current 3-minute segment
+        if speed_mph > 0.0:
+            active["current_segment_speeds"].append(speed_mph)
+
+        # Check if 3 minutes (180 seconds) have elapsed for the current segment
+        seg_start_dt: datetime = active.get("current_segment_start_dt", now_dt)
+        seg_elapsed = (now_dt - seg_start_dt).total_seconds()
+        if seg_elapsed >= 180.0:
+            self._finalize_current_segment(active, now_dt, odometer_m, battery_soc, altitude_m)
+
         # GPS Lock sync validation
         if not active["gps_locked"]:
             odo_delta_m = (
@@ -450,6 +467,71 @@ class DriveTracker:
                 distance_at_sample,
             )
 
+    def _finalize_current_segment(
+        self,
+        active: dict[str, Any],
+        now_dt: datetime,
+        odometer_m: float | None,
+        battery_soc: float | None,
+        altitude_m: float | None,
+    ) -> None:
+        """Finalize a 3-minute segment and start a new one."""
+        seg_start_dt: datetime = active.get("current_segment_start_dt", now_dt)
+        dt_win = (now_dt - seg_start_dt).total_seconds()
+        if dt_win < 90.0:
+            return
+
+        s_odo_m = active.get("current_segment_start_odo_m")
+        if s_odo_m is not None and odometer_m is not None:
+            seg_dist = max(0.0, (odometer_m - s_odo_m) / METERS_PER_MILE)
+        else:
+            seg_dist = 0.0
+
+        s_soc = active.get("current_segment_start_soc") or (battery_soc or 0.0)
+        e_soc = battery_soc or s_soc
+        seg_dsoc = max(0.0, s_soc - e_soc)
+        bat_cap = active.get("battery_capacity_kwh", 135.0)
+        seg_kwh = (seg_dsoc * bat_cap) / 100.0
+
+        speeds = active.get("current_segment_speeds", [])
+        if speeds:
+            seg_avg_spd = round(sum(speeds) / len(speeds), 1)
+        elif seg_dist > 0 and dt_win > 0:
+            seg_avg_spd = round(seg_dist / (dt_win / 3600.0), 1)
+        else:
+            seg_avg_spd = 0.0
+
+        s_alt = active.get("current_segment_start_alt_m")
+        e_alt = altitude_m or s_alt
+        seg_elev = (
+            round((e_alt - s_alt) * METERS_TO_FEET, 1)
+            if s_alt is not None and e_alt is not None
+            else 0.0
+        )
+
+        seg_bin = get_speed_bin_key(seg_avg_spd)
+
+        if seg_kwh > 0.0 and seg_dist >= 0.05:
+            seg_eff = round(seg_dist / seg_kwh, 2)
+            active["segments"].append(
+                DriveSegment(
+                    start_time=seg_start_dt.isoformat(),
+                    duration_seconds=round(dt_win, 1),
+                    distance_miles=round(seg_dist, 2),
+                    energy_kwh=round(seg_kwh, 2),
+                    efficiency_mi_kwh=seg_eff,
+                    avg_speed_mph=seg_avg_spd,
+                    speed_bin=seg_bin,
+                    elevation_change_ft=seg_elev,
+                )
+            )
+
+        active["current_segment_start_dt"] = now_dt
+        active["current_segment_start_odo_m"] = odometer_m
+        active["current_segment_start_soc"] = battery_soc
+        active["current_segment_start_alt_m"] = altitude_m
+        active["current_segment_speeds"] = []
+
     @callback
     def _handle_park_debounce_expired(self, _now: Any = None) -> None:
         """Handle expiration of the 60s park debounce timer."""
@@ -537,6 +619,11 @@ class DriveTracker:
 
         drive_id = f"{self.vin}_{active['start_epoch']}"
 
+        # Finalize any pending 3-minute segment
+        self._finalize_current_segment(
+            active, now_dt, end_odo_m, battery_soc, altitude_m
+        )
+
         record = DriveRecord(
             vin=self.vin,
             drive_id=drive_id,
@@ -571,6 +658,7 @@ class DriveTracker:
             end_lat=active["last_lat"],
             end_lon=active["last_lon"],
             weather_samples=weather_samples,
+            segments=active.get("segments", []),
         )
 
         # Save to DriveStore

@@ -321,7 +321,7 @@ def _build_vehicle_analytics_view(
                         "tickvals": ["0-9", "10-19", "20-29", "30-39", "40-49", "50-59", "60-69", "70-79", "80+"],
                     },
                     "yaxis": {
-                        "title": "Efficiency (mi/kWh)",
+                        "title": "Segment Efficiency (mi/kWh)",
                         "type": "linear",
                         "autorange": True,
                         "gridcolor": "#444444",
@@ -343,42 +343,23 @@ def _build_vehicle_analytics_view(
                         "marker": {"size": 5, "color": "#26A69A", "opacity": 0.75},
                         "line": {"color": "#26A69A", "width": 1.5},
                         "fillcolor": "rgba(38, 166, 154, 0.25)",
+                        "hovertemplate": "<b>%{x} mph Segment</b><br>Efficiency: %{y:.2f} mi/kWh<br>Avg Speed: %{customdata[0]:.1f} mph<br>Distance: %{customdata[1]:.2f} mi (%{customdata[2]:.0f}s)<br>Elevation Δh: %{customdata[3]:+.0f} ft<extra></extra>",
                         "x": (
                             f"$ex (function() {{ "
-                            f"const drives = hass.states['{eff_30d_entity}']?.attributes?.recent_drives || []; "
-                            "const bins = ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+']; "
-                            "const xs = []; "
-                            "drives.forEach(d => { "
-                            "  const sb = d.speed_bins || {}; "
-                            "  bins.forEach(b => { "
-                            "    const seg = sb[b]; "
-                            "    const sec = (typeof seg === 'object' && seg !== null) ? (seg.seconds || 0) : 0; "
-                            "    const mi = (typeof seg === 'object' && seg !== null) ? (seg.miles || 0) : (typeof seg === 'number' ? seg : 0); "
-                            "    if (sec >= 15 || mi >= 0.1) { "
-                            "      xs.push(b); "
-                            "    } "
-                            "  }); "
-                            "}); "
-                            "return xs; "
+                            f"const segs = hass.states['{eff_30d_entity}']?.attributes?.recent_segments || []; "
+                            "return segs.map(s => s.speed_bin); "
                             "})()"
                         ),
                         "y": (
                             f"$ex (function() {{ "
-                            f"const drives = hass.states['{eff_30d_entity}']?.attributes?.recent_drives || []; "
-                            "const bins = ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+']; "
-                            "const ys = []; "
-                            "drives.forEach(d => { "
-                            "  const sb = d.speed_bins || {}; "
-                            "  bins.forEach(b => { "
-                            "    const seg = sb[b]; "
-                            "    const sec = (typeof seg === 'object' && seg !== null) ? (seg.seconds || 0) : 0; "
-                            "    const mi = (typeof seg === 'object' && seg !== null) ? (seg.miles || 0) : (typeof seg === 'number' ? seg : 0); "
-                            "    if (sec >= 15 || mi >= 0.1) { "
-                            "      ys.push(d.efficiency); "
-                            "    } "
-                            "  }); "
-                            "}); "
-                            "return ys; "
+                            f"const segs = hass.states['{eff_30d_entity}']?.attributes?.recent_segments || []; "
+                            "return segs.map(s => s.efficiency_mi_kwh); "
+                            "})()"
+                        ),
+                        "customdata": (
+                            f"$ex (function() {{ "
+                            f"const segs = hass.states['{eff_30d_entity}']?.attributes?.recent_segments || []; "
+                            "return segs.map(s => [s.avg_speed_mph, s.distance_miles, s.duration_seconds, s.elevation_change_ft]); "
                             "})()"
                         ),
                     }

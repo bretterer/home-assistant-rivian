@@ -56,6 +56,47 @@ class SpeedBinData:
 
 
 @dataclass
+class DriveSegment:
+    """Fixed-duration (e.g. 3-minute) driving segment for speed-bin efficiency analysis."""
+
+    start_time: str
+    duration_seconds: float
+    distance_miles: float
+    energy_kwh: float
+    efficiency_mi_kwh: float
+    avg_speed_mph: float
+    speed_bin: str
+    elevation_change_ft: float = 0.0
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize drive segment to dictionary."""
+        return {
+            "start_time": self.start_time,
+            "duration_seconds": round(self.duration_seconds, 1),
+            "distance_miles": round(self.distance_miles, 2),
+            "energy_kwh": round(self.energy_kwh, 2),
+            "efficiency_mi_kwh": round(self.efficiency_mi_kwh, 2),
+            "avg_speed_mph": round(self.avg_speed_mph, 1),
+            "speed_bin": self.speed_bin,
+            "elevation_change_ft": round(self.elevation_change_ft, 1),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> DriveSegment:
+        """Instantiate drive segment from dictionary."""
+        return cls(
+            start_time=str(data.get("start_time", "")),
+            duration_seconds=float(data.get("duration_seconds", 0.0)),
+            distance_miles=float(data.get("distance_miles", 0.0)),
+            energy_kwh=float(data.get("energy_kwh", 0.0)),
+            efficiency_mi_kwh=float(data.get("efficiency_mi_kwh", 0.0)),
+            avg_speed_mph=float(data.get("avg_speed_mph", 0.0)),
+            speed_bin=str(data.get("speed_bin", "0-9")),
+            elevation_change_ft=float(data.get("elevation_change_ft", 0.0)),
+        )
+
+
+@dataclass
 class AggregatedDriveStats:
     """Aggregated statistics across multiple drives."""
 
@@ -186,6 +227,7 @@ class DriveRecord:
     end_lat: float | None = None
     end_lon: float | None = None
     weather_samples: list[dict[str, Any]] = field(default_factory=list)
+    segments: list[DriveSegment] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         """Compute derived fields if not populated."""
@@ -265,6 +307,8 @@ class DriveRecord:
             data["end_lon"] = round(self.end_lon, 6)
         if self.weather_samples:
             data["weather_samples"] = self.weather_samples
+        if self.segments:
+            data["segments"] = [s.to_dict() for s in self.segments]
 
         return data
 
@@ -352,4 +396,9 @@ class DriveRecord:
                 float(data["end_lon"]) if data.get("end_lon") is not None else None
             ),
             weather_samples=data.get("weather_samples", []),
+            segments=[
+                DriveSegment.from_dict(s)
+                for s in data.get("segments", [])
+                if isinstance(s, dict)
+            ],
         )

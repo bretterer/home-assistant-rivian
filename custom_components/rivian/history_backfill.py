@@ -15,6 +15,7 @@ from .drive_models import (
     MPGE_FACTOR,
     STANDARD_SPEED_BINS,
     DriveRecord,
+    DriveSegment,
     SpeedBinData,
 )
 from .drive_storage import DriveStore
@@ -563,6 +564,65 @@ def reconstruct_drives_from_sqlite(
             eff_mi_kwh = round(distance_mi / energy_kwh, 2) if energy_kwh > 0.0 else 0.0
             mpge = round(eff_mi_kwh * MPGE_FACTOR, 2) if eff_mi_kwh > 0.0 else 0.0
 
+            # Generate 3-minute drive segments for speed-bin efficiency analysis
+            drive_segments: list[DriveSegment] = []
+            segment_duration_s = 180.0  # 3 minutes
+            t_curr = start_ts
+            while t_curr < end_ts:
+                t_next = min(t_curr + segment_duration_s, end_ts)
+                dt_win = t_next - t_curr
+                if dt_win < (segment_duration_s * 0.5):
+                    break
+
+                s_odo = _get_value_at_ts(odometer_series, t_curr, prefer="nearest")
+                e_odo = _get_value_at_ts(odometer_series, t_next, prefer="nearest")
+                if s_odo is not None and e_odo is not None:
+                    d_odo = e_odo - s_odo
+                    if s_odo > 50000.0 and d_odo > 50.0:
+                        seg_dist = round(d_odo / METERS_PER_MILE, 2)
+                    else:
+                        seg_dist = round(max(0.0, d_odo), 2)
+                else:
+                    seg_dist = 0.0
+
+                s_soc = _get_value_at_ts(soc_series, t_curr, prefer="nearest") or 0.0
+                e_soc = _get_value_at_ts(soc_series, t_next, prefer="nearest") or s_soc
+                seg_dsoc = max(0.0, s_soc - e_soc)
+                seg_kwh = round((seg_dsoc * pack_capacity) / 100.0, 2)
+
+                win_speeds = [s for t, s in speed_series if t_curr <= t <= t_next]
+                if win_speeds:
+                    seg_avg_spd = round(sum(win_speeds) / len(win_speeds), 1)
+                elif seg_dist > 0 and dt_win > 0:
+                    seg_avg_spd = round(seg_dist / (dt_win / 3600.0), 1)
+                else:
+                    seg_avg_spd = 0.0
+
+                s_alt = _get_value_at_ts(alt_series, t_curr, prefer="nearest") or 0.0
+                e_alt = _get_value_at_ts(alt_series, t_next, prefer="nearest") or s_alt
+                seg_elev = round(e_alt - s_alt, 1)
+
+                seg_bin = _get_speed_bin_key(seg_avg_spd)
+
+                if seg_kwh > 0.0 and seg_dist >= 0.05:
+                    seg_eff = round(seg_dist / seg_kwh, 2)
+                    drive_segments.append(
+                        DriveSegment(
+                            start_time=datetime.fromtimestamp(
+                                t_curr, tz=timezone.utc
+                            ).isoformat(),
+                            duration_seconds=round(dt_win, 1),
+                            distance_miles=seg_dist,
+                            energy_kwh=seg_kwh,
+                            efficiency_mi_kwh=seg_eff,
+                            avg_speed_mph=seg_avg_spd,
+                            speed_bin=seg_bin,
+                            elevation_change_ft=seg_elev,
+                        )
+                    )
+
+                t_curr = t_next
+
             drive = DriveRecord(
                 vin=effective_vin,
                 drive_id=drive_id,
@@ -591,6 +651,7 @@ def reconstruct_drives_from_sqlite(
                 start_lon=start_lon,
                 end_lat=end_lat,
                 end_lon=end_lon,
+                segments=drive_segments,
             )
             reconstructed_drives.append(drive)
 
