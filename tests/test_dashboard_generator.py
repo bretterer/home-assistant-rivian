@@ -19,7 +19,7 @@ def test_build_vehicle_analytics_view() -> None:
     view = _build_vehicle_analytics_view("Reggie", "sensor.rivian_r1s_reggie_")
     assert view["title"] == "Reggie Efficiency"
     assert view["path"] == "reggie"
-    assert len(view["cards"]) == 4
+    assert len(view["cards"]) == 5
 
     # Check Mushroom Card
     hero_card = view["cards"][0]
@@ -43,8 +43,16 @@ def test_build_vehicle_analytics_view() -> None:
     assert speed_card["type"] == "custom:plotly-graph"
     assert speed_card["entities"][0]["type"] == "bar"
     assert speed_card["entities"][0]["entity"] == ""
-    assert "function(k)" in speed_card["entities"][0]["y"]
-    assert "=> {{" not in speed_card["entities"][0]["y"]
+
+    # Check Speed Range vs Trip Efficiency Scatterplot Card
+    speed_eff_card = view["cards"][3]
+    assert speed_eff_card["type"] == "custom:plotly-graph"
+    assert len(speed_eff_card["entities"]) == 3
+    assert speed_eff_card["entities"][0]["type"] == "scatter"
+    assert speed_eff_card["entities"][0]["name"] == "Downhill (Δh < -100 ft)"
+    assert speed_eff_card["entities"][0]["entity"] == ""
+    assert speed_eff_card["entities"][1]["name"] == "Flat (-100 to +100 ft)"
+    assert speed_eff_card["entities"][2]["name"] == "Uphill (Δh > +100 ft)"
 
 
 def test_build_core_fallback_view() -> None:

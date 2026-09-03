@@ -620,6 +620,27 @@ class RivianDriveSensorEntity(RivianVehicleEntity, SensorEntity):
                         if d.integrated_temperature_f is not None
                         else None
                     ),
+                    "speed_bins": (
+                        {
+                            k: {
+                                "miles": round(
+                                    v.miles
+                                    if hasattr(v, "miles")
+                                    else (v.get("miles", 0) if isinstance(v, dict) else v),
+                                    2,
+                                ),
+                                "seconds": round(
+                                    v.seconds
+                                    if hasattr(v, "seconds")
+                                    else (v.get("seconds", 0) if isinstance(v, dict) else 0),
+                                    0,
+                                ),
+                            }
+                            for k, v in d.speed_bins.items()
+                        }
+                        if d.speed_bins
+                        else {}
+                    ),
                 }
                 for d in [
                     drive
