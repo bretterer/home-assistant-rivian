@@ -40,6 +40,8 @@ def test_build_vehicle_analytics_view() -> None:
     speed_card = view["cards"][2]
     assert speed_card["type"] == "custom:plotly-graph-card"
     assert speed_card["entities"][0]["type"] == "bar"
+    assert "function(k)" in speed_card["entities"][0]["y"]
+    assert "=> {{" not in speed_card["entities"][0]["y"]
 
 
 def test_build_core_fallback_view() -> None:

@@ -250,13 +250,13 @@ def _build_vehicle_analytics_view(
                             f"$ex (function() {{ "
                             f"const bins = hass.states['{last_eff_entity}']?.attributes?.speed_bins || {{}}; "
                             "const keys = ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+']; "
-                            "return keys.map(k => {{ "
+                            "return keys.map(function(k) { "
                             "const b = bins[k]; "
                             "if (typeof b === 'number') return b; "
                             "if (b && typeof b.miles === 'number') return b.miles; "
                             "return 0.0; "
-                            "}}); "
-                            "}})()"
+                            "}); "
+                            "})()"
                         ),
                     }
                 ],

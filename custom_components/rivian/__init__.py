@@ -126,6 +126,41 @@ async def _async_register_frontend(hass: HomeAssistant) -> None:
         except Exception as err:  # noqa: BLE001
             _LOGGER.debug("Could not add mushroom.js extra URL: %s", err)
 
+    # Also register in Lovelace resources so Lovelace dashboard loads them
+    try:
+        import uuid
+
+        from homeassistant.helpers.storage import Store
+
+        store = Store(hass, 1, "lovelace_resources")
+        data = await store.async_load() or {"items": []}
+        items = data.get("items", [])
+        urls = [x.get("url", "") for x in items]
+        changed = False
+
+        if plotly_js.is_file() and not any(f"{static_url}/plotly-graph-card.js" in u for u in urls):
+            items.append({
+                "id": uuid.uuid4().hex,
+                "url": f"{static_url}/plotly-graph-card.js",
+                "type": "module",
+            })
+            changed = True
+
+        if mushroom_js.is_file() and not any(f"{static_url}/mushroom.js" in u for u in urls):
+            items.append({
+                "id": uuid.uuid4().hex,
+                "url": f"{static_url}/mushroom.js",
+                "type": "module",
+            })
+            changed = True
+
+        if changed:
+            data["items"] = items
+            await store.async_save(data)
+            _LOGGER.debug("Registered bundled cards in lovelace_resources")
+    except Exception as err:  # noqa: BLE001
+        _LOGGER.debug("Could not register cards in lovelace_resources: %s", err)
+
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Load the saved entries."""
