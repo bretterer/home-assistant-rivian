@@ -67,6 +67,7 @@ class DriveSegment:
     avg_speed_mph: float
     speed_bin: str
     elevation_change_ft: float = 0.0
+    temp_f: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize drive segment to dictionary."""
@@ -79,6 +80,7 @@ class DriveSegment:
             "avg_speed_mph": round(self.avg_speed_mph, 1),
             "speed_bin": self.speed_bin,
             "elevation_change_ft": round(self.elevation_change_ft, 1),
+            "temp_f": round(self.temp_f, 1) if self.temp_f is not None else None,
         }
 
     @classmethod
@@ -93,6 +95,7 @@ class DriveSegment:
             avg_speed_mph=float(data.get("avg_speed_mph", 0.0)),
             speed_bin=str(data.get("speed_bin", "0-9")),
             elevation_change_ft=float(data.get("elevation_change_ft", 0.0)),
+            temp_f=float(data["temp_f"]) if data.get("temp_f") is not None else None,
         )
 
 

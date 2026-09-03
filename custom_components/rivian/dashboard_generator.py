@@ -317,8 +317,30 @@ def _build_vehicle_analytics_view(
                     "xaxis": {
                         "title": "Speed Range (mph)",
                         "type": "category",
+                        "categoryorder": "array",
+                        "categoryarray": [
+                            "0-9",
+                            "10-19",
+                            "20-29",
+                            "30-39",
+                            "40-49",
+                            "50-59",
+                            "60-69",
+                            "70-79",
+                            "80+",
+                        ],
                         "tickmode": "array",
-                        "tickvals": ["0-9", "10-19", "20-29", "30-39", "40-49", "50-59", "60-69", "70-79", "80+"],
+                        "tickvals": [
+                            "0-9",
+                            "10-19",
+                            "20-29",
+                            "30-39",
+                            "40-49",
+                            "50-59",
+                            "60-69",
+                            "70-79",
+                            "80+",
+                        ],
                     },
                     "yaxis": {
                         "title": "Segment Efficiency (mi/kWh)",
@@ -327,42 +349,123 @@ def _build_vehicle_analytics_view(
                         "gridcolor": "#444444",
                         "zeroline": False,
                     },
-                    "margin": {"l": 50, "r": 20, "t": 40, "b": 50},
-                    "showlegend": False,
+                    "boxmode": "overlay",
+                    "legend": {"orientation": "h", "y": -0.25, "x": 0.05},
+                    "margin": {"l": 50, "r": 20, "t": 40, "b": 60},
                 },
                 "config": {"displayModeBar": False},
                 "entities": [
                     {
                         "entity": "",
-                        "name": "Efficiency",
+                        "name": "Speed Range (Box Plot)",
                         "type": "box",
-                        "boxpoints": "all",
-                        "jitter": 0.35,
-                        "pointpos": -1.8,
+                        "boxpoints": False,
                         "boxmean": True,
-                        "marker": {"size": 5, "color": "#26A69A", "opacity": 0.75},
                         "line": {"color": "#26A69A", "width": 1.5},
-                        "fillcolor": "rgba(38, 166, 154, 0.25)",
-                        "hovertemplate": "<b>%{x} mph Segment</b><br>Efficiency: %{y:.2f} mi/kWh<br>Avg Speed: %{customdata[0]:.1f} mph<br>Distance: %{customdata[1]:.2f} mi (%{customdata[2]:.0f}s)<br>Elevation Δh: %{customdata[3]:+.0f} ft<extra></extra>",
+                        "fillcolor": "rgba(38, 166, 154, 0.2)",
+                        "hoverinfo": "y",
                         "x": (
                             f"$ex (function() {{ "
-                            f"const segs = hass.states['{eff_30d_entity}']?.attributes?.recent_segments || []; "
+                            f"const order = ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+']; "
+                            f"const segs = [...(hass.states['{eff_30d_entity}']?.attributes?.recent_segments || [])].sort((a, b) => order.indexOf(a.speed_bin) - order.indexOf(b.speed_bin)); "
                             "return segs.map(s => s.speed_bin); "
                             "})()"
                         ),
                         "y": (
                             f"$ex (function() {{ "
-                            f"const segs = hass.states['{eff_30d_entity}']?.attributes?.recent_segments || []; "
+                            f"const order = ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+']; "
+                            f"const segs = [...(hass.states['{eff_30d_entity}']?.attributes?.recent_segments || [])].sort((a, b) => order.indexOf(a.speed_bin) - order.indexOf(b.speed_bin)); "
                             "return segs.map(s => s.efficiency_mi_kwh); "
                             "})()"
                         ),
+                    },
+                    {
+                        "entity": "",
+                        "name": "Downhill (o)",
+                        "type": "scatter",
+                        "mode": "markers",
+                        "marker": {
+                            "symbol": "circle",
+                            "size": 8,
+                            "opacity": 0.85,
+                            "colorscale": "Thermal",
+                            "showscale": True,
+                            "colorbar": {"title": "Temp (°F)", "len": 0.8, "x": 1.02},
+                            "line": {"width": 0.5, "color": "#ffffff"},
+                            "color": (
+                                f"$ex (function() {{ "
+                                f"const order = ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+']; "
+                                f"const segs = (hass.states['{eff_30d_entity}']?.attributes?.recent_segments || []).filter(s => s.elevation_change_ft < 0).sort((a, b) => order.indexOf(a.speed_bin) - order.indexOf(b.speed_bin)); "
+                                "return segs.map(s => s.temp_f || 70); "
+                                "}})()"
+                            ),
+                        },
+                        "hovertemplate": "<b>Downhill Segment (o)</b><br>Speed Range: %{x} mph<br>Efficiency: %{y:.2f} mi/kWh<br>Temp: %{customdata[4]:.1f}°F<br>Avg Speed: %{customdata[0]:.1f} mph<br>Distance: %{customdata[1]:.2f} mi (%{customdata[2]:.0f}s)<br>Elevation Δh: %{customdata[3]:+.0f} ft<extra></extra>",
+                        "x": (
+                            f"$ex (function() {{ "
+                            f"const order = ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+']; "
+                            f"const segs = (hass.states['{eff_30d_entity}']?.attributes?.recent_segments || []).filter(s => s.elevation_change_ft < 0).sort((a, b) => order.indexOf(a.speed_bin) - order.indexOf(b.speed_bin)); "
+                            "return segs.map(s => s.speed_bin); "
+                            "}})()"
+                        ),
+                        "y": (
+                            f"$ex (function() {{ "
+                            f"const order = ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+']; "
+                            f"const segs = (hass.states['{eff_30d_entity}']?.attributes?.recent_segments || []).filter(s => s.elevation_change_ft < 0).sort((a, b) => order.indexOf(a.speed_bin) - order.indexOf(b.speed_bin)); "
+                            "return segs.map(s => s.efficiency_mi_kwh); "
+                            "}})()"
+                        ),
                         "customdata": (
                             f"$ex (function() {{ "
-                            f"const segs = hass.states['{eff_30d_entity}']?.attributes?.recent_segments || []; "
-                            "return segs.map(s => [s.avg_speed_mph, s.distance_miles, s.duration_seconds, s.elevation_change_ft]); "
-                            "})()"
+                            f"const order = ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+']; "
+                            f"const segs = (hass.states['{eff_30d_entity}']?.attributes?.recent_segments || []).filter(s => s.elevation_change_ft < 0).sort((a, b) => order.indexOf(a.speed_bin) - order.indexOf(b.speed_bin)); "
+                            "return segs.map(s => [s.avg_speed_mph, s.distance_miles, s.duration_seconds, s.elevation_change_ft, s.temp_f || 70]); "
+                            "}})()"
                         ),
-                    }
+                    },
+                    {
+                        "entity": "",
+                        "name": "Uphill (+)",
+                        "type": "scatter",
+                        "mode": "markers",
+                        "marker": {
+                            "symbol": "cross",
+                            "size": 8,
+                            "opacity": 0.85,
+                            "colorscale": "Thermal",
+                            "showscale": False,
+                            "line": {"width": 0.5, "color": "#ffffff"},
+                            "color": (
+                                f"$ex (function() {{ "
+                                f"const order = ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+']; "
+                                f"const segs = (hass.states['{eff_30d_entity}']?.attributes?.recent_segments || []).filter(s => s.elevation_change_ft >= 0).sort((a, b) => order.indexOf(a.speed_bin) - order.indexOf(b.speed_bin)); "
+                                "return segs.map(s => s.temp_f || 70); "
+                                "}})()"
+                            ),
+                        },
+                        "hovertemplate": "<b>Uphill Segment (+)</b><br>Speed Range: %{x} mph<br>Efficiency: %{y:.2f} mi/kWh<br>Temp: %{customdata[4]:.1f}°F<br>Avg Speed: %{customdata[0]:.1f} mph<br>Distance: %{customdata[1]:.2f} mi (%{customdata[2]:.0f}s)<br>Elevation Δh: %{customdata[3]:+.0f} ft<extra></extra>",
+                        "x": (
+                            f"$ex (function() {{ "
+                            f"const order = ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+']; "
+                            f"const segs = (hass.states['{eff_30d_entity}']?.attributes?.recent_segments || []).filter(s => s.elevation_change_ft >= 0).sort((a, b) => order.indexOf(a.speed_bin) - order.indexOf(b.speed_bin)); "
+                            "return segs.map(s => s.speed_bin); "
+                            "}})()"
+                        ),
+                        "y": (
+                            f"$ex (function() {{ "
+                            f"const order = ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+']; "
+                            f"const segs = (hass.states['{eff_30d_entity}']?.attributes?.recent_segments || []).filter(s => s.elevation_change_ft >= 0).sort((a, b) => order.indexOf(a.speed_bin) - order.indexOf(b.speed_bin)); "
+                            "return segs.map(s => s.efficiency_mi_kwh); "
+                            "}})()"
+                        ),
+                        "customdata": (
+                            f"$ex (function() {{ "
+                            f"const order = ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+']; "
+                            f"const segs = (hass.states['{eff_30d_entity}']?.attributes?.recent_segments || []).filter(s => s.elevation_change_ft >= 0).sort((a, b) => order.indexOf(a.speed_bin) - order.indexOf(b.speed_bin)); "
+                            "return segs.map(s => [s.avg_speed_mph, s.distance_miles, s.duration_seconds, s.elevation_change_ft, s.temp_f || 70]); "
+                            "}})()"
+                        ),
+                    },
                 ],
             },
             # Section 4: Detailed Statistics Grid

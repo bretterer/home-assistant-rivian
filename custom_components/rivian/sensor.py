@@ -654,9 +654,13 @@ class RivianDriveSensorEntity(RivianVehicleEntity, SensorEntity):
             for d in valid_drives:
                 if d.segments:
                     for s in d.segments:
-                        recent_segments.append(
-                            s.to_dict() if hasattr(s, "to_dict") else s
-                        )
+                        s_dict = s.to_dict() if hasattr(s, "to_dict") else dict(s)
+                        if (
+                            s_dict.get("temp_f") is None
+                            and d.integrated_temperature_f is not None
+                        ):
+                            s_dict["temp_f"] = round(d.integrated_temperature_f, 1)
+                        recent_segments.append(s_dict)
 
             attrs: dict[str, Any] = {
                 "mpge": stats.mpge,
