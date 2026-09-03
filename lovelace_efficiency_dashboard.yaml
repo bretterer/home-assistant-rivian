@@ -127,7 +127,7 @@ views:
               entity: sensor.{vin}_drive_status
 
       # Section 2: Temperature vs. Efficiency Scatterplot Card (Elevation Color-Coded)
-      - type: custom:plotly-graph-card
+      - type: custom:plotly-graph
         title: Temperature vs. Efficiency (Elevation Color-Coded)
         layout:
           xaxis:
@@ -238,7 +238,7 @@ views:
               })()
 
       # Section 3: Speed Bin Distribution Bar Chart Card
-      - type: custom:plotly-graph-card
+      - type: custom:plotly-graph
         title: Speed Bin Distribution (Miles per 10 mph Bin)
         layout:
           xaxis:

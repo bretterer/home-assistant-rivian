@@ -30,7 +30,7 @@ def test_build_vehicle_analytics_view() -> None:
 
     # Check Plotly Scatterplot
     scatter_card = view["cards"][1]
-    assert scatter_card["type"] == "custom:plotly-graph-card"
+    assert scatter_card["type"] == "custom:plotly-graph"
     assert len(scatter_card["entities"]) == 3
     assert scatter_card["entities"][0]["name"] == "Downhill (Δh < -100 ft)"
     assert scatter_card["entities"][1]["name"] == "Flat (-100 to +100 ft)"
@@ -38,7 +38,7 @@ def test_build_vehicle_analytics_view() -> None:
 
     # Check Speed Bin Card
     speed_card = view["cards"][2]
-    assert speed_card["type"] == "custom:plotly-graph-card"
+    assert speed_card["type"] == "custom:plotly-graph"
     assert speed_card["entities"][0]["type"] == "bar"
     assert "function(k)" in speed_card["entities"][0]["y"]
     assert "=> {{" not in speed_card["entities"][0]["y"]

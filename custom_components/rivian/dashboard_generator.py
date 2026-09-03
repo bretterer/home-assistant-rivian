@@ -113,7 +113,7 @@ def _build_vehicle_analytics_view(
             },
             # Section 2: Temperature vs. Efficiency Scatterplot (Elevation Color-Coded)
             {
-                "type": "custom:plotly-graph-card",
+                "type": "custom:plotly-graph",
                 "title": "Temperature vs. Efficiency (Elevation Color-Coded)",
                 "layout": {
                     "xaxis": {
@@ -225,7 +225,7 @@ def _build_vehicle_analytics_view(
             },
             # Section 3: Speed Bin Distribution Bar Chart
             {
-                "type": "custom:plotly-graph-card",
+                "type": "custom:plotly-graph",
                 "title": "Speed Bin Distribution (Miles per 10 mph Bin)",
                 "layout": {
                     "xaxis": {

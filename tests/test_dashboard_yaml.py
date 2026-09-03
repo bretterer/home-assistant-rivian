@@ -145,7 +145,9 @@ class TestRequiredCardsPresence:
         """Validate Plotly temperature vs efficiency scatterplot card."""
         all_cards = _find_cards(dashboard_yaml_data)
         plotly_cards = [
-            c for c in all_cards if c.get("type") == "custom:plotly-graph-card"
+            c
+            for c in all_cards
+            if c.get("type") in ("custom:plotly-graph", "custom:plotly-graph-card")
         ]
         assert len(plotly_cards) >= 2, "Expected at least 2 Plotly graph cards"
 
@@ -189,7 +191,9 @@ class TestRequiredCardsPresence:
         """Validate Speed Bin Distribution bar chart card."""
         all_cards = _find_cards(dashboard_yaml_data)
         plotly_cards = [
-            c for c in all_cards if c.get("type") == "custom:plotly-graph-card"
+            c
+            for c in all_cards
+            if c.get("type") in ("custom:plotly-graph", "custom:plotly-graph-card")
         ]
 
         speed_bin_card = next(
@@ -275,7 +279,9 @@ class TestColorHexCodes:
 
         all_cards = _find_cards(dashboard_yaml_data)
         plotly_cards = [
-            c for c in all_cards if c.get("type") == "custom:plotly-graph-card"
+            c
+            for c in all_cards
+            if c.get("type") in ("custom:plotly-graph", "custom:plotly-graph-card")
         ]
         scatterplot = next(
             (
