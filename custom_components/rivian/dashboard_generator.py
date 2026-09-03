@@ -150,14 +150,14 @@ def _build_vehicle_analytics_view(
                                 f"$ex (function() {{ "
                                 f"const drives = hass.states['{eff_30d_entity}']?.attributes?.recent_drives || []; "
                                 "return drives.filter(d => d.elevation_change_ft < -100).map(d => Math.max(7, Math.min(32, Math.round(7 + (d.distance || 0) * 1.8)))); "
-                                "}})()"
+                                "})()"
                             ),
                         },
                         "customdata": (
                             f"$ex (function() {{ "
                             f"const drives = hass.states['{eff_30d_entity}']?.attributes?.recent_drives || []; "
                             "return drives.filter(d => d.elevation_change_ft < -100).map(d => [d.distance, d.elevation_change_ft]); "
-                            "}})()"
+                            "})()"
                         ),
                         "hovertemplate": "<b>Downhill Drive</b><br>Temperature: %{x}°F<br>Efficiency: %{y:.2f} mi/kWh<br>Trip Distance: %{customdata[0]:.1f} mi<br>Elevation Δh: %{customdata[1]:+.0f} ft<extra></extra>",
                         "x": (
@@ -187,14 +187,14 @@ def _build_vehicle_analytics_view(
                                 f"$ex (function() {{ "
                                 f"const drives = hass.states['{eff_30d_entity}']?.attributes?.recent_drives || []; "
                                 "return drives.filter(d => d.elevation_change_ft >= -100 && d.elevation_change_ft <= 100).map(d => Math.max(7, Math.min(32, Math.round(7 + (d.distance || 0) * 1.8)))); "
-                                "}})()"
+                                "})()"
                             ),
                         },
                         "customdata": (
                             f"$ex (function() {{ "
                             f"const drives = hass.states['{eff_30d_entity}']?.attributes?.recent_drives || []; "
                             "return drives.filter(d => d.elevation_change_ft >= -100 && d.elevation_change_ft <= 100).map(d => [d.distance, d.elevation_change_ft]); "
-                            "}})()"
+                            "})()"
                         ),
                         "hovertemplate": "<b>Flat Drive</b><br>Temperature: %{x}°F<br>Efficiency: %{y:.2f} mi/kWh<br>Trip Distance: %{customdata[0]:.1f} mi<br>Elevation Δh: %{customdata[1]:+.0f} ft<extra></extra>",
                         "x": (
@@ -224,14 +224,14 @@ def _build_vehicle_analytics_view(
                                 f"$ex (function() {{ "
                                 f"const drives = hass.states['{eff_30d_entity}']?.attributes?.recent_drives || []; "
                                 "return drives.filter(d => d.elevation_change_ft > 100).map(d => Math.max(7, Math.min(32, Math.round(7 + (d.distance || 0) * 1.8)))); "
-                                "}})()"
+                                "})()"
                             ),
                         },
                         "customdata": (
                             f"$ex (function() {{ "
                             f"const drives = hass.states['{eff_30d_entity}']?.attributes?.recent_drives || []; "
                             "return drives.filter(d => d.elevation_change_ft > 100).map(d => [d.distance, d.elevation_change_ft]); "
-                            "}})()"
+                            "})()"
                         ),
                         "hovertemplate": "<b>Uphill Drive</b><br>Temperature: %{x}°F<br>Efficiency: %{y:.2f} mi/kWh<br>Trip Distance: %{customdata[0]:.1f} mi<br>Elevation Δh: %{customdata[1]:+.0f} ft<extra></extra>",
                         "x": (
@@ -359,7 +359,7 @@ def _build_vehicle_analytics_view(
                                 "  }); "
                                 "}); "
                                 "return sizes; "
-                                "}})()"
+                                "})()"
                             ),
                         },
                         "hovertemplate": "<b>Downhill Segment</b><br>Speed Range: %{x} mph<br>Trip Efficiency: %{y:.2f} mi/kWh<br>Time in Bin: %{customdata[0]} min (%{customdata[1]:.1f} mi)<br>Total Trip Distance: %{customdata[2]:.1f} mi<br>Elevation Δh: %{customdata[3]:+.0f} ft<extra></extra>",
@@ -380,7 +380,7 @@ def _build_vehicle_analytics_view(
                             "  }); "
                             "}); "
                             "return xs; "
-                            "}})()"
+                            "})()"
                         ),
                         "y": (
                             f"$ex (function() {{ "
@@ -399,7 +399,7 @@ def _build_vehicle_analytics_view(
                             "  }); "
                             "}); "
                             "return ys; "
-                            "}})()"
+                            "})()"
                         ),
                         "customdata": (
                             f"$ex (function() {{ "
@@ -418,7 +418,7 @@ def _build_vehicle_analytics_view(
                             "  }); "
                             "}); "
                             "return cd; "
-                            "}})()"
+                            "})()"
                         ),
                     },
                     {
@@ -448,7 +448,7 @@ def _build_vehicle_analytics_view(
                                 "  }); "
                                 "}); "
                                 "return sizes; "
-                                "}})()"
+                                "})()"
                             ),
                         },
                         "hovertemplate": "<b>Flat Segment</b><br>Speed Range: %{x} mph<br>Trip Efficiency: %{y:.2f} mi/kWh<br>Time in Bin: %{customdata[0]} min (%{customdata[1]:.1f} mi)<br>Total Trip Distance: %{customdata[2]:.1f} mi<br>Elevation Δh: %{customdata[3]:+.0f} ft<extra></extra>",
@@ -469,7 +469,7 @@ def _build_vehicle_analytics_view(
                             "  }); "
                             "}); "
                             "return xs; "
-                            "}})()"
+                            "})()"
                         ),
                         "y": (
                             f"$ex (function() {{ "
@@ -488,7 +488,7 @@ def _build_vehicle_analytics_view(
                             "  }); "
                             "}); "
                             "return ys; "
-                            "}})()"
+                            "})()"
                         ),
                         "customdata": (
                             f"$ex (function() {{ "
@@ -507,7 +507,7 @@ def _build_vehicle_analytics_view(
                             "  }); "
                             "}); "
                             "return cd; "
-                            "}})()"
+                            "})()"
                         ),
                     },
                     {
@@ -537,7 +537,7 @@ def _build_vehicle_analytics_view(
                                 "  }); "
                                 "}); "
                                 "return sizes; "
-                                "}})()"
+                                "})()"
                             ),
                         },
                         "hovertemplate": "<b>Uphill Segment</b><br>Speed Range: %{x} mph<br>Trip Efficiency: %{y:.2f} mi/kWh<br>Time in Bin: %{customdata[0]} min (%{customdata[1]:.1f} mi)<br>Total Trip Distance: %{customdata[2]:.1f} mi<br>Elevation Δh: %{customdata[3]:+.0f} ft<extra></extra>",
@@ -558,7 +558,7 @@ def _build_vehicle_analytics_view(
                             "  }); "
                             "}); "
                             "return xs; "
-                            "}})()"
+                            "})()"
                         ),
                         "y": (
                             f"$ex (function() {{ "
@@ -577,7 +577,7 @@ def _build_vehicle_analytics_view(
                             "  }); "
                             "}); "
                             "return ys; "
-                            "}})()"
+                            "})()"
                         ),
                         "customdata": (
                             f"$ex (function() {{ "
@@ -596,7 +596,7 @@ def _build_vehicle_analytics_view(
                             "  }); "
                             "}); "
                             "return cd; "
-                            "}})()"
+                            "})()"
                         ),
                     },
                 ],
