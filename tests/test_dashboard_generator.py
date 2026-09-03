@@ -44,15 +44,15 @@ def test_build_vehicle_analytics_view() -> None:
     assert speed_card["entities"][0]["type"] == "bar"
     assert speed_card["entities"][0]["entity"] == ""
 
-    # Check Speed Range vs Trip Efficiency Scatterplot Card
+    # Check Speed Range vs Trip Efficiency Box Plot Card
     speed_eff_card = view["cards"][3]
     assert speed_eff_card["type"] == "custom:plotly-graph"
-    assert len(speed_eff_card["entities"]) == 3
-    assert speed_eff_card["entities"][0]["type"] == "scatter"
-    assert speed_eff_card["entities"][0]["name"] == "Downhill (Δh < -100 ft)"
+    assert len(speed_eff_card["entities"]) == 1
+    assert speed_eff_card["entities"][0]["type"] == "box"
+    assert speed_eff_card["entities"][0]["name"] == "Efficiency"
     assert speed_eff_card["entities"][0]["entity"] == ""
-    assert speed_eff_card["entities"][1]["name"] == "Flat (-100 to +100 ft)"
-    assert speed_eff_card["entities"][2]["name"] == "Uphill (Δh > +100 ft)"
+    assert speed_eff_card["entities"][0]["boxpoints"] == "all"
+    assert speed_eff_card["entities"][0]["boxmean"] is True
 
 
 def test_build_core_fallback_view() -> None:

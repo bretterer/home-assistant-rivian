@@ -308,11 +308,11 @@ def _build_vehicle_analytics_view(
                     }
                 ],
             },
-            # Section 4: Speed Range vs. Trip Efficiency (All Drive Segments)
+            # Section 4: Efficiency Distribution by Speed Range (Box Plot)
             {
                 "type": "custom:plotly-graph",
                 "raw_plotly_config": True,
-                "title": "Speed Range vs. Trip Efficiency (All Drive Segments)",
+                "title": "Efficiency Distribution by Speed Range (Box Plot)",
                 "layout": {
                     "xaxis": {
                         "title": "Speed Range (mph)",
@@ -321,51 +321,31 @@ def _build_vehicle_analytics_view(
                         "tickvals": ["0-9", "10-19", "20-29", "30-39", "40-49", "50-59", "60-69", "70-79", "80+"],
                     },
                     "yaxis": {
-                        "title": "Trip Efficiency (mi/kWh)",
+                        "title": "Efficiency (mi/kWh)",
                         "type": "linear",
                         "autorange": True,
                         "gridcolor": "#444444",
                         "zeroline": False,
                     },
-                    "legend": {"orientation": "h", "y": -0.25, "x": 0.05},
-                    "margin": {"l": 50, "r": 20, "t": 40, "b": 60},
+                    "margin": {"l": 50, "r": 20, "t": 40, "b": 50},
+                    "showlegend": False,
                 },
                 "config": {"displayModeBar": False},
                 "entities": [
                     {
                         "entity": "",
-                        "name": "Downhill (Δh < -100 ft)",
-                        "type": "scatter",
-                        "mode": "markers",
-                        "marker": {
-                            "color": "#1E88E5",
-                            "symbol": "circle",
-                            "opacity": 0.85,
-                            "line": {"width": 1, "color": "#ffffff"},
-                            "size": (
-                                f"$ex (function() {{ "
-                                f"const drives = (hass.states['{eff_30d_entity}']?.attributes?.recent_drives || []).filter(d => d.elevation_change_ft < -100); "
-                                "const bins = ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+']; "
-                                "const sizes = []; "
-                                "drives.forEach(d => { "
-                                "  const sb = d.speed_bins || {}; "
-                                "  bins.forEach(b => { "
-                                "    const seg = sb[b]; "
-                                "    const sec = (typeof seg === 'object' && seg !== null) ? (seg.seconds || 0) : 0; "
-                                "    const mi = (typeof seg === 'object' && seg !== null) ? (seg.miles || 0) : (typeof seg === 'number' ? seg : 0); "
-                                "    if (sec >= 15 || mi >= 0.1) { "
-                                "      sizes.push(Math.max(6, Math.min(28, Math.round(6 + Math.sqrt(sec / 60) * 4)))); "
-                                "    } "
-                                "  }); "
-                                "}); "
-                                "return sizes; "
-                                "})()"
-                            ),
-                        },
-                        "hovertemplate": "<b>Downhill Segment</b><br>Speed Range: %{x} mph<br>Trip Efficiency: %{y:.2f} mi/kWh<br>Time in Bin: %{customdata[0]} min (%{customdata[1]:.1f} mi)<br>Total Trip Distance: %{customdata[2]:.1f} mi<br>Elevation Δh: %{customdata[3]:+.0f} ft<extra></extra>",
+                        "name": "Efficiency",
+                        "type": "box",
+                        "boxpoints": "all",
+                        "jitter": 0.35,
+                        "pointpos": -1.8,
+                        "boxmean": True,
+                        "marker": {"size": 5, "color": "#26A69A", "opacity": 0.75},
+                        "line": {"color": "#26A69A", "width": 1.5},
+                        "fillcolor": "rgba(38, 166, 154, 0.25)",
                         "x": (
                             f"$ex (function() {{ "
-                            f"const drives = (hass.states['{eff_30d_entity}']?.attributes?.recent_drives || []).filter(d => d.elevation_change_ft < -100); "
+                            f"const drives = hass.states['{eff_30d_entity}']?.attributes?.recent_drives || []; "
                             "const bins = ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+']; "
                             "const xs = []; "
                             "drives.forEach(d => { "
@@ -384,7 +364,7 @@ def _build_vehicle_analytics_view(
                         ),
                         "y": (
                             f"$ex (function() {{ "
-                            f"const drives = (hass.states['{eff_30d_entity}']?.attributes?.recent_drives || []).filter(d => d.elevation_change_ft < -100); "
+                            f"const drives = hass.states['{eff_30d_entity}']?.attributes?.recent_drives || []; "
                             "const bins = ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+']; "
                             "const ys = []; "
                             "drives.forEach(d => { "
@@ -401,204 +381,7 @@ def _build_vehicle_analytics_view(
                             "return ys; "
                             "})()"
                         ),
-                        "customdata": (
-                            f"$ex (function() {{ "
-                            f"const drives = (hass.states['{eff_30d_entity}']?.attributes?.recent_drives || []).filter(d => d.elevation_change_ft < -100); "
-                            "const bins = ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+']; "
-                            "const cd = []; "
-                            "drives.forEach(d => { "
-                            "  const sb = d.speed_bins || {}; "
-                            "  bins.forEach(b => { "
-                            "    const seg = sb[b]; "
-                            "    const sec = (typeof seg === 'object' && seg !== null) ? (seg.seconds || 0) : 0; "
-                            "    const mi = (typeof seg === 'object' && seg !== null) ? (seg.miles || 0) : (typeof seg === 'number' ? seg : 0); "
-                            "    if (sec >= 15 || mi >= 0.1) { "
-                            "      cd.push([Math.round(sec / 60), mi, d.distance, d.elevation_change_ft]); "
-                            "    } "
-                            "  }); "
-                            "}); "
-                            "return cd; "
-                            "})()"
-                        ),
-                    },
-                    {
-                        "entity": "",
-                        "name": "Flat (-100 to +100 ft)",
-                        "type": "scatter",
-                        "mode": "markers",
-                        "marker": {
-                            "color": "#43A047",
-                            "symbol": "circle",
-                            "opacity": 0.85,
-                            "line": {"width": 1, "color": "#ffffff"},
-                            "size": (
-                                f"$ex (function() {{ "
-                                f"const drives = (hass.states['{eff_30d_entity}']?.attributes?.recent_drives || []).filter(d => d.elevation_change_ft >= -100 && d.elevation_change_ft <= 100); "
-                                "const bins = ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+']; "
-                                "const sizes = []; "
-                                "drives.forEach(d => { "
-                                "  const sb = d.speed_bins || {}; "
-                                "  bins.forEach(b => { "
-                                "    const seg = sb[b]; "
-                                "    const sec = (typeof seg === 'object' && seg !== null) ? (seg.seconds || 0) : 0; "
-                                "    const mi = (typeof seg === 'object' && seg !== null) ? (seg.miles || 0) : (typeof seg === 'number' ? seg : 0); "
-                                "    if (sec >= 15 || mi >= 0.1) { "
-                                "      sizes.push(Math.max(6, Math.min(28, Math.round(6 + Math.sqrt(sec / 60) * 4)))); "
-                                "    } "
-                                "  }); "
-                                "}); "
-                                "return sizes; "
-                                "})()"
-                            ),
-                        },
-                        "hovertemplate": "<b>Flat Segment</b><br>Speed Range: %{x} mph<br>Trip Efficiency: %{y:.2f} mi/kWh<br>Time in Bin: %{customdata[0]} min (%{customdata[1]:.1f} mi)<br>Total Trip Distance: %{customdata[2]:.1f} mi<br>Elevation Δh: %{customdata[3]:+.0f} ft<extra></extra>",
-                        "x": (
-                            f"$ex (function() {{ "
-                            f"const drives = (hass.states['{eff_30d_entity}']?.attributes?.recent_drives || []).filter(d => d.elevation_change_ft >= -100 && d.elevation_change_ft <= 100); "
-                            "const bins = ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+']; "
-                            "const xs = []; "
-                            "drives.forEach(d => { "
-                            "  const sb = d.speed_bins || {}; "
-                            "  bins.forEach(b => { "
-                            "    const seg = sb[b]; "
-                            "    const sec = (typeof seg === 'object' && seg !== null) ? (seg.seconds || 0) : 0; "
-                            "    const mi = (typeof seg === 'object' && seg !== null) ? (seg.miles || 0) : (typeof seg === 'number' ? seg : 0); "
-                            "    if (sec >= 15 || mi >= 0.1) { "
-                            "      xs.push(b); "
-                            "    } "
-                            "  }); "
-                            "}); "
-                            "return xs; "
-                            "})()"
-                        ),
-                        "y": (
-                            f"$ex (function() {{ "
-                            f"const drives = (hass.states['{eff_30d_entity}']?.attributes?.recent_drives || []).filter(d => d.elevation_change_ft >= -100 && d.elevation_change_ft <= 100); "
-                            "const bins = ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+']; "
-                            "const ys = []; "
-                            "drives.forEach(d => { "
-                            "  const sb = d.speed_bins || {}; "
-                            "  bins.forEach(b => { "
-                            "    const seg = sb[b]; "
-                            "    const sec = (typeof seg === 'object' && seg !== null) ? (seg.seconds || 0) : 0; "
-                            "    const mi = (typeof seg === 'object' && seg !== null) ? (seg.miles || 0) : (typeof seg === 'number' ? seg : 0); "
-                            "    if (sec >= 15 || mi >= 0.1) { "
-                            "      ys.push(d.efficiency); "
-                            "    } "
-                            "  }); "
-                            "}); "
-                            "return ys; "
-                            "})()"
-                        ),
-                        "customdata": (
-                            f"$ex (function() {{ "
-                            f"const drives = (hass.states['{eff_30d_entity}']?.attributes?.recent_drives || []).filter(d => d.elevation_change_ft >= -100 && d.elevation_change_ft <= 100); "
-                            "const bins = ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+']; "
-                            "const cd = []; "
-                            "drives.forEach(d => { "
-                            "  const sb = d.speed_bins || {}; "
-                            "  bins.forEach(b => { "
-                            "    const seg = sb[b]; "
-                            "    const sec = (typeof seg === 'object' && seg !== null) ? (seg.seconds || 0) : 0; "
-                            "    const mi = (typeof seg === 'object' && seg !== null) ? (seg.miles || 0) : (typeof seg === 'number' ? seg : 0); "
-                            "    if (sec >= 15 || mi >= 0.1) { "
-                            "      cd.push([Math.round(sec / 60), mi, d.distance, d.elevation_change_ft]); "
-                            "    } "
-                            "  }); "
-                            "}); "
-                            "return cd; "
-                            "})()"
-                        ),
-                    },
-                    {
-                        "entity": "",
-                        "name": "Uphill (Δh > +100 ft)",
-                        "type": "scatter",
-                        "mode": "markers",
-                        "marker": {
-                            "color": "#FB8C00",
-                            "symbol": "circle",
-                            "opacity": 0.85,
-                            "line": {"width": 1, "color": "#ffffff"},
-                            "size": (
-                                f"$ex (function() {{ "
-                                f"const drives = (hass.states['{eff_30d_entity}']?.attributes?.recent_drives || []).filter(d => d.elevation_change_ft > 100); "
-                                "const bins = ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+']; "
-                                "const sizes = []; "
-                                "drives.forEach(d => { "
-                                "  const sb = d.speed_bins || {}; "
-                                "  bins.forEach(b => { "
-                                "    const seg = sb[b]; "
-                                "    const sec = (typeof seg === 'object' && seg !== null) ? (seg.seconds || 0) : 0; "
-                                "    const mi = (typeof seg === 'object' && seg !== null) ? (seg.miles || 0) : (typeof seg === 'number' ? seg : 0); "
-                                "    if (sec >= 15 || mi >= 0.1) { "
-                                "      sizes.push(Math.max(6, Math.min(28, Math.round(6 + Math.sqrt(sec / 60) * 4)))); "
-                                "    } "
-                                "  }); "
-                                "}); "
-                                "return sizes; "
-                                "})()"
-                            ),
-                        },
-                        "hovertemplate": "<b>Uphill Segment</b><br>Speed Range: %{x} mph<br>Trip Efficiency: %{y:.2f} mi/kWh<br>Time in Bin: %{customdata[0]} min (%{customdata[1]:.1f} mi)<br>Total Trip Distance: %{customdata[2]:.1f} mi<br>Elevation Δh: %{customdata[3]:+.0f} ft<extra></extra>",
-                        "x": (
-                            f"$ex (function() {{ "
-                            f"const drives = (hass.states['{eff_30d_entity}']?.attributes?.recent_drives || []).filter(d => d.elevation_change_ft > 100); "
-                            "const bins = ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+']; "
-                            "const xs = []; "
-                            "drives.forEach(d => { "
-                            "  const sb = d.speed_bins || {}; "
-                            "  bins.forEach(b => { "
-                            "    const seg = sb[b]; "
-                            "    const sec = (typeof seg === 'object' && seg !== null) ? (seg.seconds || 0) : 0; "
-                            "    const mi = (typeof seg === 'object' && seg !== null) ? (seg.miles || 0) : (typeof seg === 'number' ? seg : 0); "
-                            "    if (sec >= 15 || mi >= 0.1) { "
-                            "      xs.push(b); "
-                            "    } "
-                            "  }); "
-                            "}); "
-                            "return xs; "
-                            "})()"
-                        ),
-                        "y": (
-                            f"$ex (function() {{ "
-                            f"const drives = (hass.states['{eff_30d_entity}']?.attributes?.recent_drives || []).filter(d => d.elevation_change_ft > 100); "
-                            "const bins = ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+']; "
-                            "const ys = []; "
-                            "drives.forEach(d => { "
-                            "  const sb = d.speed_bins || {}; "
-                            "  bins.forEach(b => { "
-                            "    const seg = sb[b]; "
-                            "    const sec = (typeof seg === 'object' && seg !== null) ? (seg.seconds || 0) : 0; "
-                            "    const mi = (typeof seg === 'object' && seg !== null) ? (seg.miles || 0) : (typeof seg === 'number' ? seg : 0); "
-                            "    if (sec >= 15 || mi >= 0.1) { "
-                            "      ys.push(d.efficiency); "
-                            "    } "
-                            "  }); "
-                            "}); "
-                            "return ys; "
-                            "})()"
-                        ),
-                        "customdata": (
-                            f"$ex (function() {{ "
-                            f"const drives = (hass.states['{eff_30d_entity}']?.attributes?.recent_drives || []).filter(d => d.elevation_change_ft > 100); "
-                            "const bins = ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+']; "
-                            "const cd = []; "
-                            "drives.forEach(d => { "
-                            "  const sb = d.speed_bins || {}; "
-                            "  bins.forEach(b => { "
-                            "    const seg = sb[b]; "
-                            "    const sec = (typeof seg === 'object' && seg !== null) ? (seg.seconds || 0) : 0; "
-                            "    const mi = (typeof seg === 'object' && seg !== null) ? (seg.miles || 0) : (typeof seg === 'number' ? seg : 0); "
-                            "    if (sec >= 15 || mi >= 0.1) { "
-                            "      cd.push([Math.round(sec / 60), mi, d.distance, d.elevation_change_ft]); "
-                            "    } "
-                            "  }); "
-                            "}); "
-                            "return cd; "
-                            "})()"
-                        ),
-                    },
+                    }
                 ],
             },
             # Section 4: Detailed Statistics Grid
