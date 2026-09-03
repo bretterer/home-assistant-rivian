@@ -119,11 +119,15 @@ def _build_vehicle_analytics_view(
                 "layout": {
                     "xaxis": {
                         "title": "Ambient Route Temperature (°F)",
+                        "type": "linear",
+                        "autorange": True,
                         "gridcolor": "#444444",
                         "zeroline": False,
                     },
                     "yaxis": {
                         "title": "Efficiency (mi/kWh)",
+                        "type": "linear",
+                        "autorange": True,
                         "gridcolor": "#444444",
                         "zeroline": False,
                     },
@@ -133,8 +137,9 @@ def _build_vehicle_analytics_view(
                 "config": {"displayModeBar": False},
                 "entities": [
                     {
-                        "entity": eff_30d_entity,
+                        "entity": "",
                         "name": "Downhill (Δh < -100 ft)",
+                        "type": "scatter",
                         "mode": "markers",
                         "marker": {
                             "color": "#1E88E5",
@@ -145,7 +150,7 @@ def _build_vehicle_analytics_view(
                                 f"$ex (function() {{ "
                                 f"const drives = hass.states['{eff_30d_entity}']?.attributes?.recent_drives || []; "
                                 "return drives.filter(d => d.elevation_change_ft < -100).map(d => Math.max(8, Math.min(22, Math.round(d.distance * 1.8)))); "
-                                "})()"
+                                "}})()"
                             ),
                         },
                         "hovertemplate": "<b>Downhill Drive</b><br>Temperature: %{x}°F<br>Efficiency: %{y:.2f} mi/kWh<br>Elevation: &lt; -100 ft<extra></extra>",
@@ -163,8 +168,9 @@ def _build_vehicle_analytics_view(
                         ),
                     },
                     {
-                        "entity": eff_30d_entity,
+                        "entity": "",
                         "name": "Flat (-100 to +100 ft)",
+                        "type": "scatter",
                         "mode": "markers",
                         "marker": {
                             "color": "#43A047",
@@ -175,7 +181,7 @@ def _build_vehicle_analytics_view(
                                 f"$ex (function() {{ "
                                 f"const drives = hass.states['{eff_30d_entity}']?.attributes?.recent_drives || []; "
                                 "return drives.filter(d => d.elevation_change_ft >= -100 && d.elevation_change_ft <= 100).map(d => Math.max(8, Math.min(22, Math.round(d.distance * 1.8)))); "
-                                "})()"
+                                "}})()"
                             ),
                         },
                         "hovertemplate": "<b>Flat Drive</b><br>Temperature: %{x}°F<br>Efficiency: %{y:.2f} mi/kWh<br>Elevation: ±100 ft<extra></extra>",
@@ -193,8 +199,9 @@ def _build_vehicle_analytics_view(
                         ),
                     },
                     {
-                        "entity": eff_30d_entity,
+                        "entity": "",
                         "name": "Uphill (Δh > +100 ft)",
+                        "type": "scatter",
                         "mode": "markers",
                         "marker": {
                             "color": "#FB8C00",
@@ -205,7 +212,7 @@ def _build_vehicle_analytics_view(
                                 f"$ex (function() {{ "
                                 f"const drives = hass.states['{eff_30d_entity}']?.attributes?.recent_drives || []; "
                                 "return drives.filter(d => d.elevation_change_ft > 100).map(d => Math.max(8, Math.min(22, Math.round(d.distance * 1.8)))); "
-                                "})()"
+                                "}})()"
                             ),
                         },
                         "hovertemplate": "<b>Uphill Drive</b><br>Temperature: %{x}°F<br>Efficiency: %{y:.2f} mi/kWh<br>Elevation: &gt; +100 ft<extra></extra>",
@@ -236,13 +243,19 @@ def _build_vehicle_analytics_view(
                         "tickmode": "array",
                         "tickvals": ["0-9", "10-19", "20-29", "30-39", "40-49", "50-59", "60-69", "70-79", "80+"],
                     },
-                    "yaxis": {"title": "Total Miles", "gridcolor": "#444444", "zeroline": False},
+                    "yaxis": {
+                        "title": "Total Miles",
+                        "type": "linear",
+                        "autorange": True,
+                        "gridcolor": "#444444",
+                        "zeroline": False,
+                    },
                     "margin": {"l": 50, "r": 20, "t": 40, "b": 50},
                 },
                 "config": {"displayModeBar": False},
                 "entities": [
                     {
-                        "entity": last_eff_entity,
+                        "entity": "",
                         "name": "Miles in Speed Bin",
                         "type": "bar",
                         "marker": {"color": "#26A69A", "line": {"width": 1, "color": "#ffffff"}},
