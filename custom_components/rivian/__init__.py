@@ -135,23 +135,27 @@ async def _async_register_frontend(hass: HomeAssistant) -> None:
         store = Store(hass, 1, "lovelace_resources")
         data = await store.async_load() or {"items": []}
         items = data.get("items", [])
-        urls = [x.get("url", "") for x in items]
         changed = False
 
-        if plotly_js.is_file() and not any(f"{static_url}/plotly-graph-card.js" in u for u in urls):
-            items.append({
-                "id": uuid.uuid4().hex,
-                "url": f"{static_url}/plotly-graph-card.js",
-                "type": "module",
-            })
+        plotly_url = f"{static_url}/plotly-graph-card.js?v={VERSION}"
+        mushroom_url = f"{static_url}/mushroom.js?v={VERSION}"
+
+        existing_plotly = next((x for x in items if f"{static_url}/plotly-graph-card.js" in x.get("url", "")), None)
+        if existing_plotly:
+            if existing_plotly.get("url") != plotly_url:
+                existing_plotly["url"] = plotly_url
+                changed = True
+        elif plotly_js.is_file():
+            items.append({"id": uuid.uuid4().hex, "url": plotly_url, "type": "module"})
             changed = True
 
-        if mushroom_js.is_file() and not any(f"{static_url}/mushroom.js" in u for u in urls):
-            items.append({
-                "id": uuid.uuid4().hex,
-                "url": f"{static_url}/mushroom.js",
-                "type": "module",
-            })
+        existing_mushroom = next((x for x in items if f"{static_url}/mushroom.js" in x.get("url", "")), None)
+        if existing_mushroom:
+            if existing_mushroom.get("url") != mushroom_url:
+                existing_mushroom["url"] = mushroom_url
+                changed = True
+        elif mushroom_js.is_file():
+            items.append({"id": uuid.uuid4().hex, "url": mushroom_url, "type": "module"})
             changed = True
 
         if changed:
