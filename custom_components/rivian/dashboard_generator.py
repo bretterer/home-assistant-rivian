@@ -397,7 +397,7 @@ def _build_vehicle_analytics_view(
                                 f"const order = ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+']; "
                                 f"const segs = (hass.states['{eff_30d_entity}']?.attributes?.recent_segments || []).filter(s => s.elevation_change_ft < 0).sort((a, b) => order.indexOf(a.speed_bin) - order.indexOf(b.speed_bin)); "
                                 "return segs.map(s => s.temp_f || 70); "
-                                "}})()"
+                                "})()"
                             ),
                         },
                         "hovertemplate": "<b>Downhill Segment (o)</b><br>Speed Range: %{x} mph<br>Efficiency: %{y:.2f} mi/kWh<br>Temp: %{customdata[4]:.1f}°F<br>Avg Speed: %{customdata[0]:.1f} mph<br>Distance: %{customdata[1]:.2f} mi (%{customdata[2]:.0f}s)<br>Elevation Δh: %{customdata[3]:+.0f} ft<extra></extra>",
@@ -406,21 +406,21 @@ def _build_vehicle_analytics_view(
                             f"const order = ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+']; "
                             f"const segs = (hass.states['{eff_30d_entity}']?.attributes?.recent_segments || []).filter(s => s.elevation_change_ft < 0).sort((a, b) => order.indexOf(a.speed_bin) - order.indexOf(b.speed_bin)); "
                             "return segs.map(s => s.speed_bin); "
-                            "}})()"
+                            "})()"
                         ),
                         "y": (
                             f"$ex (function() {{ "
                             f"const order = ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+']; "
                             f"const segs = (hass.states['{eff_30d_entity}']?.attributes?.recent_segments || []).filter(s => s.elevation_change_ft < 0).sort((a, b) => order.indexOf(a.speed_bin) - order.indexOf(b.speed_bin)); "
                             "return segs.map(s => s.efficiency_mi_kwh); "
-                            "}})()"
+                            "})()"
                         ),
                         "customdata": (
                             f"$ex (function() {{ "
                             f"const order = ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+']; "
                             f"const segs = (hass.states['{eff_30d_entity}']?.attributes?.recent_segments || []).filter(s => s.elevation_change_ft < 0).sort((a, b) => order.indexOf(a.speed_bin) - order.indexOf(b.speed_bin)); "
                             "return segs.map(s => [s.avg_speed_mph, s.distance_miles, s.duration_seconds, s.elevation_change_ft, s.temp_f || 70]); "
-                            "}})()"
+                            "})()"
                         ),
                     },
                     {
@@ -440,7 +440,7 @@ def _build_vehicle_analytics_view(
                                 f"const order = ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+']; "
                                 f"const segs = (hass.states['{eff_30d_entity}']?.attributes?.recent_segments || []).filter(s => s.elevation_change_ft >= 0).sort((a, b) => order.indexOf(a.speed_bin) - order.indexOf(b.speed_bin)); "
                                 "return segs.map(s => s.temp_f || 70); "
-                                "}})()"
+                                "})()"
                             ),
                         },
                         "hovertemplate": "<b>Uphill Segment (+)</b><br>Speed Range: %{x} mph<br>Efficiency: %{y:.2f} mi/kWh<br>Temp: %{customdata[4]:.1f}°F<br>Avg Speed: %{customdata[0]:.1f} mph<br>Distance: %{customdata[1]:.2f} mi (%{customdata[2]:.0f}s)<br>Elevation Δh: %{customdata[3]:+.0f} ft<extra></extra>",
@@ -449,21 +449,21 @@ def _build_vehicle_analytics_view(
                             f"const order = ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+']; "
                             f"const segs = (hass.states['{eff_30d_entity}']?.attributes?.recent_segments || []).filter(s => s.elevation_change_ft >= 0).sort((a, b) => order.indexOf(a.speed_bin) - order.indexOf(b.speed_bin)); "
                             "return segs.map(s => s.speed_bin); "
-                            "}})()"
+                            "})()"
                         ),
                         "y": (
                             f"$ex (function() {{ "
                             f"const order = ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+']; "
                             f"const segs = (hass.states['{eff_30d_entity}']?.attributes?.recent_segments || []).filter(s => s.elevation_change_ft >= 0).sort((a, b) => order.indexOf(a.speed_bin) - order.indexOf(b.speed_bin)); "
                             "return segs.map(s => s.efficiency_mi_kwh); "
-                            "}})()"
+                            "})()"
                         ),
                         "customdata": (
                             f"$ex (function() {{ "
                             f"const order = ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+']; "
                             f"const segs = (hass.states['{eff_30d_entity}']?.attributes?.recent_segments || []).filter(s => s.elevation_change_ft >= 0).sort((a, b) => order.indexOf(a.speed_bin) - order.indexOf(b.speed_bin)); "
                             "return segs.map(s => [s.avg_speed_mph, s.distance_miles, s.duration_seconds, s.elevation_change_ft, s.temp_f || 70]); "
-                            "}})()"
+                            "})()"
                         ),
                     },
                 ],
