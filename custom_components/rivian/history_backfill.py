@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
+import json
 import logging
 import os
 import sqlite3
@@ -175,6 +176,14 @@ def resolve_recorder_entities(
     if lon_id is not None:
         resolved["longitude"] = lon_id
 
+    tracker_id = (
+        find_entity_id(["device_tracker"])
+        or find_entity_id(["location"])
+        or find_entity_id(["tracker"])
+    )
+    if tracker_id is not None:
+        resolved["device_tracker"] = tracker_id
+
     cap_id = find_entity_id(["battery_capacity"])
     if cap_id is not None:
         resolved["battery_capacity"] = cap_id
@@ -229,6 +238,87 @@ def _extract_timeseries(
             continue
 
     return records
+
+
+def _extract_coordinates_series(
+    conn: sqlite3.Connection,
+    tracker_id: int,
+    start_ts: float | None = None,
+) -> tuple[list[tuple[float, float]], list[tuple[float, float]]]:
+    """Extract ordered (ts, lat) and (ts, lon) from device_tracker states."""
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA table_info(states)")
+    columns = [row["name"] for row in cursor.fetchall()]
+    ts_col = "last_updated_ts" if "last_updated_ts" in columns else "last_updated"
+
+    cursor.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='state_attributes'"
+    )
+    has_attributes_table = cursor.fetchone() is not None
+
+    lat_series: list[tuple[float, float]] = []
+    lon_series: list[tuple[float, float]] = []
+
+    if has_attributes_table:
+        query = (
+            f"SELECT s.{ts_col}, a.shared_attrs FROM states s "
+            f"LEFT JOIN state_attributes a ON s.attributes_id = a.attributes_id "
+            f"WHERE s.metadata_id = ? "
+        )
+        params: list[Any] = [tracker_id]
+        if start_ts is not None:
+            query += f"AND s.{ts_col} >= ? "
+            params.append(start_ts)
+        query += f"ORDER BY s.{ts_col} ASC"
+        cursor.execute(query, params)
+        for row in cursor.fetchall():
+            raw_ts = row[ts_col]
+            attrs_str = row["shared_attrs"]
+            if not attrs_str:
+                continue
+            try:
+                if isinstance(raw_ts, (int, float)):
+                    ts_val = float(raw_ts)
+                else:
+                    dt = datetime.fromisoformat(str(raw_ts).replace("Z", "+00:00"))
+                    ts_val = dt.timestamp()
+                attrs = json.loads(attrs_str)
+                lat = attrs.get("latitude")
+                lon = attrs.get("longitude")
+                if lat is not None and lon is not None:
+                    lat_series.append((ts_val, float(lat)))
+                    lon_series.append((ts_val, float(lon)))
+            except (ValueError, TypeError, json.JSONDecodeError):
+                continue
+    elif "attributes" in columns:
+        query = f"SELECT {ts_col}, attributes FROM states WHERE metadata_id = ? "
+        params = [tracker_id]
+        if start_ts is not None:
+            query += f"AND {ts_col} >= ? "
+            params.append(start_ts)
+        query += f"ORDER BY {ts_col} ASC"
+        cursor.execute(query, params)
+        for row in cursor.fetchall():
+            raw_ts = row[ts_col]
+            attrs_str = row["attributes"]
+            if not attrs_str:
+                continue
+            try:
+                if isinstance(raw_ts, (int, float)):
+                    ts_val = float(raw_ts)
+                else:
+                    dt = datetime.fromisoformat(str(raw_ts).replace("Z", "+00:00"))
+                    ts_val = dt.timestamp()
+                attrs = json.loads(attrs_str)
+                lat = attrs.get("latitude")
+                lon = attrs.get("longitude")
+                if lat is not None and lon is not None:
+                    lat_series.append((ts_val, float(lat)))
+                    lon_series.append((ts_val, float(lon)))
+            except (ValueError, TypeError, json.JSONDecodeError):
+                continue
+
+    return lat_series, lon_series
 
 
 def _get_value_at_ts(
@@ -323,6 +413,14 @@ def reconstruct_drives_from_sqlite(
         alt_series = load_numeric_series("altitude")
         lat_series = load_numeric_series("latitude")
         lon_series = load_numeric_series("longitude")
+
+        if (not lat_series or not lon_series) and "device_tracker" in entities:
+            trk_lat, trk_lon = _extract_coordinates_series(
+                conn, entities["device_tracker"], start_ts=cutoff_ts
+            )
+            if trk_lat and trk_lon:
+                lat_series = trk_lat
+                lon_series = trk_lon
 
         # Determine battery capacity
         pack_capacity = battery_capacity or DEFAULT_BATTERY_CAPACITY_KWH
@@ -553,6 +651,15 @@ async def async_backfill_from_recorder(
         )
 
     # Weather Enrichment (Open-Meteo Historical Archive API - batched by grid and date range)
+    default_lat = getattr(getattr(hass, "config", None), "latitude", None)
+    default_lon = getattr(getattr(hass, "config", None), "longitude", None)
+
+    for d in drives:
+        if d.start_lat is None and default_lat is not None:
+            d.start_lat = float(default_lat)
+        if d.start_lon is None and default_lon is not None:
+            d.start_lon = float(default_lon)
+
     client = weather_client or OpenMeteoWeatherClient(hass=hass)
     drives_needing_weather = [
         d
