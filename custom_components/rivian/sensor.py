@@ -606,11 +606,21 @@ class RivianDriveSensorEntity(RivianVehicleEntity, SensorEntity):
                 if key == "efficiency_30d"
                 else self._store.get_stats_all_time()
             )
+            stats_90d = self._store.get_stats_90d()
+            stats_365d = self._store.get_stats_365d()
             valid_drives = [
                 drive
                 for drive in self._store.drives
                 if not drive.is_micro_drive and drive.distance_miles >= 0.5
             ]
+
+            # 90 interactive days by default for dashboard graphs
+            interactive_drives = self._store.get_drives_for_period(days=90)
+            if len(interactive_drives) < 50:
+                interactive_drives = valid_drives[-50:]
+            elif len(interactive_drives) > 500:
+                interactive_drives = interactive_drives[-500:]
+
             recent_drives = [
                 {
                     "start_time": d.start_time,
@@ -647,11 +657,11 @@ class RivianDriveSensorEntity(RivianVehicleEntity, SensorEntity):
                         else {}
                     ),
                 }
-                for d in valid_drives[-50:]
+                for d in interactive_drives
             ]
 
             recent_segments = []
-            for d in valid_drives:
+            for d in interactive_drives:
                 if d.segments:
                     for s in d.segments:
                         s_dict = s.to_dict() if hasattr(s, "to_dict") else dict(s)
@@ -670,15 +680,23 @@ class RivianDriveSensorEntity(RivianVehicleEntity, SensorEntity):
                 "total_duration_seconds": stats.total_duration_seconds,
                 "avg_distance_miles": stats.avg_distance_miles,
                 "total_micro_drives": stats.total_micro_drives,
+                "stats_90d": stats_90d.to_dict(),
+                "stats_365d": stats_365d.to_dict(),
                 "recent_drives": recent_drives,
             }
             if recent_segments:
-                attrs["recent_segments"] = recent_segments[-300:]
+                attrs["recent_segments"] = recent_segments[-1500:]
 
             vampire_events = self._store.vampire_events
-            if vampire_events:
+            interactive_vampire = self._store.get_vampire_events_for_period(days=90)
+            if len(interactive_vampire) < 50 and vampire_events:
+                interactive_vampire = vampire_events[-50:]
+            elif len(interactive_vampire) > 250:
+                interactive_vampire = interactive_vampire[-250:]
+
+            if interactive_vampire:
                 attrs["recent_vampire_events"] = [
-                    v.to_dict() for v in vampire_events[-50:]
+                    v.to_dict() for v in interactive_vampire
                 ]
 
             return attrs
@@ -714,6 +732,8 @@ class RivianDriveSensorEntity(RivianVehicleEntity, SensorEntity):
                 "total_kwh": stats.total_kwh,
                 "drive_count": stats.drive_count,
                 "efficiency_mi_kwh": stats.efficiency_mi_kwh,
+                "stats_90d": self._store.get_stats_90d().to_dict(),
+                "stats_365d": self._store.get_stats_365d().to_dict(),
             }
 
         if key == "drive_status":

@@ -83,6 +83,28 @@ def _build_vehicle_analytics_view(
                             },
                             {
                                 "type": "template",
+                                "icon": "mdi:calendar-range",
+                                "icon_color": "cyan",
+                                "content": (
+                                    f"90-Day: {{{{ state_attr('{eff_30d_entity}', 'stats_90d')?.efficiency_mi_kwh | default(states('{eff_30d_entity}'), true) }}}} mi/kWh "
+                                    f"({{{{ state_attr('{eff_30d_entity}', 'stats_90d')?.mpge | default(states('{mpge_30d_entity}'), true) }}}} MPGe)"
+                                ),
+                                "entity": eff_30d_entity,
+                                "tap_action": {"action": "more-info", "entity": eff_30d_entity},
+                            },
+                            {
+                                "type": "template",
+                                "icon": "mdi:calendar-star",
+                                "icon_color": "amber",
+                                "content": (
+                                    f"365-Day: {{{{ state_attr('{eff_30d_entity}', 'stats_365d')?.efficiency_mi_kwh | default(states('{eff_all_entity}'), true) }}}} mi/kWh "
+                                    f"({{{{ state_attr('{eff_30d_entity}', 'stats_365d')?.mpge | default(states('{mpge_all_entity}'), true) }}}} MPGe)"
+                                ),
+                                "entity": eff_30d_entity,
+                                "tap_action": {"action": "more-info", "entity": eff_30d_entity},
+                            },
+                            {
+                                "type": "template",
                                 "icon": "mdi:all-inclusive",
                                 "icon_color": "purple",
                                 "content": (

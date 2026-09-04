@@ -578,3 +578,112 @@ class TestDriveStore:
         await new_store.async_reset()
         assert new_store.vampire_events == []
 
+    @pytest.mark.asyncio
+    async def test_multi_period_stats_and_retention_pruning(
+        self, mock_hass: Any
+    ) -> None:
+        """Test 30d, 90d, 365d stats calculations, period filtering, and 365-day retention pruning."""
+        store = DriveStore(mock_hass, TEST_VIN)
+        ref_time = datetime(2026, 9, 1, 12, 0, 0, tzinfo=timezone.utc)
+
+        # Drive 1: 10 days ago (within 30d, 90d, 365d)
+        d1 = _create_sample_drive(
+            drive_id="d1",
+            distance_miles=10.0,
+            energy_kwh=4.0,  # 2.5 mi/kWh
+            start_time="2026-08-22T12:00:00Z",
+            end_time="2026-08-22T12:30:00Z",
+        )
+        # Drive 2: 60 days ago (outside 30d, within 90d, 365d)
+        d2 = _create_sample_drive(
+            drive_id="d2",
+            distance_miles=20.0,
+            energy_kwh=5.0,  # 4.0 mi/kWh
+            start_time="2026-07-03T12:00:00Z",
+            end_time="2026-07-03T12:30:00Z",
+        )
+        # Drive 3: 200 days ago (outside 90d, within 365d)
+        d3 = _create_sample_drive(
+            drive_id="d3",
+            distance_miles=30.0,
+            energy_kwh=10.0,  # 3.0 mi/kWh
+            start_time="2026-02-13T12:00:00Z",
+            end_time="2026-02-13T12:30:00Z",
+        )
+        # Drive 4: 400 days ago (outside 365d)
+        d4 = _create_sample_drive(
+            drive_id="d4",
+            distance_miles=40.0,
+            energy_kwh=10.0,
+            start_time="2025-07-28T12:00:00Z",
+            end_time="2025-07-28T12:30:00Z",
+        )
+
+        await store.async_save_drives_batch([d1, d2, d3, d4])
+
+        # Test stats for periods
+        s30 = store.get_stats_30d(reference_time=ref_time)
+        assert s30.drive_count == 1
+        assert s30.total_miles == 10.0
+        assert s30.efficiency_mi_kwh == 2.5
+
+        s90 = store.get_stats_90d(reference_time=ref_time)
+        assert s90.drive_count == 2
+        assert s90.total_miles == 30.0
+        assert s90.efficiency_mi_kwh == round(30.0 / 9.0, 2)  # 3.33
+
+        s365 = store.get_stats_365d(reference_time=ref_time)
+        assert s365.drive_count == 3
+        assert s365.total_miles == 60.0
+        assert s365.efficiency_mi_kwh == round(60.0 / 19.0, 2)  # 3.16
+
+        s_all = store.get_stats_all_time()
+        assert s_all.drive_count == 4
+        assert s_all.total_miles == 100.0
+
+        # Test period filtering
+        drives_90 = store.get_drives_for_period(days=90, reference_time=ref_time)
+        assert len(drives_90) == 2
+        assert {d.drive_id for d in drives_90} == {"d1", "d2"}
+
+        drives_365 = store.get_drives_for_period(days=365, reference_time=ref_time)
+        assert len(drives_365) == 3
+        assert {d.drive_id for d in drives_365} == {"d1", "d2", "d3"}
+
+        # Test vampire events period filtering
+        v1 = VampireDrainRecord(
+            start_time="2026-08-20T12:00:00Z",
+            end_time="2026-08-21T12:00:00Z",
+            idle_hours=24.0,
+            start_soc=80.0,
+            end_soc=78.0,
+            drain_soc=2.0,
+            drain_kwh=2.7,
+            rate_pct_per_day=2.0,
+            avg_watts=112.5,
+        )
+        v2 = VampireDrainRecord(
+            start_time="2025-06-01T12:00:00Z",
+            end_time="2025-06-02T12:00:00Z",
+            idle_hours=24.0,
+            start_soc=80.0,
+            end_soc=78.0,
+            drain_soc=2.0,
+            drain_kwh=2.7,
+            rate_pct_per_day=2.0,
+            avg_watts=112.5,
+        )
+        await store.async_save_vampire_events([v1, v2])
+
+        v_90 = store.get_vampire_events_for_period(days=90, reference_time=ref_time)
+        assert len(v_90) == 1
+        assert v_90[0].start_time == "2026-08-20T12:00:00Z"
+
+        # Test pruning older than 365 days
+        pruned_count = store.prune_older_than(days=365, reference_time=ref_time)
+        assert pruned_count == 2  # 1 drive (d4) + 1 vampire (v2)
+        assert len(store.drives) == 3
+        assert len(store.vampire_events) == 1
+        assert "d4" not in [d.drive_id for d in store.drives]
+
+

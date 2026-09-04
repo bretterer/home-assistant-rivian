@@ -189,16 +189,16 @@ class DriveStore:
         )
         return new_drives_count
 
-    def get_stats_30d(
-        self, reference_time: datetime | None = None
+    def get_stats_period(
+        self, days: int, reference_time: datetime | None = None
     ) -> AggregatedDriveStats:
-        """Calculate rolling 30-day weighted efficiency stats across non-micro drives."""
+        """Calculate rolling N-day weighted efficiency stats across non-micro drives."""
         if reference_time is None:
             reference_time = datetime.now(timezone.utc)
         elif reference_time.tzinfo is None:
             reference_time = reference_time.replace(tzinfo=timezone.utc)
 
-        cutoff_time = reference_time - timedelta(days=30)
+        cutoff_time = reference_time - timedelta(days=days)
 
         valid_drives: list[DriveRecord] = []
         for drive in self._drives:
@@ -216,6 +216,98 @@ class DriveStore:
                 valid_drives.append(drive)
 
         return self._calculate_aggregated_stats(valid_drives)
+
+    def get_stats_30d(
+        self, reference_time: datetime | None = None
+    ) -> AggregatedDriveStats:
+        """Calculate rolling 30-day weighted efficiency stats across non-micro drives."""
+        return self.get_stats_period(30, reference_time)
+
+    def get_stats_90d(
+        self, reference_time: datetime | None = None
+    ) -> AggregatedDriveStats:
+        """Calculate rolling 90-day weighted efficiency stats across non-micro drives."""
+        return self.get_stats_period(90, reference_time)
+
+    def get_stats_365d(
+        self, reference_time: datetime | None = None
+    ) -> AggregatedDriveStats:
+        """Calculate rolling 365-day weighted efficiency stats across non-micro drives."""
+        return self.get_stats_period(365, reference_time)
+
+    def get_drives_for_period(
+        self, days: int = 90, reference_time: datetime | None = None
+    ) -> list[DriveRecord]:
+        """Get non-micro drives within a given rolling day period."""
+        if reference_time is None:
+            reference_time = datetime.now(timezone.utc)
+        elif reference_time.tzinfo is None:
+            reference_time = reference_time.replace(tzinfo=timezone.utc)
+
+        cutoff_time = reference_time - timedelta(days=days)
+        result: list[DriveRecord] = []
+        for drive in self._drives:
+            if (
+                drive.is_micro_drive
+                or drive.distance_miles < MICRO_DRIVE_THRESHOLD_MILES
+            ):
+                continue
+            drive_dt = _parse_iso_timestamp(drive.start_time)
+            if drive_dt is None:
+                drive_dt = _parse_iso_timestamp(drive.end_time)
+            if drive_dt is not None and cutoff_time <= drive_dt <= reference_time:
+                result.append(drive)
+        return result
+
+    def get_vampire_events_for_period(
+        self, days: int = 90, reference_time: datetime | None = None
+    ) -> list[VampireDrainRecord]:
+        """Get vampire drain events within a given rolling day period."""
+        if reference_time is None:
+            reference_time = datetime.now(timezone.utc)
+        elif reference_time.tzinfo is None:
+            reference_time = reference_time.replace(tzinfo=timezone.utc)
+
+        cutoff_time = reference_time - timedelta(days=days)
+        result: list[VampireDrainRecord] = []
+        for event in self._vampire_events:
+            event_dt = _parse_iso_timestamp(event.start_time)
+            if event_dt is None:
+                event_dt = _parse_iso_timestamp(event.end_time)
+            if event_dt is not None and cutoff_time <= event_dt <= reference_time:
+                result.append(event)
+        return result
+
+    def prune_older_than(
+        self, days: int = 365, reference_time: datetime | None = None
+    ) -> int:
+        """Prune drives and vampire events older than retention period (default 365 days)."""
+        if reference_time is None:
+            reference_time = datetime.now(timezone.utc)
+        elif reference_time.tzinfo is None:
+            reference_time = reference_time.replace(tzinfo=timezone.utc)
+
+        cutoff_time = reference_time - timedelta(days=days)
+        initial_count = len(self._drives) + len(self._vampire_events)
+
+        pruned_drives = []
+        for d in self._drives:
+            dt = _parse_iso_timestamp(d.end_time) or _parse_iso_timestamp(d.start_time)
+            if dt is None or dt >= cutoff_time:
+                pruned_drives.append(d)
+
+        pruned_vampire = []
+        for v in self._vampire_events:
+            dt = _parse_iso_timestamp(v.end_time) or _parse_iso_timestamp(v.start_time)
+            if dt is None or dt >= cutoff_time:
+                pruned_vampire.append(v)
+
+        self._drives = pruned_drives
+        self._drives_by_id = {d.drive_id: d for d in self._drives}
+        self._vampire_events = pruned_vampire
+
+        final_count = len(self._drives) + len(self._vampire_events)
+        return initial_count - final_count
 
     def get_stats_all_time(self) -> AggregatedDriveStats:
         """Calculate all-time weighted efficiency stats across non-micro drives."""
@@ -288,6 +380,8 @@ class DriveStore:
     async def _async_persist(self) -> None:
         """Persist current drive records and summary to disk atomically."""
         stats_all = self.get_stats_all_time()
+        stats_90 = self.get_stats_90d()
+        stats_365 = self.get_stats_365d()
         micro_count = sum(
             1
             for d in self._drives
@@ -304,6 +398,8 @@ class DriveStore:
                 "all_time_mpge": stats_all.mpge,
                 "total_valid_drives": stats_all.drive_count,
                 "total_micro_drives": micro_count,
+                "stats_90d": stats_90.to_dict(),
+                "stats_365d": stats_365.to_dict(),
             },
             "drives": [d.to_dict() for d in self._drives],
             "vampire_events": [v.to_dict() for v in self._vampire_events],

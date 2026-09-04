@@ -565,6 +565,10 @@ class TestDriveSensorEntities:
         assert eff_30d_attrs["total_miles"] == 20.0
         assert eff_30d_attrs["total_kwh"] == 6.0
         assert eff_30d_attrs["mpge"] == 112.35
+        assert "stats_90d" in eff_30d_attrs
+        assert "stats_365d" in eff_30d_attrs
+        assert eff_30d_attrs["stats_90d"]["total_miles"] == 20.0
+        assert eff_30d_attrs["stats_365d"]["total_miles"] == 20.0
         assert "recent_vampire_events" in eff_30d_attrs
         assert len(eff_30d_attrs["recent_vampire_events"]) == 1
         assert eff_30d_attrs["recent_vampire_events"][0]["idle_hours"] == 4.5

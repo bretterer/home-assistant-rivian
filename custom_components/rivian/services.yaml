@@ -10,9 +10,9 @@ backfill_drive_history:
         text:
     days:
       name: Days
-      description: Number of past days of history to backfill (defaults to all available history).
-      example: 10
-      default: 10
+      description: Number of past days of history to backfill (defaults to 365 days).
+      example: 365
+      default: 365
       selector:
         number:
           min: 1
