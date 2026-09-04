@@ -19,7 +19,7 @@ def test_build_vehicle_analytics_view() -> None:
     view = _build_vehicle_analytics_view("Reggie", "sensor.rivian_r1s_reggie_")
     assert view["title"] == "Reggie Efficiency"
     assert view["path"] == "reggie"
-    assert len(view["cards"]) == 5
+    assert len(view["cards"]) == 6
 
     # Check Mushroom Card
     hero_card = view["cards"][0]
@@ -38,14 +38,24 @@ def test_build_vehicle_analytics_view() -> None:
     assert scatter_card["entities"][1]["name"] == "Flat (-100 to +100 ft)"
     assert scatter_card["entities"][2]["name"] == "Uphill (Δh > +100 ft)"
 
+    # Check Distance vs Efficiency Scatterplot Card
+    dist_eff_card = view["cards"][2]
+    assert dist_eff_card["type"] == "custom:plotly-graph"
+    assert dist_eff_card["title"] == "Drive Distance vs. Efficiency"
+    assert len(dist_eff_card["entities"]) == 3
+    assert dist_eff_card["entities"][0]["name"] == "Downhill (Δh < -100 ft)"
+    assert dist_eff_card["entities"][0]["type"] == "scatter"
+    assert dist_eff_card["entities"][1]["name"] == "Flat (-100 to +100 ft)"
+    assert dist_eff_card["entities"][2]["name"] == "Uphill (Δh > +100 ft)"
+
     # Check Speed Bin Card
-    speed_card = view["cards"][2]
+    speed_card = view["cards"][3]
     assert speed_card["type"] == "custom:plotly-graph"
     assert speed_card["entities"][0]["type"] == "bar"
     assert speed_card["entities"][0]["entity"] == ""
 
     # Check Speed Range vs Trip Efficiency Box Plot Card
-    speed_eff_card = view["cards"][3]
+    speed_eff_card = view["cards"][4]
     assert speed_eff_card["type"] == "custom:plotly-graph"
     assert len(speed_eff_card["entities"]) == 2
     assert speed_eff_card["entities"][0]["type"] == "box"

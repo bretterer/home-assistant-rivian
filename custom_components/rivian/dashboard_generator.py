@@ -249,7 +249,130 @@ def _build_vehicle_analytics_view(
                     },
                 ],
             },
-            # Section 3: Speed Bin Distribution Bar Chart (Total Miles per 10 mph Bin)
+            # Section 3: Drive Distance vs. Efficiency Scatterplot (Full Drives)
+            {
+                "type": "custom:plotly-graph",
+                "raw_plotly_config": True,
+                "title": "Drive Distance vs. Efficiency",
+                "layout": {
+                    "xaxis": {
+                        "title": "Drive Distance (miles)",
+                        "type": "linear",
+                        "autorange": True,
+                        "gridcolor": "#444444",
+                        "zeroline": False,
+                    },
+                    "yaxis": {
+                        "title": "Efficiency (mi/kWh)",
+                        "type": "linear",
+                        "autorange": True,
+                        "gridcolor": "#444444",
+                        "zeroline": False,
+                    },
+                    "legend": {"orientation": "h", "y": -0.25, "x": 0.05},
+                    "margin": {"l": 50, "r": 20, "t": 40, "b": 60},
+                },
+                "config": {"displayModeBar": False},
+                "entities": [
+                    {
+                        "entity": "",
+                        "name": "Downhill (Δh < -100 ft)",
+                        "type": "scatter",
+                        "mode": "markers",
+                        "marker": {
+                            "color": "#1E88E5",
+                            "symbol": "circle",
+                            "size": 8,
+                            "opacity": 0.85,
+                            "line": {"width": 1, "color": "#ffffff"},
+                        },
+                        "customdata": (
+                            f"$ex (function() {{ "
+                            f"const drives = hass.states['{eff_30d_entity}']?.attributes?.recent_drives || []; "
+                            "return drives.filter(d => d.elevation_change_ft < -100).map(d => [d.temp_f ?? 70, d.elevation_change_ft]); "
+                            "})()"
+                        ),
+                        "hovertemplate": "<b>Downhill Drive (o)</b><br>Distance: %{x:.2f} mi<br>Efficiency: %{y:.2f} mi/kWh<br>Temp: %{customdata[0]:.1f}°F<br>Elevation Δh: %{customdata[1]:+.0f} ft<extra></extra>",
+                        "x": (
+                            f"$ex (function() {{ "
+                            f"const drives = hass.states['{eff_30d_entity}']?.attributes?.recent_drives || []; "
+                            "return drives.filter(d => d.elevation_change_ft < -100).map(d => d.distance); "
+                            "})()"
+                        ),
+                        "y": (
+                            f"$ex (function() {{ "
+                            f"const drives = hass.states['{eff_30d_entity}']?.attributes?.recent_drives || []; "
+                            "return drives.filter(d => d.elevation_change_ft < -100).map(d => d.efficiency); "
+                            "})()"
+                        ),
+                    },
+                    {
+                        "entity": "",
+                        "name": "Flat (-100 to +100 ft)",
+                        "type": "scatter",
+                        "mode": "markers",
+                        "marker": {
+                            "color": "#43A047",
+                            "symbol": "circle",
+                            "size": 8,
+                            "opacity": 0.85,
+                            "line": {"width": 1, "color": "#ffffff"},
+                        },
+                        "customdata": (
+                            f"$ex (function() {{ "
+                            f"const drives = hass.states['{eff_30d_entity}']?.attributes?.recent_drives || []; "
+                            "return drives.filter(d => d.elevation_change_ft >= -100 && d.elevation_change_ft <= 100).map(d => [d.temp_f ?? 70, d.elevation_change_ft]); "
+                            "})()"
+                        ),
+                        "hovertemplate": "<b>Flat Drive</b><br>Distance: %{x:.2f} mi<br>Efficiency: %{y:.2f} mi/kWh<br>Temp: %{customdata[0]:.1f}°F<br>Elevation Δh: %{customdata[1]:+.0f} ft<extra></extra>",
+                        "x": (
+                            f"$ex (function() {{ "
+                            f"const drives = hass.states['{eff_30d_entity}']?.attributes?.recent_drives || []; "
+                            "return drives.filter(d => d.elevation_change_ft >= -100 && d.elevation_change_ft <= 100).map(d => d.distance); "
+                            "})()"
+                        ),
+                        "y": (
+                            f"$ex (function() {{ "
+                            f"const drives = hass.states['{eff_30d_entity}']?.attributes?.recent_drives || []; "
+                            "return drives.filter(d => d.elevation_change_ft >= -100 && d.elevation_change_ft <= 100).map(d => d.efficiency); "
+                            "})()"
+                        ),
+                    },
+                    {
+                        "entity": "",
+                        "name": "Uphill (Δh > +100 ft)",
+                        "type": "scatter",
+                        "mode": "markers",
+                        "marker": {
+                            "color": "#FB8C00",
+                            "symbol": "cross",
+                            "size": 8,
+                            "opacity": 0.85,
+                            "line": {"width": 1, "color": "#ffffff"},
+                        },
+                        "customdata": (
+                            f"$ex (function() {{ "
+                            f"const drives = hass.states['{eff_30d_entity}']?.attributes?.recent_drives || []; "
+                            "return drives.filter(d => d.elevation_change_ft > 100).map(d => [d.temp_f ?? 70, d.elevation_change_ft]); "
+                            "})()"
+                        ),
+                        "hovertemplate": "<b>Uphill Drive (+)</b><br>Distance: %{x:.2f} mi<br>Efficiency: %{y:.2f} mi/kWh<br>Temp: %{customdata[0]:.1f}°F<br>Elevation Δh: %{customdata[1]:+.0f} ft<extra></extra>",
+                        "x": (
+                            f"$ex (function() {{ "
+                            f"const drives = hass.states['{eff_30d_entity}']?.attributes?.recent_drives || []; "
+                            "return drives.filter(d => d.elevation_change_ft > 100).map(d => d.distance); "
+                            "})()"
+                        ),
+                        "y": (
+                            f"$ex (function() {{ "
+                            f"const drives = hass.states['{eff_30d_entity}']?.attributes?.recent_drives || []; "
+                            "return drives.filter(d => d.elevation_change_ft > 100).map(d => d.efficiency); "
+                            "})()"
+                        ),
+                    },
+                ],
+            },
+            # Section 4: Speed Bin Distribution Bar Chart (Total Miles per 10 mph Bin)
             {
                 "type": "custom:plotly-graph",
                 "raw_plotly_config": True,
@@ -308,7 +431,7 @@ def _build_vehicle_analytics_view(
                     }
                 ],
             },
-            # Section 4: Efficiency Distribution by Speed Range (Box Plot)
+            # Section 5: Efficiency Distribution by Speed Range (Box Plot)
             {
                 "type": "custom:plotly-graph",
                 "raw_plotly_config": True,
@@ -427,7 +550,7 @@ def _build_vehicle_analytics_view(
                     },
                 ],
             },
-            # Section 4: Detailed Statistics Grid
+            # Section 6: Detailed Statistics Grid
             {
                 "type": "grid",
                 "title": "Drive Telemetry",
