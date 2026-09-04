@@ -17,6 +17,7 @@ from .drive_models import (
     DriveRecord,
     DriveSegment,
     SpeedBinData,
+    VampireDrainRecord,
 )
 from .drive_storage import DriveStore
 from .weather import OpenMeteoWeatherClient
@@ -365,6 +366,74 @@ def _get_value_at_ts(
     return right_item[1]
 
 
+def reconstruct_vampire_events_from_drives(
+    drives: list[DriveRecord],
+    battery_capacity_kwh: float = DEFAULT_BATTERY_CAPACITY_KWH,
+) -> list[VampireDrainRecord]:
+    """Reconstruct non-charging parked intervals (>= 30 min) between consecutive drives."""
+    vampire_events: list[VampireDrainRecord] = []
+    if len(drives) < 2:
+        return vampire_events
+
+    for i in range(len(drives) - 1):
+        prev_d = drives[i]
+        next_d = drives[i + 1]
+
+        start_iso = prev_d.end_time
+        end_iso = next_d.start_time
+        if not start_iso or not end_iso:
+            continue
+
+        try:
+            dt_start = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
+            dt_end = datetime.fromisoformat(end_iso.replace("Z", "+00:00"))
+            idle_hours = (dt_end - dt_start).total_seconds() / 3600.0
+        except (ValueError, TypeError):
+            continue
+
+        # Filter out short stops (< 30 min) to avoid cell voltage settling drift
+        if idle_hours < 0.5:
+            continue
+
+        start_soc = prev_d.end_soc
+        end_soc = next_d.start_soc
+
+        # Exclude charging events (where SOC increased by > 0.5%)
+        if end_soc > (start_soc + 0.5):
+            continue
+
+        pack_cap = prev_d.battery_capacity_kwh or battery_capacity_kwh
+        drain_soc = max(0.0, round(start_soc - end_soc, 2))
+        drain_kwh = round((drain_soc * pack_cap) / 100.0, 2)
+        rate_pct_day = (
+            round((drain_soc / idle_hours) * 24.0, 2) if idle_hours > 0 else 0.0
+        )
+        avg_watts = (
+            round((drain_kwh * 1000.0) / idle_hours, 1) if idle_hours > 0 else 0.0
+        )
+
+        lat = prev_d.end_lat if prev_d.end_lat is not None else next_d.start_lat
+        lon = prev_d.end_lon if prev_d.end_lon is not None else next_d.start_lon
+
+        vampire_events.append(
+            VampireDrainRecord(
+                start_time=start_iso,
+                end_time=end_iso,
+                idle_hours=round(idle_hours, 2),
+                start_soc=round(start_soc, 2),
+                end_soc=round(end_soc, 2),
+                drain_soc=drain_soc,
+                drain_kwh=drain_kwh,
+                rate_pct_per_day=rate_pct_day,
+                avg_watts=avg_watts,
+                latitude=lat,
+                longitude=lon,
+            )
+        )
+
+    return vampire_events
+
+
 def reconstruct_drives_from_sqlite(
     db_path: str,
     vin: str | None = None,
@@ -655,9 +724,13 @@ def reconstruct_drives_from_sqlite(
             )
             reconstructed_drives.append(drive)
 
+        vampire_events = reconstruct_vampire_events_from_drives(
+            reconstructed_drives, pack_capacity
+        )
         return reconstructed_drives, {
             "total_segments": len(raw_segments),
             "merged_drives": len(merged_segments),
+            "vampire_events": vampire_events,
         }
     finally:
         conn.close()
@@ -711,6 +784,8 @@ async def async_backfill_from_recorder(
             battery_capacity,
         )
 
+    vampire_events: list[VampireDrainRecord] = _meta.get("vampire_events", [])
+
     # Weather Enrichment (Open-Meteo Historical Archive API - batched by grid and date range)
     default_lat = getattr(getattr(hass, "config", None), "latitude", None)
     default_lon = getattr(getattr(hass, "config", None), "longitude", None)
@@ -721,6 +796,12 @@ async def async_backfill_from_recorder(
         if d.start_lon is None and default_lon is not None:
             d.start_lon = float(default_lon)
 
+    for v in vampire_events:
+        if v.latitude is None and default_lat is not None:
+            v.latitude = float(default_lat)
+        if v.longitude is None and default_lon is not None:
+            v.longitude = float(default_lon)
+
     client = weather_client or OpenMeteoWeatherClient(hass=hass)
     drives_needing_weather = [
         d
@@ -729,20 +810,37 @@ async def async_backfill_from_recorder(
         and d.start_lon is not None
         and d.integrated_temperature_f is None
     ]
+    vampire_needing_weather = [
+        v
+        for v in vampire_events
+        if v.latitude is not None
+        and v.longitude is not None
+        and v.avg_temp_f is None
+    ]
 
-    if drives_needing_weather:
+    if drives_needing_weather or vampire_needing_weather:
         # Group by grid coordinate (0.1 degree resolution ~11km grid)
-        grid_map: dict[tuple[float, float], list[DriveRecord]] = {}
+        grid_map: dict[tuple[float, float], dict[str, list[Any]]] = {}
         for d in drives_needing_weather:
             if d.start_lat is not None and d.start_lon is not None:
                 grid_key = (round(d.start_lat, 1), round(d.start_lon, 1))
-                grid_map.setdefault(grid_key, []).append(d)
+                grid_map.setdefault(grid_key, {"drives": [], "vampire": []})["drives"].append(d)
 
-        for (grid_lat, grid_lon), grid_drives in grid_map.items():
+        for v in vampire_needing_weather:
+            if v.latitude is not None and v.longitude is not None:
+                grid_key = (round(v.latitude, 1), round(v.longitude, 1))
+                grid_map.setdefault(grid_key, {"drives": [], "vampire": []})["vampire"].append(v)
+
+        for (grid_lat, grid_lon), items in grid_map.items():
+            grid_drives: list[DriveRecord] = items["drives"]
+            grid_vampire: list[VampireDrainRecord] = items["vampire"]
+
             # Determine bounding date range
-            date_strings = [
-                d.start_time[:10] for d in grid_drives if len(d.start_time) >= 10
-            ]
+            date_strings = (
+                [d.start_time[:10] for d in grid_drives if len(d.start_time) >= 10]
+                + [v.start_time[:10] for v in grid_vampire if len(v.start_time) >= 10]
+                + [v.end_time[:10] for v in grid_vampire if len(v.end_time) >= 10]
+            )
             if not date_strings:
                 continue
             start_date_str = min(date_strings)
@@ -756,12 +854,22 @@ async def async_backfill_from_recorder(
                     end_date=end_date_str,
                 )
                 if hourly:
-                    from .weather import get_interpolated_temperature
+                    from .weather import (
+                        calculate_window_average_temperature,
+                        get_interpolated_temperature,
+                    )
 
                     for d in grid_drives:
                         temp = get_interpolated_temperature(hourly, d.start_time)
                         if temp is not None:
                             d.integrated_temperature_f = temp
+
+                    for v in grid_vampire:
+                        avg_temp = calculate_window_average_temperature(
+                            hourly, v.start_time, v.end_time
+                        )
+                        if avg_temp is not None:
+                            v.avg_temp_f = avg_temp
             except Exception as err:  # noqa: BLE001
                 _LOGGER.debug(
                     "Could not fetch historical temperatures for grid (%s, %s): %s",
@@ -790,33 +898,39 @@ async def async_backfill_from_recorder(
     duplicates_skipped = 0
 
     # Persist if not dry run
-    if not dry_run and drives:
+    if not dry_run and (drives or vampire_events):
         target_store = store
         if target_store is None and hass is not None and vin:
             target_store = DriveStore(hass=hass, vin=vin)
 
         if target_store is not None:
-            new_added = await target_store.async_save_drives_batch(drives)
-            duplicates_skipped = len(drives) - new_added
+            if drives:
+                new_added = await target_store.async_save_drives_batch(drives)
+                duplicates_skipped = len(drives) - new_added
+            if vampire_events:
+                await target_store.async_save_vampire_events(vampire_events)
 
     result = {
         "drives_found": len(drives),
         "valid_drives": len(valid_drives),
         "micro_drives": len(micro_drives),
+        "vampire_events_found": len(vampire_events),
         "total_miles": total_miles,
         "total_kwh": total_kwh,
         "efficiency_mi_kwh": efficiency,
         "mpge": mpge,
         "duplicates_skipped": duplicates_skipped,
         "drives": drives,
+        "vampire_events": vampire_events,
     }
 
     _LOGGER.info(
-        "Historical backfill complete for VIN %s: %d drives found (%d valid, %d micro), %.2f mi, %.2f kWh, %.2f mi/kWh",
+        "Historical backfill complete for VIN %s: %d drives found (%d valid, %d micro), %d vampire events, %.2f mi, %.2f kWh, %.2f mi/kWh",
         vin,
         len(drives),
         len(valid_drives),
         len(micro_drives),
+        len(vampire_events),
         total_miles,
         total_kwh,
         efficiency,

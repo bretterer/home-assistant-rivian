@@ -15,6 +15,7 @@ from custom_components.rivian.drive_models import (
     DriveState,
     DriveStatus,
     SpeedBinData,
+    VampireDrainRecord,
 )
 from custom_components.rivian.drive_storage import DriveStore
 
@@ -502,3 +503,78 @@ class TestDriveStore:
         assert stats.total_kwh == 0.0
         assert stats.efficiency_mi_kwh == 0.0
         assert stats.mpge == 0.0
+
+    def test_vampire_drain_record_serialization(self) -> None:
+        """Test serialization and deserialization of VampireDrainRecord."""
+        rec = VampireDrainRecord(
+            start_time="2026-08-25T14:00:00Z",
+            end_time="2026-08-25T21:00:00Z",
+            idle_hours=7.0,
+            start_soc=51.6,
+            end_soc=51.5,
+            drain_soc=0.1,
+            drain_kwh=0.14,
+            rate_pct_per_day=0.34,
+            avg_watts=20.0,
+            avg_temp_f=75.2,
+            latitude=43.6150,
+            longitude=-116.2023,
+        )
+        d = rec.to_dict()
+        assert d["idle_hours"] == 7.0
+        assert d["drain_kwh"] == 0.14
+        assert d["avg_temp_f"] == 75.2
+        assert d["latitude"] == 43.615
+
+        rec2 = VampireDrainRecord.from_dict(d)
+        assert rec2.idle_hours == 7.0
+        assert rec2.drain_kwh == 0.14
+        assert rec2.avg_temp_f == 75.2
+        assert rec2.latitude == 43.615
+
+    @pytest.mark.asyncio
+    async def test_vampire_events_storage_persistence(self, mock_hass: Any) -> None:
+        """Test saving, appending, loading, and resetting vampire events in DriveStore."""
+        store = DriveStore(mock_hass, TEST_VIN)
+        rec1 = VampireDrainRecord(
+            start_time="2026-08-25T14:00:00Z",
+            end_time="2026-08-25T21:00:00Z",
+            idle_hours=7.0,
+            start_soc=51.6,
+            end_soc=51.5,
+            drain_soc=0.1,
+            drain_kwh=0.14,
+            rate_pct_per_day=0.34,
+            avg_watts=20.0,
+            avg_temp_f=75.2,
+        )
+        await store.async_save_vampire_events([rec1])
+        assert len(store.vampire_events) == 1
+
+        rec2 = VampireDrainRecord(
+            start_time="2026-08-26T14:00:00Z",
+            end_time="2026-08-26T21:00:00Z",
+            idle_hours=7.0,
+            start_soc=67.0,
+            end_soc=66.6,
+            drain_soc=0.4,
+            drain_kwh=0.58,
+            rate_pct_per_day=1.43,
+            avg_watts=86.0,
+            avg_temp_f=78.0,
+        )
+        await store.async_append_vampire_event(rec2)
+        assert len(store.vampire_events) == 2
+
+        # Re-load in a new store instance to test disk persistence
+        new_store = DriveStore(mock_hass, TEST_VIN)
+        new_store._store._data = store._store._data  # type: ignore[attr-defined]
+        await new_store.async_load()
+        assert len(new_store.vampire_events) == 2
+        assert new_store.vampire_events[0].drain_kwh == 0.14
+        assert new_store.vampire_events[1].drain_kwh == 0.58
+
+        # Test reset
+        await new_store.async_reset()
+        assert new_store.vampire_events == []
+

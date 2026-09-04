@@ -550,7 +550,78 @@ def _build_vehicle_analytics_view(
                     },
                 ],
             },
-            # Section 6: Detailed Statistics Grid
+            # Section 6: Vampire Drain vs. Time Idle (Parked Phantom Drain Analysis)
+            {
+                "type": "custom:plotly-graph",
+                "raw_plotly_config": True,
+                "title": "Vampire Drain vs. Time Idle",
+                "layout": {
+                    "xaxis": {
+                        "title": "Parked Idle Time (hours)",
+                        "type": "linear",
+                        "autorange": True,
+                        "gridcolor": "#444444",
+                        "zeroline": False,
+                    },
+                    "yaxis": {
+                        "title": "Vampire Drain (kWh)",
+                        "type": "linear",
+                        "autorange": True,
+                        "gridcolor": "#444444",
+                        "zeroline": False,
+                    },
+                    "margin": {"l": 50, "r": 20, "t": 40, "b": 60},
+                },
+                "config": {"displayModeBar": False},
+                "entities": [
+                    {
+                        "entity": "",
+                        "name": "Parked Drain Event",
+                        "type": "scatter",
+                        "mode": "markers",
+                        "marker": {
+                            "size": 10,
+                            "color": (
+                                f"$ex (function() {{ "
+                                f"const events = hass.states['{eff_30d_entity}']?.attributes?.recent_vampire_events || []; "
+                                "return events.map(e => e.avg_temp_f ?? 70); "
+                                "})()"
+                            ),
+                            "colorscale": "Bluered",
+                            "showscale": True,
+                            "cauto": True,
+                            "colorbar": {
+                                "title": "Avg Temp (°F)",
+                                "thickness": 14,
+                                "len": 0.85,
+                                "x": 1.02,
+                            },
+                            "line": {"width": 1, "color": "#ffffff"},
+                            "opacity": 0.9,
+                        },
+                        "customdata": (
+                            f"$ex (function() {{ "
+                            f"const events = hass.states['{eff_30d_entity}']?.attributes?.recent_vampire_events || []; "
+                            "return events.map(e => [e.drain_soc, e.rate_pct_per_day, e.avg_watts, e.avg_temp_f ?? 70, e.start_time ? e.start_time.substring(5, 16).replace('T', ' ') : '', e.end_time ? e.end_time.substring(5, 16).replace('T', ' ') : '']); "
+                            "})()"
+                        ),
+                        "hovertemplate": "<b>Parked Vampire Drain</b><br>Idle Time: %{x:.1f} hrs<br>Drain: %{y:.2f} kWh (%{customdata[0]:.1f}%)<br>Rate: %{customdata[1]:.1f}%/day (~%{customdata[2]:.0f} W)<br>Avg Ambient Temp: %{customdata[3]:.1f}°F<br>Window: %{customdata[4]} to %{customdata[5]}<extra></extra>",
+                        "x": (
+                            f"$ex (function() {{ "
+                            f"const events = hass.states['{eff_30d_entity}']?.attributes?.recent_vampire_events || []; "
+                            "return events.map(e => e.idle_hours); "
+                            "})()"
+                        ),
+                        "y": (
+                            f"$ex (function() {{ "
+                            f"const events = hass.states['{eff_30d_entity}']?.attributes?.recent_vampire_events || []; "
+                            "return events.map(e => e.drain_kwh); "
+                            "})()"
+                        ),
+                    }
+                ],
+            },
+            # Section 7: Detailed Statistics Grid
             {
                 "type": "grid",
                 "title": "Drive Telemetry",

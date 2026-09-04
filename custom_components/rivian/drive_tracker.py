@@ -20,6 +20,7 @@ from .drive_models import (
     DriveState,
     DriveStatus,
     SpeedBinData,
+    VampireDrainRecord,
 )
 from .drive_storage import DriveStore
 from .weather import OpenMeteoWeatherClient, calculate_distance_weighted_temperature
@@ -83,6 +84,10 @@ class DriveTracker:
         self._active_drive: dict[str, Any] | None = None
         self._listeners: list[Callable[[DriveState], None]] = []
         self._last_gear: str | None = None
+        self._park_start_dt: datetime | None = None
+        self._park_start_soc: float | None = None
+        self._park_lat: float | None = None
+        self._park_lon: float | None = None
 
     @property
     def is_driving(self) -> bool:
@@ -102,6 +107,17 @@ class DriveTracker:
     async def async_setup(self) -> None:
         """Set up DriveTracker, load storage, and register coordinator listener."""
         await self.store.async_load()
+        if self.store.drives:
+            last_d = self.store.drives[-1]
+            try:
+                self._park_start_dt = datetime.fromisoformat(
+                    last_d.end_time.replace("Z", "+00:00")
+                )
+                self._park_start_soc = last_d.end_soc
+                self._park_lat = last_d.end_lat
+                self._park_lon = last_d.end_lon
+            except (ValueError, TypeError):
+                pass
         self._unsub_coordinator_listener = self.coordinator.async_add_listener(
             self.handle_coordinator_update
         )
@@ -223,6 +239,43 @@ class DriveTracker:
             if isinstance(location, dict) and location.get("longitude") is not None
             else None
         )
+
+        # Check if we were previously parked and can record a vampire drain event
+        if self._park_start_dt is not None:
+            idle_sec = max(0.0, (now_dt - self._park_start_dt).total_seconds())
+            idle_hours = idle_sec / 3600.0
+            start_soc = self._park_start_soc
+            end_soc = battery_soc
+            if (
+                idle_hours >= 0.5
+                and start_soc is not None
+                and end_soc is not None
+                and end_soc <= (start_soc + 0.5)
+            ):
+                drain_soc = max(0.0, round(start_soc - end_soc, 2))
+                drain_kwh = round((drain_soc * battery_cap) / 100.0, 2)
+                rate_pct_day = (
+                    round((drain_soc / idle_hours) * 24.0, 2) if idle_hours > 0 else 0.0
+                )
+                avg_watts = (
+                    round((drain_kwh * 1000.0) / idle_hours, 1) if idle_hours > 0 else 0.0
+                )
+                v_record = VampireDrainRecord(
+                    start_time=self._park_start_dt.isoformat(),
+                    end_time=now_iso,
+                    idle_hours=round(idle_hours, 2),
+                    start_soc=round(start_soc, 2),
+                    end_soc=round(end_soc, 2),
+                    drain_soc=drain_soc,
+                    drain_kwh=drain_kwh,
+                    rate_pct_per_day=rate_pct_day,
+                    avg_watts=avg_watts,
+                    latitude=self._park_lat or start_lat,
+                    longitude=self._park_lon or start_lon,
+                )
+                self._schedule_coro(self._async_record_vampire_event(v_record))
+            self._park_start_dt = None
+            self._park_start_soc = None
 
         speed_bins = {b: SpeedBinData() for b in STANDARD_SPEED_BINS}
 
@@ -673,6 +726,11 @@ class DriveTracker:
             record.is_micro_drive,
         )
 
+        self._park_start_dt = now_dt
+        self._park_start_soc = end_soc
+        self._park_lat = active.get("last_lat")
+        self._park_lon = active.get("last_lon")
+
         self._active_drive = None
         self.drive_state = DriveState(
             is_driving=False,
@@ -687,6 +745,26 @@ class DriveTracker:
         )
         self._notify_listeners()
         return record
+
+    async def _async_record_vampire_event(self, event: VampireDrainRecord) -> None:
+        """Fetch weather and save vampire drain event."""
+        if event.latitude is not None and event.longitude is not None:
+            try:
+                temp_f = await self.weather_client.async_get_current_temperature(
+                    event.latitude, event.longitude
+                )
+                if temp_f is not None:
+                    event.avg_temp_f = round(temp_f, 1)
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.debug("Could not fetch weather for vampire event: %s", err)
+        await self.store.async_append_vampire_event(event)
+        _LOGGER.info(
+            "Recorded vampire drain event for VIN %s: %.1f hrs, %.2f kWh (%.2f%%)",
+            self.vin,
+            event.idle_hours,
+            event.drain_kwh,
+            event.drain_soc,
+        )
 
     def _get_float_coordinator_val(
         self, field: str, default: float | None = None

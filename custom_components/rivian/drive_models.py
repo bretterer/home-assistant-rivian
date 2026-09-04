@@ -405,3 +405,69 @@ class DriveRecord:
                 if isinstance(s, dict)
             ],
         )
+
+
+@dataclass
+class VampireDrainRecord:
+    """Parked vampire drain event telemetry and metrics."""
+
+    start_time: str
+    end_time: str
+    idle_hours: float
+    start_soc: float
+    end_soc: float
+    drain_soc: float
+    drain_kwh: float
+    rate_pct_per_day: float
+    avg_watts: float
+    avg_temp_f: float | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize vampire drain record to dictionary."""
+        return {
+            "start_time": self.start_time,
+            "end_time": self.end_time,
+            "idle_hours": round(self.idle_hours, 2),
+            "start_soc": round(self.start_soc, 2),
+            "end_soc": round(self.end_soc, 2),
+            "drain_soc": round(self.drain_soc, 2),
+            "drain_kwh": round(self.drain_kwh, 2),
+            "rate_pct_per_day": round(self.rate_pct_per_day, 2),
+            "avg_watts": round(self.avg_watts, 1),
+            "avg_temp_f": (
+                round(self.avg_temp_f, 1) if self.avg_temp_f is not None else None
+            ),
+            "latitude": round(self.latitude, 6) if self.latitude is not None else None,
+            "longitude": (
+                round(self.longitude, 6) if self.longitude is not None else None
+            ),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> VampireDrainRecord:
+        """Instantiate vampire drain record from dictionary."""
+        return cls(
+            start_time=str(data.get("start_time", "")),
+            end_time=str(data.get("end_time", "")),
+            idle_hours=float(data.get("idle_hours", 0.0)),
+            start_soc=float(data.get("start_soc", 0.0)),
+            end_soc=float(data.get("end_soc", 0.0)),
+            drain_soc=float(data.get("drain_soc", 0.0)),
+            drain_kwh=float(data.get("drain_kwh", 0.0)),
+            rate_pct_per_day=float(data.get("rate_pct_per_day", 0.0)),
+            avg_watts=float(data.get("avg_watts", 0.0)),
+            avg_temp_f=(
+                float(data["avg_temp_f"])
+                if data.get("avg_temp_f") is not None
+                else None
+            ),
+            latitude=(
+                float(data["latitude"]) if data.get("latitude") is not None else None
+            ),
+            longitude=(
+                float(data["longitude"]) if data.get("longitude") is not None else None
+            ),
+        )
+

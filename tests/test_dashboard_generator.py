@@ -19,7 +19,7 @@ def test_build_vehicle_analytics_view() -> None:
     view = _build_vehicle_analytics_view("Reggie", "sensor.rivian_r1s_reggie_")
     assert view["title"] == "Reggie Efficiency"
     assert view["path"] == "reggie"
-    assert len(view["cards"]) == 6
+    assert len(view["cards"]) == 7
 
     # Check Mushroom Card
     hero_card = view["cards"][0]
@@ -66,6 +66,18 @@ def test_build_vehicle_analytics_view() -> None:
     assert speed_eff_card["entities"][1]["name"] == "Downhill (o)"
     assert speed_eff_card["entities"][1]["marker"]["symbol"] == "circle"
     assert speed_eff_card["entities"][1]["boxpoints"] == "all"
+
+    # Check Vampire Drain vs. Time Idle Card
+    vampire_card = view["cards"][5]
+    assert vampire_card["type"] == "custom:plotly-graph"
+    assert vampire_card["title"] == "Vampire Drain vs. Time Idle"
+    assert len(vampire_card["entities"]) == 1
+    assert vampire_card["entities"][0]["name"] == "Parked Drain Event"
+    assert vampire_card["entities"][0]["type"] == "scatter"
+    assert vampire_card["entities"][0]["mode"] == "markers"
+    assert vampire_card["entities"][0]["marker"]["colorscale"] == "Bluered"
+    assert vampire_card["entities"][0]["marker"]["showscale"] is True
+
 
 
 def test_build_core_fallback_view() -> None:

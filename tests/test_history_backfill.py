@@ -23,6 +23,7 @@ from custom_components.rivian.history_backfill import (
     async_backfill_from_recorder,
     open_sqlite_readonly,
     reconstruct_drives_from_sqlite,
+    reconstruct_vampire_events_from_drives,
     resolve_recorder_entities,
 )
 
@@ -543,3 +544,82 @@ class TestServiceRegistration:
             await async_unload_entry(mock_hass, mock_config_entry)
 
         assert not mock_hass.services.has_service(DOMAIN, "backfill_drive_history")
+
+
+class TestVampireEventReconstruction:
+    """Tests for reconstruct_vampire_events_from_drives function."""
+
+    def test_reconstruct_vampire_events_filters_charging_and_short_stops(self) -> None:
+        """Test vampire drain reconstruction correctly excludes charging and short stops."""
+        from custom_components.rivian.drive_models import DriveRecord
+
+        drives = [
+            DriveRecord(
+                vin=TEST_VIN,
+                drive_id="d1",
+                start_time="2026-08-25T13:00:00Z",
+                end_time="2026-08-25T13:30:00Z",
+                distance_miles=10.0,
+                duration_seconds=1800.0,
+                start_soc=80.0,
+                end_soc=75.0,
+                battery_capacity_kwh=135.0,
+                energy_kwh=6.75,
+                end_lat=43.6,
+                end_lon=-116.2,
+            ),
+            # Drive 2 starts 10 minutes later (short stop < 30 min -> should be skipped)
+            DriveRecord(
+                vin=TEST_VIN,
+                drive_id="d2",
+                start_time="2026-08-25T13:40:00Z",
+                end_time="2026-08-25T14:00:00Z",
+                distance_miles=5.0,
+                duration_seconds=1200.0,
+                start_soc=75.0,
+                end_soc=73.0,
+                battery_capacity_kwh=135.0,
+                energy_kwh=2.7,
+                end_lat=43.61,
+                end_lon=-116.21,
+            ),
+            # Drive 3 starts 8 hours later, SOC dropped from 73.0 to 72.5 (valid vampire drain)
+            DriveRecord(
+                vin=TEST_VIN,
+                drive_id="d3",
+                start_time="2026-08-25T22:00:00Z",
+                end_time="2026-08-25T22:30:00Z",
+                distance_miles=8.0,
+                duration_seconds=1800.0,
+                start_soc=72.5,
+                end_soc=70.0,
+                battery_capacity_kwh=135.0,
+                energy_kwh=3.38,
+                end_lat=43.62,
+                end_lon=-116.22,
+            ),
+            # Drive 4 starts 10 hours later, SOC jumped from 70.0 to 90.0 (charging event -> excluded)
+            DriveRecord(
+                vin=TEST_VIN,
+                drive_id="d4",
+                start_time="2026-08-26T08:30:00Z",
+                end_time="2026-08-26T09:00:00Z",
+                distance_miles=12.0,
+                duration_seconds=1800.0,
+                start_soc=90.0,
+                end_soc=85.0,
+                battery_capacity_kwh=135.0,
+                energy_kwh=6.75,
+            ),
+        ]
+
+        vampire_events = reconstruct_vampire_events_from_drives(drives, 135.0)
+        assert len(vampire_events) == 1
+        event = vampire_events[0]
+        assert event.idle_hours == 8.0
+        assert event.drain_soc == 0.5
+        assert event.drain_kwh == round((0.5 * 135.0) / 100.0, 2)
+        assert event.rate_pct_per_day == round((0.5 / 8.0) * 24.0, 2)
+        assert event.latitude == 43.61
+        assert event.longitude == -116.21
+

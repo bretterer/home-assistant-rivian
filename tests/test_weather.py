@@ -16,6 +16,7 @@ from custom_components.rivian.weather import (
     async_get_historical_temperature_for_timestamp,
     async_get_historical_temperatures,
     calculate_distance_weighted_temperature,
+    calculate_window_average_temperature,
     get_interpolated_temperature,
 )
 
@@ -343,3 +344,30 @@ class TestOpenMeteoWeatherClient:
             session=mock_session,
         )
         assert target_temp == 65.0
+
+
+class TestWindowAverageTemperature:
+    """Tests for calculate_window_average_temperature algorithm."""
+
+    def test_window_average_empty_temps(self) -> None:
+        """Test with empty hourly temperatures dictionary."""
+        assert calculate_window_average_temperature({}, "2026-08-20T10:00:00Z", "2026-08-20T12:00:00Z") is None
+
+    def test_window_average_invalid_dates(self) -> None:
+        """Test with invalid date strings."""
+        temps = {"2026-08-20T10:00": 70.0, "2026-08-20T11:00": 72.0}
+        assert calculate_window_average_temperature(temps, "invalid", "2026-08-20T12:00:00Z") is None
+
+    def test_window_average_calculation(self) -> None:
+        """Test accurate calculation of window average temperature across hours."""
+        hourly = {
+            "2026-08-20T10:00:00+00:00": 60.0,
+            "2026-08-20T11:00:00+00:00": 70.0,
+            "2026-08-20T12:00:00+00:00": 80.0,
+        }
+        # Interval from 10:00 to 12:00 should average endpoints (60, 80) and intermediate (70) -> 70.0
+        avg = calculate_window_average_temperature(
+            hourly, "2026-08-20T10:00:00+00:00", "2026-08-20T12:00:00+00:00"
+        )
+        assert avg == 70.0
+

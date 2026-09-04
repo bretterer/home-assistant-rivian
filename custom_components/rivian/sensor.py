@@ -675,6 +675,12 @@ class RivianDriveSensorEntity(RivianVehicleEntity, SensorEntity):
             if recent_segments:
                 attrs["recent_segments"] = recent_segments[-300:]
 
+            vampire_events = self._store.vampire_events
+            if vampire_events:
+                attrs["recent_vampire_events"] = [
+                    v.to_dict() for v in vampire_events[-50:]
+                ]
+
             return attrs
 
         if key == "last_drive_distance":

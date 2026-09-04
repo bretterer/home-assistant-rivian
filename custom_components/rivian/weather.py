@@ -145,6 +145,38 @@ def get_interpolated_temperature(
     return round(parsed_entries[-1][1], 2)
 
 
+def calculate_window_average_temperature(
+    hourly_temps: dict[str, float],
+    start_time: datetime | str,
+    end_time: datetime | str,
+) -> float | None:
+    """Calculate mean ambient temperature over a time interval from hourly temperatures."""
+    start_dt = _parse_iso_datetime(start_time)
+    end_dt = _parse_iso_datetime(end_time)
+    if start_dt is None or end_dt is None or not hourly_temps:
+        return None
+    if start_dt > end_dt:
+        start_dt, end_dt = end_dt, start_dt
+
+    samples: list[float] = []
+    t_start = get_interpolated_temperature(hourly_temps, start_dt)
+    if t_start is not None:
+        samples.append(t_start)
+
+    for ts_str, temp in hourly_temps.items():
+        dt = _parse_iso_datetime(ts_str)
+        if dt is not None and start_dt < dt < end_dt and isinstance(temp, (int, float)):
+            samples.append(float(temp))
+
+    t_end = get_interpolated_temperature(hourly_temps, end_dt)
+    if t_end is not None:
+        samples.append(t_end)
+
+    if not samples:
+        return None
+    return round(sum(samples) / len(samples), 1)
+
+
 class OpenMeteoWeatherClient:
     """Async Open-Meteo REST API client with caching, grid rounding, and error resilience."""
 

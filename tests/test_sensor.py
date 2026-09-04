@@ -26,7 +26,11 @@ from custom_components.rivian.const import (
     DRIVE_SENSORS,
     MPGE_CONVERSION_FACTOR,
 )
-from custom_components.rivian.drive_models import DriveRecord, SpeedBinData
+from custom_components.rivian.drive_models import (
+    DriveRecord,
+    SpeedBinData,
+    VampireDrainRecord,
+)
 from custom_components.rivian.drive_storage import DriveStore
 from custom_components.rivian.drive_tracker import DriveTracker
 from custom_components.rivian.sensor import (
@@ -505,6 +509,19 @@ class TestDriveSensorEntities:
             is_micro_drive=False,
         )
         await store.async_save_drive(drive)
+        v_event = VampireDrainRecord(
+            start_time="2026-08-20T10:00:00Z",
+            end_time="2026-08-20T14:30:00Z",
+            idle_hours=4.5,
+            start_soc=83.0,
+            end_soc=82.5,
+            drain_soc=0.5,
+            drain_kwh=0.68,
+            rate_pct_per_day=2.67,
+            avg_watts=150.0,
+            avg_temp_f=70.0,
+        )
+        await store.async_save_vampire_events([v_event])
 
         tracker = DriveTracker(
             mock_hass, mock_config_entry, coordinator, mock_vehicle_info, store
@@ -548,6 +565,10 @@ class TestDriveSensorEntities:
         assert eff_30d_attrs["total_miles"] == 20.0
         assert eff_30d_attrs["total_kwh"] == 6.0
         assert eff_30d_attrs["mpge"] == 112.35
+        assert "recent_vampire_events" in eff_30d_attrs
+        assert len(eff_30d_attrs["recent_vampire_events"]) == 1
+        assert eff_30d_attrs["recent_vampire_events"][0]["idle_hours"] == 4.5
+        assert eff_30d_attrs["recent_vampire_events"][0]["drain_kwh"] == 0.68
 
         # 3. efficiency_all_time
         assert entities_by_key["efficiency_all_time"].native_value == 3.33
