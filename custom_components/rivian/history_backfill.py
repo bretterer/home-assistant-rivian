@@ -398,13 +398,19 @@ def reconstruct_vampire_events_from_drives(
         start_soc = prev_d.end_soc
         end_soc = next_d.start_soc
 
-        # Exclude charging events (where SOC increased by > 0.5%)
-        if end_soc > (start_soc + 0.5):
+        # Exclude intervals where SOC did not decrease (charging, shore power, or below BMS resolution)
+        if end_soc >= start_soc:
+            continue
+
+        drain_soc = round(start_soc - end_soc, 2)
+        if drain_soc <= 0.0:
             continue
 
         pack_cap = prev_d.battery_capacity_kwh or battery_capacity_kwh
-        drain_soc = max(0.0, round(start_soc - end_soc, 2))
         drain_kwh = round((drain_soc * pack_cap) / 100.0, 2)
+        if drain_kwh <= 0.0:
+            continue
+
         rate_pct_day = (
             round((drain_soc / idle_hours) * 24.0, 2) if idle_hours > 0 else 0.0
         )

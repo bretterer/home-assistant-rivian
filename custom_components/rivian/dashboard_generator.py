@@ -583,7 +583,7 @@ def _build_vehicle_analytics_view(
                             "size": 10,
                             "color": (
                                 f"$ex (function() {{ "
-                                f"const events = hass.states['{eff_30d_entity}']?.attributes?.recent_vampire_events || []; "
+                                f"const events = (hass.states['{eff_30d_entity}']?.attributes?.recent_vampire_events || []).filter(e => (e.drain_kwh || 0) > 0); "
                                 "return events.map(e => e.avg_temp_f ?? 70); "
                                 "})()"
                             ),
@@ -601,20 +601,20 @@ def _build_vehicle_analytics_view(
                         },
                         "customdata": (
                             f"$ex (function() {{ "
-                            f"const events = hass.states['{eff_30d_entity}']?.attributes?.recent_vampire_events || []; "
+                            f"const events = (hass.states['{eff_30d_entity}']?.attributes?.recent_vampire_events || []).filter(e => (e.drain_kwh || 0) > 0); "
                             "return events.map(e => [e.drain_soc, e.rate_pct_per_day, e.avg_watts, e.avg_temp_f ?? 70, e.start_time ? e.start_time.substring(5, 16).replace('T', ' ') : '', e.end_time ? e.end_time.substring(5, 16).replace('T', ' ') : '']); "
                             "})()"
                         ),
                         "hovertemplate": "<b>Parked Vampire Drain</b><br>Idle Time: %{x:.1f} hrs<br>Drain: %{y:.2f} kWh (%{customdata[0]:.1f}%)<br>Rate: %{customdata[1]:.1f}%/day (~%{customdata[2]:.0f} W)<br>Avg Ambient Temp: %{customdata[3]:.1f}°F<br>Window: %{customdata[4]} to %{customdata[5]}<extra></extra>",
                         "x": (
                             f"$ex (function() {{ "
-                            f"const events = hass.states['{eff_30d_entity}']?.attributes?.recent_vampire_events || []; "
+                            f"const events = (hass.states['{eff_30d_entity}']?.attributes?.recent_vampire_events || []).filter(e => (e.drain_kwh || 0) > 0); "
                             "return events.map(e => e.idle_hours); "
                             "})()"
                         ),
                         "y": (
                             f"$ex (function() {{ "
-                            f"const events = hass.states['{eff_30d_entity}']?.attributes?.recent_vampire_events || []; "
+                            f"const events = (hass.states['{eff_30d_entity}']?.attributes?.recent_vampire_events || []).filter(e => (e.drain_kwh || 0) > 0); "
                             "return events.map(e => e.drain_kwh); "
                             "})()"
                         ),

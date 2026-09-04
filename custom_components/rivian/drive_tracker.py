@@ -250,30 +250,31 @@ class DriveTracker:
                 idle_hours >= 0.5
                 and start_soc is not None
                 and end_soc is not None
-                and end_soc <= (start_soc + 0.5)
+                and end_soc < start_soc
             ):
-                drain_soc = max(0.0, round(start_soc - end_soc, 2))
+                drain_soc = round(start_soc - end_soc, 2)
                 drain_kwh = round((drain_soc * battery_cap) / 100.0, 2)
-                rate_pct_day = (
-                    round((drain_soc / idle_hours) * 24.0, 2) if idle_hours > 0 else 0.0
-                )
-                avg_watts = (
-                    round((drain_kwh * 1000.0) / idle_hours, 1) if idle_hours > 0 else 0.0
-                )
-                v_record = VampireDrainRecord(
-                    start_time=self._park_start_dt.isoformat(),
-                    end_time=now_iso,
-                    idle_hours=round(idle_hours, 2),
-                    start_soc=round(start_soc, 2),
-                    end_soc=round(end_soc, 2),
-                    drain_soc=drain_soc,
-                    drain_kwh=drain_kwh,
-                    rate_pct_per_day=rate_pct_day,
-                    avg_watts=avg_watts,
-                    latitude=self._park_lat or start_lat,
-                    longitude=self._park_lon or start_lon,
-                )
-                self._schedule_coro(self._async_record_vampire_event(v_record))
+                if drain_soc > 0.0 and drain_kwh > 0.0:
+                    rate_pct_day = (
+                        round((drain_soc / idle_hours) * 24.0, 2) if idle_hours > 0 else 0.0
+                    )
+                    avg_watts = (
+                        round((drain_kwh * 1000.0) / idle_hours, 1) if idle_hours > 0 else 0.0
+                    )
+                    v_record = VampireDrainRecord(
+                        start_time=self._park_start_dt.isoformat(),
+                        end_time=now_iso,
+                        idle_hours=round(idle_hours, 2),
+                        start_soc=round(start_soc, 2),
+                        end_soc=round(end_soc, 2),
+                        drain_soc=drain_soc,
+                        drain_kwh=drain_kwh,
+                        rate_pct_per_day=rate_pct_day,
+                        avg_watts=avg_watts,
+                        latitude=self._park_lat or start_lat,
+                        longitude=self._park_lon or start_lon,
+                    )
+                    self._schedule_coro(self._async_record_vampire_event(v_record))
             self._park_start_dt = None
             self._park_start_soc = None
 
