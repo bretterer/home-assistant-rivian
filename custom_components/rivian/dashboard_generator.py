@@ -788,4 +788,48 @@ async def async_create_efficiency_dashboard(
         title,
         url_path,
     )
+
+    # 3. If dashboard_automobiles exists, inject View 2 and Section 2 Plotly cards
+    try:
+        auto_store = Store(hass, 1, "lovelace.dashboard_automobiles")
+        auto_data = await auto_store.async_load()
+        if auto_data and "config" in auto_data:
+            auto_config = auto_data["config"]
+            auto_views = auto_config.get("views", [])
+            eff_cards = views[0].get("cards", [])
+            plotly_cards = [c for c in eff_cards if c.get("type") == "custom:plotly-graph"]
+
+            # Update View 0 Section 2 cards if sections exist
+            if auto_views and "sections" in auto_views[0] and len(auto_views[0]["sections"]) >= 3:
+                sec2 = auto_views[0]["sections"][2]
+                sec2_cards = sec2.get("cards", [])
+                non_plotly = [c for c in sec2_cards if c.get("type") != "custom:plotly-graph"]
+                sec2["cards"] = non_plotly + plotly_cards
+
+            # Update or append View 2 'Efficiency & Analytics' tab
+            has_eff = False
+            for v in auto_views:
+                if v.get("path") == "efficiency":
+                    v["title"] = "Efficiency & Analytics"
+                    v["icon"] = "mdi:chart-scatter-plot"
+                    v["cards"] = eff_cards
+                    has_eff = True
+                    break
+            if not has_eff:
+                auto_views.append({
+                    "title": "Efficiency & Analytics",
+                    "path": "efficiency",
+                    "icon": "mdi:chart-scatter-plot",
+                    "cards": eff_cards,
+                })
+
+            await auto_store.async_save(auto_data)
+            hass.bus.async_fire("lovelace_updated", {"url_path": "dashboard-automobiles"})
+            _LOGGER.info("Successfully synced efficiency view into dashboard-automobiles")
+    except Exception as err:  # noqa: BLE001
+        _LOGGER.debug("Could not auto-inject into dashboard_automobiles: %s", err)
+
+    # 4. Notify frontend of lovelace update
+    hass.bus.async_fire("lovelace_updated", {"url_path": url_path})
+
     return True
