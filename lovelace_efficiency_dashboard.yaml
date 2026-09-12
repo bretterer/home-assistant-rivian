@@ -574,7 +574,13 @@ views:
               })()
 
           - entity: ''
-            name: R1 Benchmark (Reference)
+            name: >-
+              $ex (function() {
+                const cap = parseFloat(hass.states['sensor.{vin}_battery_capacity']?.state || 135.0);
+                if (cap > 139.0) return 'R1 Max Pack (149 kWh Ref)';
+                if (cap < 115.0) return 'R1 Standard Pack (106 kWh Ref)';
+                return 'R1 Large Pack (135 kWh Ref)';
+              })()
             type: scatter
             mode: lines
             line:
@@ -582,9 +588,19 @@ views:
               width: 1.5
               dash: dot
             hovertemplate: >-
-              <b>Rivian Benchmark</b><br>SoC: %{x}%<br>Power: %{y} kW<extra></extra>
+              $ex (function() {
+                const cap = parseFloat(hass.states['sensor.{vin}_battery_capacity']?.state || 135.0);
+                const label = cap > 139.0 ? 'Max Pack (149 kWh Ref)' : (cap < 115.0 ? 'Standard Pack (106 kWh Ref)' : 'Large Pack (135 kWh Ref)');
+                return '<b>Rivian ' + label + '</b><br>SoC: %{x}%<br>Power: %{y} kW<extra></extra>';
+              })()
             x: [10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90]
-            y: [215, 215, 212, 208, 200, 185, 170, 155, 145, 130, 118, 105, 92, 78, 62, 45, 28]
+            y: >-
+              $ex (function() {
+                const cap = parseFloat(hass.states['sensor.{vin}_battery_capacity']?.state || 135.0);
+                if (cap > 139.0) return [220, 220, 218, 215, 210, 198, 185, 172, 160, 146, 132, 118, 104, 88, 70, 50, 32];
+                if (cap < 115.0) return [205, 205, 200, 195, 185, 170, 155, 140, 125, 110, 95, 82, 70, 58, 45, 32, 20];
+                return [215, 215, 212, 208, 200, 185, 170, 155, 145, 130, 118, 105, 92, 78, 62, 45, 28];
+              })()
 
       # Section 7: Detailed Drive Statistics Grid
       - type: grid
