@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Standalone CLI tool for Rivian historical drive recorder backfill."""
 
 from __future__ import annotations

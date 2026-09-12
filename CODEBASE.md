@@ -326,11 +326,19 @@ Charging schedules are synchronized with Rivian cloud schedule structures.
 ### Data Model
 ```python
 DEFAULT_CHARGING_SCHEDULE = {
-    "startTime": 1320,      # Minutes from midnight (10:00 PM)
-    "duration": 480,        # Duration in minutes (8 hours)
-    "amperage": 48,         # Amps (8A - 48A, step 2)
-    "enabled": True,        # Schedule enabled toggle
-    "weekDays": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    "startTime": 1320,  # Minutes from midnight (10:00 PM)
+    "duration": 480,  # Duration in minutes (8 hours)
+    "amperage": 48,  # Amps (8A - 48A, step 2)
+    "enabled": True,  # Schedule enabled toggle
+    "weekDays": [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday",
+        "Sunday",
+    ],
 }
 ```
 
@@ -356,17 +364,19 @@ DEFAULT_CHARGING_SCHEDULE = {
 1. Check if the field is present in Rivian API telemetry. (Inspect diagnostics dump or `old-sensors`).
 2. Add the sensor description to `const.py` inside `SENSORS["R1"]` (or `"R1S"` if SUV-specific):
    ```python
-   RivianSensorEntityDescription(
-       key="my_sensor_key",
-       field="apiFieldName",
-       name="My Sensor Name",
-       icon="mdi:gauge",
-       device_class=SensorDeviceClass.POWER,
-       native_unit_of_measurement=UnitOfPower.KILO_WATT,
-       state_class=SensorStateClass.MEASUREMENT,
-       suggested_display_precision=1,
-       value_lambda=lambda v: round(v, 1) if v is not None else None,
-   ),
+   (
+       RivianSensorEntityDescription(
+           key="my_sensor_key",
+           field="apiFieldName",
+           name="My Sensor Name",
+           icon="mdi:gauge",
+           device_class=SensorDeviceClass.POWER,
+           native_unit_of_measurement=UnitOfPower.KILO_WATT,
+           state_class=SensorStateClass.MEASUREMENT,
+           suggested_display_precision=1,
+           value_lambda=lambda v: round(v, 1) if v is not None else None,
+       ),
+   )
    ```
 3. Ensure the field is included in `VEHICLE_STATE_API_FIELDS` in `const.py`:
    - It is automatically included if it is defined in `SENSORS`. If it has non-standard extraction, add it directly to `VEHICLE_STATE_API_FIELDS`.
@@ -375,24 +385,28 @@ DEFAULT_CHARGING_SCHEDULE = {
 ### Recipe 2: How to Add a New Binary Sensor
 1. In `const.py`, add to `BINARY_SENSORS["R1"]`:
    ```python
-   RivianBinarySensorEntityDescription(
-       key="my_binary_sensor",
-       field="apiBooleanField",
-       name="My Binary Sensor",
-       device_class=BinarySensorDeviceClass.PROBLEM,
-       on_value="fault",  # or list: ["fault", "warning"]
-       negate=False,
-   ),
+   (
+       RivianBinarySensorEntityDescription(
+           key="my_binary_sensor",
+           field="apiBooleanField",
+           name="My Binary Sensor",
+           device_class=BinarySensorDeviceClass.PROBLEM,
+           on_value="fault",  # or list: ["fault", "warning"]
+           negate=False,
+       ),
+   )
    ```
 2. For multi-field aggregation (e.g. any door open):
    ```python
-   RivianBinarySensorEntityDescription(
-       key="any_door_open",
-       field={"doorFrontLeftClosed", "doorFrontRightClosed"},
-       name="Any Door Open",
-       device_class=BinarySensorDeviceClass.DOOR,
-       on_value="open",
-   ),
+   (
+       RivianBinarySensorEntityDescription(
+           key="any_door_open",
+           field={"doorFrontLeftClosed", "doorFrontRightClosed"},
+           name="Any Door Open",
+           device_class=BinarySensorDeviceClass.DOOR,
+           on_value="open",
+       ),
+   )
    ```
 
 ### Recipe 3: How to Add a New Vehicle Control Action
