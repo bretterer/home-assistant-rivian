@@ -38,15 +38,19 @@ from .const import (
 try:
     from homeassistant.components.frontend import add_extra_js_url
 except ImportError:
+
     def add_extra_js_url(*args: Any, **kwargs: Any) -> None:  # type: ignore[misc]
         pass
+
 
 try:
     from homeassistant.components.http import StaticPathConfig
 except ImportError:
+
     class StaticPathConfig:  # type: ignore[no-redef]
         def __init__(self, *args: Any, **kwargs: Any) -> None:
             pass
+
 
 from .coordinator import UserCoordinator, VehicleCoordinator, WallboxCoordinator
 from .dashboard_generator import (
@@ -140,7 +144,14 @@ async def _async_register_frontend(hass: HomeAssistant) -> None:
         plotly_url = f"{static_url}/plotly-graph-card.js?v={VERSION}"
         mushroom_url = f"{static_url}/mushroom.js?v={VERSION}"
 
-        existing_plotly = next((x for x in items if f"{static_url}/plotly-graph-card.js" in x.get("url", "")), None)
+        existing_plotly = next(
+            (
+                x
+                for x in items
+                if f"{static_url}/plotly-graph-card.js" in x.get("url", "")
+            ),
+            None,
+        )
         if existing_plotly:
             if existing_plotly.get("url") != plotly_url:
                 existing_plotly["url"] = plotly_url
@@ -149,13 +160,17 @@ async def _async_register_frontend(hass: HomeAssistant) -> None:
             items.append({"id": uuid.uuid4().hex, "url": plotly_url, "type": "module"})
             changed = True
 
-        existing_mushroom = next((x for x in items if f"{static_url}/mushroom.js" in x.get("url", "")), None)
+        existing_mushroom = next(
+            (x for x in items if f"{static_url}/mushroom.js" in x.get("url", "")), None
+        )
         if existing_mushroom:
             if existing_mushroom.get("url") != mushroom_url:
                 existing_mushroom["url"] = mushroom_url
                 changed = True
         elif mushroom_js.is_file():
-            items.append({"id": uuid.uuid4().hex, "url": mushroom_url, "type": "module"})
+            items.append(
+                {"id": uuid.uuid4().hex, "url": mushroom_url, "type": "module"}
+            )
             changed = True
 
         if changed:

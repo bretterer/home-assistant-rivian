@@ -498,7 +498,9 @@ class ChargingSample:
             "soc": round(self.soc, 1),
             "power_kw": round(self.power_kw, 1),
             "battery_temp_f": (
-                round(self.battery_temp_f, 1) if self.battery_temp_f is not None else None
+                round(self.battery_temp_f, 1)
+                if self.battery_temp_f is not None
+                else None
             ),
         }
 
@@ -562,10 +564,6 @@ class ChargingSessionRecord:
             avg_power_kw=float(data.get("avg_power_kw", 0.0)),
             is_dcfc=bool(data.get("is_dcfc", True)),
             samples=[
-                ChargingSample.from_dict(s)
-                for s in raw_samples
-                if isinstance(s, dict)
+                ChargingSample.from_dict(s) for s in raw_samples if isinstance(s, dict)
             ],
         )
-
-

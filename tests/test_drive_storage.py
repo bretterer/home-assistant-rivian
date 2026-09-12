@@ -784,6 +784,3 @@ class TestDCFCStorageAndModels:
         await store_reload.async_load()
         assert len(store_reload.dcfc_sessions) == 50
         assert store_reload.dcfc_sessions[0].session_id == "session_10"
-
-
-

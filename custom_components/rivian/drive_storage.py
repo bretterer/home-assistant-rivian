@@ -368,18 +368,14 @@ class DriveStore:
             total_micro_drives=micro_count,
         )
 
-    async def async_save_vampire_events(
-        self, events: list[VampireDrainRecord]
-    ) -> None:
+    async def async_save_vampire_events(self, events: list[VampireDrainRecord]) -> None:
         """Save vampire drain records to storage."""
         if not self._loaded:
             await self.async_load()
         self._vampire_events = list(events)
         await self._async_persist()
 
-    async def async_append_vampire_event(
-        self, event: VampireDrainRecord
-    ) -> None:
+    async def async_append_vampire_event(self, event: VampireDrainRecord) -> None:
         """Append a single vampire drain record to storage."""
         if not self._loaded:
             await self.async_load()
@@ -402,9 +398,7 @@ class DriveStore:
             self._dcfc_sessions = self._dcfc_sessions[-MAX_DCFC_HISTORY_SESSIONS:]
         await self._async_persist()
 
-    async def async_append_dcfc_session(
-        self, session: ChargingSessionRecord
-    ) -> None:
+    async def async_append_dcfc_session(self, session: ChargingSessionRecord) -> None:
         """Append a single DC fast charging record to storage, enforcing 50-session FIFO cap."""
         if not self._loaded:
             await self.async_load()
@@ -462,4 +456,3 @@ class DriveStore:
             ],
         }
         await self._store.async_save(payload)
-

@@ -270,10 +270,14 @@ class DriveTracker:
                 drain_kwh = round((drain_soc * battery_cap) / 100.0, 2)
                 if drain_soc > 0.0 and drain_kwh > 0.0:
                     rate_pct_day = (
-                        round((drain_soc / idle_hours) * 24.0, 2) if idle_hours > 0 else 0.0
+                        round((drain_soc / idle_hours) * 24.0, 2)
+                        if idle_hours > 0
+                        else 0.0
                     )
                     avg_watts = (
-                        round((drain_kwh * 1000.0) / idle_hours, 1) if idle_hours > 0 else 0.0
+                        round((drain_kwh * 1000.0) / idle_hours, 1)
+                        if idle_hours > 0
+                        else 0.0
                     )
                     v_record = VampireDrainRecord(
                         start_time=self._park_start_dt.isoformat(),
@@ -437,7 +441,9 @@ class DriveTracker:
         seg_start_dt: datetime = active.get("current_segment_start_dt", now_dt)
         seg_elapsed = (now_dt - seg_start_dt).total_seconds()
         if seg_elapsed >= 180.0:
-            self._finalize_current_segment(active, now_dt, odometer_m, battery_soc, altitude_m)
+            self._finalize_current_segment(
+                active, now_dt, odometer_m, battery_soc, altitude_m
+            )
 
         # GPS Lock sync validation
         if not active["gps_locked"]:
@@ -824,9 +830,7 @@ class DriveTracker:
                         ):
                             should_append = False
                     if should_append:
-                        temp_val = self._get_float_coordinator_val(
-                            "batteryTemperature"
-                        )
+                        temp_val = self._get_float_coordinator_val("batteryTemperature")
                         samples.append(
                             ChargingSample(
                                 timestamp=now_iso,
@@ -870,9 +874,8 @@ class DriveTracker:
             sum(s.power_kw for s in samples) / len(samples) if samples else max_power
         )
 
-        battery_cap = (
-            self._get_float_coordinator_val("batteryCapacity")
-            or float(self.vehicle_info.get("battery_capacity", 135.0) or 135.0)
+        battery_cap = self._get_float_coordinator_val("batteryCapacity") or float(
+            self.vehicle_info.get("battery_capacity", 135.0) or 135.0
         )
         energy_added = max(0.0, (final_soc - start_soc) * battery_cap / 100.0)
 

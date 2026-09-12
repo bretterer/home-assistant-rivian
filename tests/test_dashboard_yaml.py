@@ -168,13 +168,11 @@ class TestRequiredCardsPresence:
         assert "xaxis" in layout
         assert "yaxis" in layout
         assert (
-            "temperature"
-            in str(layout.get("xaxis", {}).get("title", "")).lower()
+            "temperature" in str(layout.get("xaxis", {}).get("title", "")).lower()
             or "temp" in str(layout.get("xaxis", {}).get("title", "")).lower()
         )
         assert (
-            "efficiency"
-            in str(layout.get("yaxis", {}).get("title", "")).lower()
+            "efficiency" in str(layout.get("yaxis", {}).get("title", "")).lower()
             or "mi/kwh" in str(layout.get("yaxis", {}).get("title", "")).lower()
         )
 
@@ -197,11 +195,7 @@ class TestRequiredCardsPresence:
         ]
 
         speed_bin_card = next(
-            (
-                c
-                for c in plotly_cards
-                if "speed bin" in str(c.get("title", "")).lower()
-            ),
+            (c for c in plotly_cards if "speed bin" in str(c.get("title", "")).lower()),
             None,
         )
         assert speed_bin_card is not None, "Speed bin card not found"
@@ -240,17 +234,13 @@ class TestRequiredCardsPresence:
         assert len(tile_cards) >= 8, "Expected at least 8 Tile cards for 8 sensors"
 
         # Check Entities card
-        assert "entities" in core_card_types, (
-            "Entities card missing in core fallback"
-        )
+        assert "entities" in core_card_types, "Entities card missing in core fallback"
 
         # Check Statistics Graph card
         assert "statistics-graph" in core_card_types, (
             "Statistics graph card missing in core fallback"
         )
-        stats_card = next(
-            c for c in core_cards if c.get("type") == "statistics-graph"
-        )
+        stats_card = next(c for c in core_cards if c.get("type") == "statistics-graph")
         assert "entities" in stats_card
         assert len(stats_card["entities"]) >= 3
 
@@ -258,9 +248,7 @@ class TestRequiredCardsPresence:
         assert "history-graph" in core_card_types, (
             "History graph card missing in core fallback"
         )
-        hist_card = next(
-            c for c in core_cards if c.get("type") == "history-graph"
-        )
+        hist_card = next(c for c in core_cards if c.get("type") == "history-graph")
         assert "entities" in hist_card
         assert len(hist_card["entities"]) >= 3
 
@@ -315,9 +303,7 @@ class TestEntityAndAttributeReferences:
                 f"Entity ID {expected_entity_id} missing from dashboard YAML"
             )
 
-    def test_entity_attributes_referenced(
-        self, dashboard_raw_content: str
-    ) -> None:
+    def test_entity_attributes_referenced(self, dashboard_raw_content: str) -> None:
         """Verify references to drive sensor attributes matching sensor.py and drive_tracker.py."""
         # Drive status live attributes
         assert "current_trip_distance_mi" in dashboard_raw_content
@@ -335,17 +321,12 @@ class TestEntityAndAttributeReferences:
         assert set(const_keys) == set(EXPECTED_ENTITY_KEYS)
         assert len(const_keys) == 8
 
-    def test_vin_substitution_integrity(
-        self, dashboard_raw_content: str
-    ) -> None:
-
+    def test_vin_substitution_integrity(self, dashboard_raw_content: str) -> None:
         """Verify that substituting {vin} produces valid Home Assistant entity IDs without leftovers."""
         test_vins = ["my_rivian", "7pdsgaba8nn000000", "r1s_test"]
 
         for test_vin in test_vins:
-            substituted_content = dashboard_raw_content.replace(
-                "{vin}", test_vin
-            )
+            substituted_content = dashboard_raw_content.replace("{vin}", test_vin)
             assert "{vin}" not in substituted_content
 
             parsed = yaml.safe_load(substituted_content)

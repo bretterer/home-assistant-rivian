@@ -358,9 +358,9 @@ class TestEmpiricalChallengerEdgeCases:
             (120.0, "80+"),
         ]
         for spd, expected in cases:
-            assert (
-                _get_speed_bin_key(spd) == expected
-            ), f"Speed {spd} should be bin {expected}"
+            assert _get_speed_bin_key(spd) == expected, (
+                f"Speed {spd} should be bin {expected}"
+            )
 
     @pytest.mark.asyncio
     async def test_weighted_efficiency_vs_average_of_averages(

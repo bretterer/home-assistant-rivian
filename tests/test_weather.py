@@ -351,12 +351,22 @@ class TestWindowAverageTemperature:
 
     def test_window_average_empty_temps(self) -> None:
         """Test with empty hourly temperatures dictionary."""
-        assert calculate_window_average_temperature({}, "2026-08-20T10:00:00Z", "2026-08-20T12:00:00Z") is None
+        assert (
+            calculate_window_average_temperature(
+                {}, "2026-08-20T10:00:00Z", "2026-08-20T12:00:00Z"
+            )
+            is None
+        )
 
     def test_window_average_invalid_dates(self) -> None:
         """Test with invalid date strings."""
         temps = {"2026-08-20T10:00": 70.0, "2026-08-20T11:00": 72.0}
-        assert calculate_window_average_temperature(temps, "invalid", "2026-08-20T12:00:00Z") is None
+        assert (
+            calculate_window_average_temperature(
+                temps, "invalid", "2026-08-20T12:00:00Z"
+            )
+            is None
+        )
 
     def test_window_average_calculation(self) -> None:
         """Test accurate calculation of window average temperature across hours."""
@@ -370,4 +380,3 @@ class TestWindowAverageTemperature:
             hourly, "2026-08-20T10:00:00+00:00", "2026-08-20T12:00:00+00:00"
         )
         assert avg == 70.0
-

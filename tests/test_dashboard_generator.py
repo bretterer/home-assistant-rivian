@@ -119,7 +119,6 @@ def test_build_vehicle_analytics_view() -> None:
     assert len(stats_grid["cards"]) == 6
 
 
-
 def test_build_core_fallback_view() -> None:
     """Test building the zero-dependency Native Core fallback view."""
     view = _build_core_fallback_view("R1S", "sensor.rivian_r1s_")
@@ -171,7 +170,9 @@ async def test_async_create_efficiency_dashboard() -> None:
         async def async_save(self, data):
             mock_saved_data[self.key] = data
 
-    with patch("custom_components.rivian.dashboard_generator.Store", side_effect=MockStore):
+    with patch(
+        "custom_components.rivian.dashboard_generator.Store", side_effect=MockStore
+    ):
         result = await async_create_efficiency_dashboard(
             hass=hass,
             title="Custom Rivian Dashboard",

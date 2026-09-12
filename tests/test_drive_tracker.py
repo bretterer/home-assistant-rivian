@@ -772,7 +772,11 @@ class TestDriveTrackerCharging:
             hass=mock_hass,
             entry=MagicMock(),
             coordinator=coordinator,  # type: ignore[arg-type]
-            vehicle_info={"vin": TEST_VIN, "id": TEST_VEHICLE_ID, "battery_capacity": 135.0},
+            vehicle_info={
+                "vin": TEST_VIN,
+                "id": TEST_VEHICLE_ID,
+                "battery_capacity": 135.0,
+            },
             store=store,
         )
         await tracker.async_setup()
@@ -829,7 +833,9 @@ class TestDriveTrackerCharging:
         assert session.start_soc == 20.0
         assert session.end_soc == 50.0
         assert session.max_power_kw == 150.0
-        assert session.avg_power_kw == pytest.approx((150.0 + 135.0 + 100.0) / 3.0, rel=1e-2)
+        assert session.avg_power_kw == pytest.approx(
+            (150.0 + 135.0 + 100.0) / 3.0, rel=1e-2
+        )
         assert len(session.samples) == 3
         # Energy added: (50 - 20) * 135 / 100 = 40.5 kWh
         assert session.energy_added_kwh == pytest.approx(40.5, rel=1e-2)
@@ -843,7 +849,11 @@ class TestDriveTrackerCharging:
             hass=mock_hass,
             entry=MagicMock(),
             coordinator=coordinator,  # type: ignore[arg-type]
-            vehicle_info={"vin": TEST_VIN, "id": TEST_VEHICLE_ID, "battery_capacity": 135.0},
+            vehicle_info={
+                "vin": TEST_VIN,
+                "id": TEST_VEHICLE_ID,
+                "battery_capacity": 135.0,
+            },
             store=store,
         )
         await tracker.async_setup()
@@ -908,7 +918,9 @@ class TestDriveTrackerCharging:
         assert tracker._park_start_soc is None
 
     @pytest.mark.asyncio
-    async def test_dcfc_session_finalized_on_shift_to_drive(self, mock_hass: Any) -> None:
+    async def test_dcfc_session_finalized_on_shift_to_drive(
+        self, mock_hass: Any
+    ) -> None:
         """Verify active DCFC session is cleanly finalized when shifting into drive."""
         coordinator = MockVehicleCoordinator()
         store = DriveStore(mock_hass, TEST_VIN)
@@ -916,7 +928,11 @@ class TestDriveTrackerCharging:
             hass=mock_hass,
             entry=MagicMock(),
             coordinator=coordinator,  # type: ignore[arg-type]
-            vehicle_info={"vin": TEST_VIN, "id": TEST_VEHICLE_ID, "battery_capacity": 135.0},
+            vehicle_info={
+                "vin": TEST_VIN,
+                "id": TEST_VEHICLE_ID,
+                "battery_capacity": 135.0,
+            },
             store=store,
         )
         await tracker.async_setup()
@@ -948,5 +964,3 @@ class TestDriveTrackerCharging:
         assert dcfc_sessions[0].start_soc == 30.0
         assert dcfc_sessions[0].end_soc == 75.0
         assert dcfc_sessions[0].max_power_kw == 150.0
-
-

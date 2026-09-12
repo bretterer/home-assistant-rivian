@@ -253,7 +253,9 @@ class TestParkDebounceLogic:
             cur.execute(
                 "INSERT INTO states_meta VALUES (1, 'sensor.r1s_test_gear_selector')"
             )
-            cur.execute("INSERT INTO states_meta VALUES (2, 'sensor.r1s_test_odometer')")
+            cur.execute(
+                "INSERT INTO states_meta VALUES (2, 'sensor.r1s_test_odometer')"
+            )
             cur.execute(
                 "INSERT INTO states_meta VALUES (3, 'sensor.r1s_test_battery_level')"
             )
@@ -622,4 +624,3 @@ class TestVampireEventReconstruction:
         assert event.rate_pct_per_day == round((0.5 / 8.0) * 24.0, 2)
         assert event.latitude == 43.61
         assert event.longitude == -116.21
-

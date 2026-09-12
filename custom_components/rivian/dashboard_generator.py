@@ -38,21 +38,75 @@ DCFC_REFERENCE_CURVES: dict[str, dict[str, Any]] = {
         "min_capacity": 0.0,
         "max_capacity": 115.0,
         "x": [10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90],
-        "y": [205, 205, 200, 195, 185, 170, 155, 140, 125, 110, 95, 82, 70, 58, 45, 32, 20],
+        "y": [
+            205,
+            205,
+            200,
+            195,
+            185,
+            170,
+            155,
+            140,
+            125,
+            110,
+            95,
+            82,
+            70,
+            58,
+            45,
+            32,
+            20,
+        ],
     },
     "large": {
         "name": "R1 Large Pack (135 kWh Ref)",
         "min_capacity": 115.0,
         "max_capacity": 139.0,
         "x": [10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90],
-        "y": [215, 215, 212, 208, 200, 185, 170, 155, 145, 130, 118, 105, 92, 78, 62, 45, 28],
+        "y": [
+            215,
+            215,
+            212,
+            208,
+            200,
+            185,
+            170,
+            155,
+            145,
+            130,
+            118,
+            105,
+            92,
+            78,
+            62,
+            45,
+            28,
+        ],
     },
     "max": {
         "name": "R1 Max Pack (149 kWh Ref)",
         "min_capacity": 139.0,
         "max_capacity": 200.0,
         "x": [10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90],
-        "y": [220, 220, 218, 215, 210, 198, 185, 172, 160, 146, 132, 118, 104, 88, 70, 50, 32],
+        "y": [
+            220,
+            220,
+            218,
+            215,
+            210,
+            198,
+            185,
+            172,
+            160,
+            146,
+            132,
+            118,
+            104,
+            88,
+            70,
+            50,
+            32,
+        ],
     },
 }
 
@@ -71,7 +125,9 @@ def _build_vehicle_analytics_view(
     eff_all_entity = f"{entity_prefix}efficiency_all_time"
     status_entity = f"{entity_prefix}drive_status"
     battery_cap_entity = f"{entity_prefix}battery_capacity"
-    battery_cap_fallback = f"sensor.{vehicle_name.lower().replace(' ', '_')}_battery_capacity"
+    battery_cap_fallback = (
+        f"sensor.{vehicle_name.lower().replace(' ', '_')}_battery_capacity"
+    )
 
     return {
         "title": f"{vehicle_name} Efficiency",
@@ -103,7 +159,10 @@ def _build_vehicle_analytics_view(
                         "badge_color": (
                             f"{{% if is_state('{status_entity}', 'Driving') %}}green{{% else %}}blue{{% endif %}}"
                         ),
-                        "tap_action": {"action": "more-info", "entity": last_eff_entity},
+                        "tap_action": {
+                            "action": "more-info",
+                            "entity": last_eff_entity,
+                        },
                     },
                     {
                         "type": "custom:mushroom-chips-card",
@@ -118,7 +177,10 @@ def _build_vehicle_analytics_view(
                                     f"({{{{ states('{mpge_30d_entity}') }}}} MPGe)"
                                 ),
                                 "entity": eff_30d_entity,
-                                "tap_action": {"action": "more-info", "entity": eff_30d_entity},
+                                "tap_action": {
+                                    "action": "more-info",
+                                    "entity": eff_30d_entity,
+                                },
                             },
                             {
                                 "type": "template",
@@ -129,7 +191,10 @@ def _build_vehicle_analytics_view(
                                     f"({{{{ state_attr('{eff_30d_entity}', 'stats_90d')?.mpge | default(states('{mpge_30d_entity}'), true) }}}} MPGe)"
                                 ),
                                 "entity": eff_30d_entity,
-                                "tap_action": {"action": "more-info", "entity": eff_30d_entity},
+                                "tap_action": {
+                                    "action": "more-info",
+                                    "entity": eff_30d_entity,
+                                },
                             },
                             {
                                 "type": "template",
@@ -140,7 +205,10 @@ def _build_vehicle_analytics_view(
                                     f"({{{{ state_attr('{eff_30d_entity}', 'stats_365d')?.mpge | default(states('{mpge_all_entity}'), true) }}}} MPGe)"
                                 ),
                                 "entity": eff_30d_entity,
-                                "tap_action": {"action": "more-info", "entity": eff_30d_entity},
+                                "tap_action": {
+                                    "action": "more-info",
+                                    "entity": eff_30d_entity,
+                                },
                             },
                             {
                                 "type": "template",
@@ -151,7 +219,10 @@ def _build_vehicle_analytics_view(
                                     f"({{{{ states('{mpge_all_entity}') }}}} MPGe)"
                                 ),
                                 "entity": eff_all_entity,
-                                "tap_action": {"action": "more-info", "entity": eff_all_entity},
+                                "tap_action": {
+                                    "action": "more-info",
+                                    "entity": eff_all_entity,
+                                },
                             },
                             {
                                 "type": "template",
@@ -159,14 +230,20 @@ def _build_vehicle_analytics_view(
                                 "icon_color": "teal",
                                 "content": f"Last MPGe: {{{{ states('{last_mpge_entity}') }}}}",
                                 "entity": last_mpge_entity,
-                                "tap_action": {"action": "more-info", "entity": last_mpge_entity},
+                                "tap_action": {
+                                    "action": "more-info",
+                                    "entity": last_mpge_entity,
+                                },
                             },
                             {
                                 "type": "entity",
                                 "entity": status_entity,
                                 "icon": "mdi:car",
                                 "icon_color": "blue",
-                                "tap_action": {"action": "more-info", "entity": status_entity},
+                                "tap_action": {
+                                    "action": "more-info",
+                                    "entity": status_entity,
+                                },
                             },
                         ],
                     },
@@ -443,7 +520,17 @@ def _build_vehicle_analytics_view(
                         "title": "Speed Range (mph)",
                         "type": "category",
                         "tickmode": "array",
-                        "tickvals": ["0-9", "10-19", "20-29", "30-39", "40-49", "50-59", "60-69", "70-79", "80+"],
+                        "tickvals": [
+                            "0-9",
+                            "10-19",
+                            "20-29",
+                            "30-39",
+                            "40-49",
+                            "50-59",
+                            "60-69",
+                            "70-79",
+                            "80+",
+                        ],
                     },
                     "yaxis": {
                         "title": "Total Miles",
@@ -460,9 +547,22 @@ def _build_vehicle_analytics_view(
                         "entity": "",
                         "name": "Miles in Speed Bin",
                         "type": "bar",
-                        "marker": {"color": "#26A69A", "line": {"width": 1, "color": "#ffffff"}},
+                        "marker": {
+                            "color": "#26A69A",
+                            "line": {"width": 1, "color": "#ffffff"},
+                        },
                         "hovertemplate": "Speed Bin: %{x} mph<br>Total Distance: %{y:.1f} miles<extra></extra>",
-                        "x": ["0-9", "10-19", "20-29", "30-39", "40-49", "50-59", "60-69", "70-79", "80+"],
+                        "x": [
+                            "0-9",
+                            "10-19",
+                            "20-29",
+                            "30-39",
+                            "40-49",
+                            "50-59",
+                            "60-69",
+                            "70-79",
+                            "80+",
+                        ],
                         "y": (
                             f"$ex (function() {{ "
                             f"const drives = hass.states['{eff_30d_entity}']?.attributes?.recent_drives; "
@@ -549,7 +649,12 @@ def _build_vehicle_analytics_view(
                         "jitter": 0.35,
                         "pointpos": 0,
                         "boxmean": True,
-                        "marker": {"symbol": "cross", "size": 6, "color": "#FF9800", "opacity": 0.8},
+                        "marker": {
+                            "symbol": "cross",
+                            "size": 6,
+                            "color": "#FF9800",
+                            "opacity": 0.8,
+                        },
                         "line": {"color": "#FF9800", "width": 1.5},
                         "fillcolor": "rgba(255, 152, 0, 0.25)",
                         "hovertemplate": "<b>Uphill Segment (+)</b><br>Speed Range: %{x} mph<br>Efficiency: %{y:.2f} mi/kWh<br>Avg Speed: %{customdata[0]:.1f} mph<br>Distance: %{customdata[1]:.2f} mi (%{customdata[2]:.0f}s)<br>Elevation Δh: %{customdata[3]:+.0f} ft<br>Temp: %{customdata[4]:.1f}°F<extra></extra>",
@@ -583,7 +688,12 @@ def _build_vehicle_analytics_view(
                         "jitter": 0.35,
                         "pointpos": 0,
                         "boxmean": True,
-                        "marker": {"symbol": "circle", "size": 6, "color": "#2196F3", "opacity": 0.8},
+                        "marker": {
+                            "symbol": "circle",
+                            "size": 6,
+                            "color": "#2196F3",
+                            "opacity": 0.8,
+                        },
                         "line": {"color": "#2196F3", "width": 1.5},
                         "fillcolor": "rgba(33, 150, 243, 0.25)",
                         "hovertemplate": "<b>Downhill Segment (o)</b><br>Speed Range: %{x} mph<br>Efficiency: %{y:.2f} mi/kWh<br>Avg Speed: %{customdata[0]:.1f} mph<br>Distance: %{customdata[1]:.2f} mi (%{customdata[2]:.0f}s)<br>Elevation Δh: %{customdata[3]:+.0f} ft<br>Temp: %{customdata[4]:.1f}°F<extra></extra>",
@@ -668,7 +778,12 @@ def _build_vehicle_analytics_view(
                         "jitter": 0.35,
                         "pointpos": 0,
                         "boxmean": True,
-                        "marker": {"symbol": "cross", "size": 6, "color": "#FF9800", "opacity": 0.8},
+                        "marker": {
+                            "symbol": "cross",
+                            "size": 6,
+                            "color": "#FF9800",
+                            "opacity": 0.8,
+                        },
                         "line": {"color": "#FF9800", "width": 1.5},
                         "fillcolor": "rgba(255, 152, 0, 0.25)",
                         "hovertemplate": "<b>Uphill Segment (+)</b><br>Speed Range: %{x} mph<br>MPGe: %{y:.1f} MPGe (%{customdata[0]:.2f} mi/kWh)<br>Avg Speed: %{customdata[1]:.1f} mph<br>Distance: %{customdata[2]:.2f} mi (%{customdata[3]:.0f}s)<br>Elevation Δh: %{customdata[4]:+.0f} ft<br>Temp: %{customdata[5]:.1f}°F<extra></extra>",
@@ -702,7 +817,12 @@ def _build_vehicle_analytics_view(
                         "jitter": 0.35,
                         "pointpos": 0,
                         "boxmean": True,
-                        "marker": {"symbol": "circle", "size": 6, "color": "#2196F3", "opacity": 0.8},
+                        "marker": {
+                            "symbol": "circle",
+                            "size": 6,
+                            "color": "#2196F3",
+                            "opacity": 0.8,
+                        },
                         "line": {"color": "#2196F3", "width": 1.5},
                         "fillcolor": "rgba(33, 150, 243, 0.25)",
                         "hovertemplate": "<b>Downhill Segment (o)</b><br>Speed Range: %{x} mph<br>MPGe: %{y:.1f} MPGe (%{customdata[0]:.2f} mi/kWh)<br>Avg Speed: %{customdata[1]:.1f} mph<br>Distance: %{customdata[2]:.2f} mi (%{customdata[3]:.0f}s)<br>Elevation Δh: %{customdata[4]:+.0f} ft<br>Temp: %{customdata[5]:.1f}°F<extra></extra>",
@@ -910,7 +1030,7 @@ def _build_vehicle_analytics_view(
                                 f"const sessions = (hass.states['{eff_30d_entity}']?.attributes?.recent_dcfc_sessions || []).slice(-10); "
                                 f"if ({idx} >= sessions.length) return ''; "
                                 f"const s = sessions[{idx}]; "
-                                f"const label = s.start_time ? s.start_time.substring(5, 16).replace('T', ' ') : 'Session {idx+1}'; "
+                                f"const label = s.start_time ? s.start_time.substring(5, 16).replace('T', ' ') : 'Session {idx + 1}'; "
                                 f"return label + ' (Peak: ' + Math.round(s.max_power_kw || 0) + ' kW)'; "
                                 f"}})()"
                             ),
@@ -929,7 +1049,7 @@ def _build_vehicle_analytics_view(
                                 f"const sessions = (hass.states['{eff_30d_entity}']?.attributes?.recent_dcfc_sessions || []).slice(-10); "
                                 f"if ({idx} >= sessions.length) return []; "
                                 f"const s = sessions[{idx}]; "
-                                f"const label = s.start_time ? s.start_time.substring(5, 16).replace('T', ' ') : 'Session {idx+1}'; "
+                                f"const label = s.start_time ? s.start_time.substring(5, 16).replace('T', ' ') : 'Session {idx + 1}'; "
                                 f"return (s.samples || []).map(pt => [label, s.energy_added_kwh || 0, s.max_power_kw || 0]); "
                                 f"}})()"
                             ),
@@ -964,7 +1084,11 @@ def _build_vehicle_analytics_view(
                             "type": "scatter",
                             "mode": "lines+markers",
                             "line": {"color": "#FFFFFF", "width": 3.5},
-                            "marker": {"size": 6, "color": "#FFFFFF", "symbol": "circle"},
+                            "marker": {
+                                "size": 6,
+                                "color": "#FFFFFF",
+                                "symbol": "circle",
+                            },
                             "customdata": (
                                 f"$ex (function() {{ "
                                 f"const sessions = hass.states['{eff_30d_entity}']?.attributes?.recent_dcfc_sessions || []; "
@@ -1009,7 +1133,11 @@ def _build_vehicle_analytics_view(
                             ),
                             "type": "scatter",
                             "mode": "lines",
-                            "line": {"color": "rgba(255, 255, 255, 0.3)", "width": 1.5, "dash": "dot"},
+                            "line": {
+                                "color": "rgba(255, 255, 255, 0.3)",
+                                "width": 1.5,
+                                "dash": "dot",
+                            },
                             "hovertemplate": (
                                 f"$ex (function() {{ "
                                 f"const cap = parseFloat(hass.states['{battery_cap_entity}']?.state || hass.states['{battery_cap_fallback}']?.state || 135.0); "
@@ -1017,7 +1145,25 @@ def _build_vehicle_analytics_view(
                                 "return '<b>Rivian ' + label + '</b><br>SoC: %{x}%<br>Power: %{y} kW<extra></extra>'; "
                                 f"}})()"
                             ),
-                            "x": [10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90],
+                            "x": [
+                                10,
+                                15,
+                                20,
+                                25,
+                                30,
+                                35,
+                                40,
+                                45,
+                                50,
+                                55,
+                                60,
+                                65,
+                                70,
+                                75,
+                                80,
+                                85,
+                                90,
+                            ],
                             "y": (
                                 f"$ex (function() {{ "
                                 f"const cap = parseFloat(hass.states['{battery_cap_entity}']?.state || hass.states['{battery_cap_fallback}']?.state || 135.0); "
@@ -1037,12 +1183,48 @@ def _build_vehicle_analytics_view(
                 "columns": 3,
                 "square": False,
                 "cards": [
-                    {"type": "custom:mushroom-entity-card", "entity": last_dist_entity, "name": "Last Distance", "icon": "mdi:map-marker-distance", "icon_color": "blue"},
-                    {"type": "custom:mushroom-entity-card", "entity": last_mpge_entity, "name": "Last MPGe", "icon": "mdi:gas-station-off", "icon_color": "teal"},
-                    {"type": "custom:mushroom-entity-card", "entity": status_entity, "name": "Drive Status", "icon": "mdi:car-electric", "icon_color": "green"},
-                    {"type": "custom:mushroom-entity-card", "entity": eff_30d_entity, "name": "30-Day Efficiency", "icon": "mdi:calendar-month", "icon_color": "green"},
-                    {"type": "custom:mushroom-entity-card", "entity": mpge_30d_entity, "name": "30-Day MPGe", "icon": "mdi:gauge", "icon_color": "teal"},
-                    {"type": "custom:mushroom-entity-card", "entity": eff_all_entity, "name": "All-Time Efficiency", "icon": "mdi:all-inclusive", "icon_color": "purple"},
+                    {
+                        "type": "custom:mushroom-entity-card",
+                        "entity": last_dist_entity,
+                        "name": "Last Distance",
+                        "icon": "mdi:map-marker-distance",
+                        "icon_color": "blue",
+                    },
+                    {
+                        "type": "custom:mushroom-entity-card",
+                        "entity": last_mpge_entity,
+                        "name": "Last MPGe",
+                        "icon": "mdi:gas-station-off",
+                        "icon_color": "teal",
+                    },
+                    {
+                        "type": "custom:mushroom-entity-card",
+                        "entity": status_entity,
+                        "name": "Drive Status",
+                        "icon": "mdi:car-electric",
+                        "icon_color": "green",
+                    },
+                    {
+                        "type": "custom:mushroom-entity-card",
+                        "entity": eff_30d_entity,
+                        "name": "30-Day Efficiency",
+                        "icon": "mdi:calendar-month",
+                        "icon_color": "green",
+                    },
+                    {
+                        "type": "custom:mushroom-entity-card",
+                        "entity": mpge_30d_entity,
+                        "name": "30-Day MPGe",
+                        "icon": "mdi:gauge",
+                        "icon_color": "teal",
+                    },
+                    {
+                        "type": "custom:mushroom-entity-card",
+                        "entity": eff_all_entity,
+                        "name": "All-Time Efficiency",
+                        "icon": "mdi:all-inclusive",
+                        "icon_color": "purple",
+                    },
                 ],
             },
         ],
@@ -1074,14 +1256,62 @@ def _build_core_fallback_view(
                 "columns": 2,
                 "square": False,
                 "cards": [
-                    {"type": "tile", "entity": last_eff_entity, "name": "Last Drive Efficiency", "icon": "mdi:leaf", "color": "green"},
-                    {"type": "tile", "entity": last_dist_entity, "name": "Last Drive Distance", "icon": "mdi:map-marker-distance", "color": "blue"},
-                    {"type": "tile", "entity": last_mpge_entity, "name": "Last Drive MPGe", "icon": "mdi:gas-station-off", "color": "teal"},
-                    {"type": "tile", "entity": status_entity, "name": "Drive Status", "icon": "mdi:car-electric", "color": "amber"},
-                    {"type": "tile", "entity": eff_30d_entity, "name": "30-Day Efficiency", "icon": "mdi:calendar-month", "color": "green"},
-                    {"type": "tile", "entity": mpge_30d_entity, "name": "30-Day MPGe", "icon": "mdi:gauge", "color": "teal"},
-                    {"type": "tile", "entity": eff_all_entity, "name": "All-Time Efficiency", "icon": "mdi:all-inclusive", "color": "purple"},
-                    {"type": "tile", "entity": mpge_all_entity, "name": "All-Time MPGe", "icon": "mdi:gas-station-off", "color": "indigo"},
+                    {
+                        "type": "tile",
+                        "entity": last_eff_entity,
+                        "name": "Last Drive Efficiency",
+                        "icon": "mdi:leaf",
+                        "color": "green",
+                    },
+                    {
+                        "type": "tile",
+                        "entity": last_dist_entity,
+                        "name": "Last Drive Distance",
+                        "icon": "mdi:map-marker-distance",
+                        "color": "blue",
+                    },
+                    {
+                        "type": "tile",
+                        "entity": last_mpge_entity,
+                        "name": "Last Drive MPGe",
+                        "icon": "mdi:gas-station-off",
+                        "color": "teal",
+                    },
+                    {
+                        "type": "tile",
+                        "entity": status_entity,
+                        "name": "Drive Status",
+                        "icon": "mdi:car-electric",
+                        "color": "amber",
+                    },
+                    {
+                        "type": "tile",
+                        "entity": eff_30d_entity,
+                        "name": "30-Day Efficiency",
+                        "icon": "mdi:calendar-month",
+                        "color": "green",
+                    },
+                    {
+                        "type": "tile",
+                        "entity": mpge_30d_entity,
+                        "name": "30-Day MPGe",
+                        "icon": "mdi:gauge",
+                        "color": "teal",
+                    },
+                    {
+                        "type": "tile",
+                        "entity": eff_all_entity,
+                        "name": "All-Time Efficiency",
+                        "icon": "mdi:all-inclusive",
+                        "color": "purple",
+                    },
+                    {
+                        "type": "tile",
+                        "entity": mpge_all_entity,
+                        "name": "All-Time MPGe",
+                        "icon": "mdi:gas-station-off",
+                        "color": "indigo",
+                    },
                 ],
             },
             {
@@ -1122,7 +1352,9 @@ async def async_discover_vehicle_prefixes(hass: HomeAssistant) -> list[tuple[str
                 for entity_id in hass.states.async_entity_ids("sensor"):
                     if entity_id.endswith("_last_drive_efficiency") and (
                         (vin and vin.lower() in entity_id.lower())
-                        or (name and name.lower().replace(" ", "_") in entity_id.lower())
+                        or (
+                            name and name.lower().replace(" ", "_") in entity_id.lower()
+                        )
                         or "rivian" in entity_id.lower()
                     ):
                         prefix = entity_id[: -len("last_drive_efficiency")]
@@ -1151,7 +1383,9 @@ async def async_create_efficiency_dashboard(
     vehicles = await async_discover_vehicle_prefixes(hass)
 
     if not vehicles:
-        _LOGGER.warning("No Rivian vehicle efficiency entities found to generate dashboard")
+        _LOGGER.warning(
+            "No Rivian vehicle efficiency entities found to generate dashboard"
+        )
         vehicles = [("Rivian", "sensor.rivian_")]
 
     views: list[dict[str, Any]] = []
@@ -1180,15 +1414,17 @@ async def async_create_efficiency_dashboard(
         existing["icon"] = icon
         existing["show_in_sidebar"] = True
     else:
-        items.append({
-            "id": dashboard_id,
-            "title": title,
-            "icon": icon,
-            "url_path": url_path,
-            "mode": "storage",
-            "require_admin": False,
-            "show_in_sidebar": True,
-        })
+        items.append(
+            {
+                "id": dashboard_id,
+                "title": title,
+                "icon": icon,
+                "url_path": url_path,
+                "mode": "storage",
+                "require_admin": False,
+                "show_in_sidebar": True,
+            }
+        )
 
     dashboards_data["items"] = items
     await dashboards_store.async_save(dashboards_data)
@@ -1206,13 +1442,21 @@ async def async_create_efficiency_dashboard(
             auto_config = auto_data["config"]
             auto_views = auto_config.get("views", [])
             eff_cards = views[0].get("cards", [])
-            plotly_cards = [c for c in eff_cards if c.get("type") == "custom:plotly-graph"]
+            plotly_cards = [
+                c for c in eff_cards if c.get("type") == "custom:plotly-graph"
+            ]
 
             # Update View 0 Section 2 cards if sections exist
-            if auto_views and "sections" in auto_views[0] and len(auto_views[0]["sections"]) >= 3:
+            if (
+                auto_views
+                and "sections" in auto_views[0]
+                and len(auto_views[0]["sections"]) >= 3
+            ):
                 sec2 = auto_views[0]["sections"][2]
                 sec2_cards = sec2.get("cards", [])
-                non_plotly = [c for c in sec2_cards if c.get("type") != "custom:plotly-graph"]
+                non_plotly = [
+                    c for c in sec2_cards if c.get("type") != "custom:plotly-graph"
+                ]
                 sec2["cards"] = non_plotly + plotly_cards
 
             # Update or append View 2 'Efficiency & Analytics' tab
@@ -1225,16 +1469,22 @@ async def async_create_efficiency_dashboard(
                     has_eff = True
                     break
             if not has_eff:
-                auto_views.append({
-                    "title": "Efficiency & Analytics",
-                    "path": "efficiency",
-                    "icon": "mdi:chart-scatter-plot",
-                    "cards": eff_cards,
-                })
+                auto_views.append(
+                    {
+                        "title": "Efficiency & Analytics",
+                        "path": "efficiency",
+                        "icon": "mdi:chart-scatter-plot",
+                        "cards": eff_cards,
+                    }
+                )
 
             await auto_store.async_save(auto_data)
-            hass.bus.async_fire("lovelace_updated", {"url_path": "dashboard-automobiles"})
-            _LOGGER.info("Successfully synced efficiency view into dashboard-automobiles")
+            hass.bus.async_fire(
+                "lovelace_updated", {"url_path": "dashboard-automobiles"}
+            )
+            _LOGGER.info(
+                "Successfully synced efficiency view into dashboard-automobiles"
+            )
     except Exception as err:  # noqa: BLE001
         _LOGGER.debug("Could not auto-inject into dashboard_automobiles: %s", err)
 

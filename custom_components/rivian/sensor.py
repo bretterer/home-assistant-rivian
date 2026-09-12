@@ -641,13 +641,19 @@ class RivianDriveSensorEntity(RivianVehicleEntity, SensorEntity):
                                 "miles": round(
                                     v.miles
                                     if hasattr(v, "miles")
-                                    else (v.get("miles", 0) if isinstance(v, dict) else v),
+                                    else (
+                                        v.get("miles", 0) if isinstance(v, dict) else v
+                                    ),
                                     2,
                                 ),
                                 "seconds": round(
                                     v.seconds
                                     if hasattr(v, "seconds")
-                                    else (v.get("seconds", 0) if isinstance(v, dict) else 0),
+                                    else (
+                                        v.get("seconds", 0)
+                                        if isinstance(v, dict)
+                                        else 0
+                                    ),
                                     0,
                                 ),
                             }
@@ -672,7 +678,9 @@ class RivianDriveSensorEntity(RivianVehicleEntity, SensorEntity):
                             s_dict["temp_f"] = round(d.integrated_temperature_f, 1)
                         if "mpge" not in s_dict or s_dict["mpge"] is None:
                             s_dict["mpge"] = round(
-                                float(s_dict.get("efficiency_mi_kwh", 0.0)) * MPGE_FACTOR, 1
+                                float(s_dict.get("efficiency_mi_kwh", 0.0))
+                                * MPGE_FACTOR,
+                                1,
                             )
                         recent_segments.append(s_dict)
 

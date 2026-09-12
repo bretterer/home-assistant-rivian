@@ -1026,9 +1026,7 @@ async def async_backfill_from_recorder(
     vampire_needing_weather = [
         v
         for v in vampire_events
-        if v.latitude is not None
-        and v.longitude is not None
-        and v.avg_temp_f is None
+        if v.latitude is not None and v.longitude is not None and v.avg_temp_f is None
     ]
 
     if drives_needing_weather or vampire_needing_weather:
@@ -1037,12 +1035,16 @@ async def async_backfill_from_recorder(
         for d in drives_needing_weather:
             if d.start_lat is not None and d.start_lon is not None:
                 grid_key = (round(d.start_lat, 1), round(d.start_lon, 1))
-                grid_map.setdefault(grid_key, {"drives": [], "vampire": []})["drives"].append(d)
+                grid_map.setdefault(grid_key, {"drives": [], "vampire": []})[
+                    "drives"
+                ].append(d)
 
         for v in vampire_needing_weather:
             if v.latitude is not None and v.longitude is not None:
                 grid_key = (round(v.latitude, 1), round(v.longitude, 1))
-                grid_map.setdefault(grid_key, {"drives": [], "vampire": []})["vampire"].append(v)
+                grid_map.setdefault(grid_key, {"drives": [], "vampire": []})[
+                    "vampire"
+                ].append(v)
 
         for (grid_lat, grid_lon), items in grid_map.items():
             grid_drives: list[DriveRecord] = items["drives"]

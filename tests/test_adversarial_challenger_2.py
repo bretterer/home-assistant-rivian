@@ -136,16 +136,12 @@ class TestAdversarialDriveTrackerTransitions:
     @pytest.fixture
     def tracker_setup(
         self, mock_hass: Any
-    ) -> tuple[
-        DriveTracker, ControllableVehicleCoordinator, DriveStore, AsyncMock
-    ]:
+    ) -> tuple[DriveTracker, ControllableVehicleCoordinator, DriveStore, AsyncMock]:
         """Set up tracker with mock coordinator, store, and weather client."""
         coordinator = ControllableVehicleCoordinator()
         store = DriveStore(mock_hass, TEST_VIN)
         weather_client = AsyncMock(spec=OpenMeteoWeatherClient)
-        weather_client.async_get_current_temperature = AsyncMock(
-            return_value=72.0
-        )
+        weather_client.async_get_current_temperature = AsyncMock(return_value=72.0)
 
         vehicle_info = {
             "vin": TEST_VIN,
@@ -174,9 +170,7 @@ class TestAdversarialDriveTrackerTransitions:
         """Stress test: Rapid oscillations Park -> Drive -> Reverse -> Drive -> Park within debounce."""
         tracker, coordinator, store, _ = tracker_setup
         start_odo = 1609344.0  # 1000.0 mi
-        coordinator.set_telemetry(
-            gear="park", odometer_m=start_odo, battery_soc=80.0
-        )
+        coordinator.set_telemetry(gear="park", odometer_m=start_odo, battery_soc=80.0)
         await tracker.async_setup()
 
         assert tracker.is_driving is False
@@ -265,9 +259,7 @@ class TestAdversarialDriveTrackerTransitions:
         assert tracker.is_driving is False
         assert tracker.is_debouncing_park is False
         assert len(store.drives) == 1
-        assert record.distance_miles == pytest.approx(
-            3250.0 / 1609.344, rel=1e-2
-        )
+        assert record.distance_miles == pytest.approx(3250.0 / 1609.344, rel=1e-2)
         assert record.energy_kwh == pytest.approx(
             (80.0 - 78.9) * 135.0 / 100.0, rel=1e-2
         )
@@ -311,9 +303,7 @@ class TestAdversarialDriveTrackerTransitions:
         """Debounce boundary test: Resuming drive at 59s cancels debounce and keeps trip open."""
         tracker, coordinator, store, _ = tracker_setup
         start_odo = 100000.0
-        coordinator.set_telemetry(
-            gear="park", odometer_m=start_odo, battery_soc=80.0
-        )
+        coordinator.set_telemetry(gear="park", odometer_m=start_odo, battery_soc=80.0)
         await tracker.async_setup()
 
         # Start drive at start_odo
@@ -388,9 +378,7 @@ class TestAdversarialDriveTrackerTransitions:
         """Debounce boundary test: Waiting 61s (timer expires) finalizes trip 1, new shift starts trip 2."""
         tracker, coordinator, store, _ = tracker_setup
         start_odo = 100000.0
-        coordinator.set_telemetry(
-            gear="park", odometer_m=start_odo, battery_soc=80.0
-        )
+        coordinator.set_telemetry(gear="park", odometer_m=start_odo, battery_soc=80.0)
         await tracker.async_setup()
 
         # Start trip 1 at start_odo
@@ -525,9 +513,7 @@ class TestAdversarialDriveTrackerTransitions:
         await tracker.async_setup()
 
         # Trip 1: Exactly 0.49 miles
-        coordinator.set_telemetry(
-            gear="drive", odometer_m=start_odo, speed_mps=0.0
-        )
+        coordinator.set_telemetry(gear="drive", odometer_m=start_odo, speed_mps=0.0)
         coordinator.set_telemetry(
             gear="drive",
             odometer_m=start_odo + (0.49 * 1609.344),
@@ -547,9 +533,7 @@ class TestAdversarialDriveTrackerTransitions:
 
         # Trip 2: Exactly 0.50 miles
         start_odo2 = start_odo + 1000.0
-        coordinator.set_telemetry(
-            gear="drive", odometer_m=start_odo2, speed_mps=0.0
-        )
+        coordinator.set_telemetry(gear="drive", odometer_m=start_odo2, speed_mps=0.0)
         coordinator.set_telemetry(
             gear="drive",
             odometer_m=start_odo2 + (0.50 * 1609.344),
@@ -576,9 +560,7 @@ class TestAdversarialDriveTrackerTransitions:
         tracker, coordinator, _store, _ = tracker_setup
         start_odo = 100000.0
         # Start at 70.0% SOC
-        coordinator.set_telemetry(
-            gear="park", odometer_m=start_odo, battery_soc=70.0
-        )
+        coordinator.set_telemetry(gear="park", odometer_m=start_odo, battery_soc=70.0)
         await tracker.async_setup()
 
         # Drive 5.0 miles downhill with strong regen -> Battery increases to 71.0%
@@ -638,9 +620,7 @@ class TestAdversarialWeatherResilience:
         mock_session.get.return_value = MockClientResponse(
             status=500, json_data={"error": True}
         )
-        weather_client = OpenMeteoWeatherClient(
-            hass=mock_hass, session=mock_session
-        )
+        weather_client = OpenMeteoWeatherClient(hass=mock_hass, session=mock_session)
 
         coordinator = ControllableVehicleCoordinator()
         store = DriveStore(mock_hass, TEST_VIN)
@@ -659,9 +639,7 @@ class TestAdversarialWeatherResilience:
         )
 
         start_odo = 100000.0
-        coordinator.set_telemetry(
-            gear="park", odometer_m=start_odo, battery_soc=80.0
-        )
+        coordinator.set_telemetry(gear="park", odometer_m=start_odo, battery_soc=80.0)
         await tracker.async_setup()
 
         # Start drive at start_odo
@@ -685,9 +663,7 @@ class TestAdversarialWeatherResilience:
         record = await tracker.async_finalize_drive()
         assert record is not None
         assert record.distance_miles == pytest.approx(20.0, rel=1e-2)
-        assert record.energy_kwh == pytest.approx(
-            6.0 * 135.0 / 100.0, rel=1e-2
-        )
+        assert record.energy_kwh == pytest.approx(6.0 * 135.0 / 100.0, rel=1e-2)
         # Weather failed gracefully, fallback is None
         assert record.integrated_temperature_f is None
         assert record.weather_samples == []
@@ -702,9 +678,7 @@ class TestAdversarialWeatherResilience:
         mock_session.get.side_effect = asyncio.TimeoutError(
             "Open-Meteo connection timed out"
         )
-        weather_client = OpenMeteoWeatherClient(
-            hass=mock_hass, session=mock_session
-        )
+        weather_client = OpenMeteoWeatherClient(hass=mock_hass, session=mock_session)
 
         coordinator = ControllableVehicleCoordinator()
         store = DriveStore(mock_hass, TEST_VIN)
@@ -747,9 +721,7 @@ class TestAdversarialWeatherResilience:
         assert record.integrated_temperature_f is None
 
     @pytest.mark.asyncio
-    async def test_client_connection_error_resilience(
-        self, mock_hass: Any
-    ) -> None:
+    async def test_client_connection_error_resilience(self, mock_hass: Any) -> None:
         """Verify OpenMeteoWeatherClient catches aiohttp.ClientConnectionError."""
         mock_session = MagicMock()
         mock_session.get.side_effect = aiohttp.ClientConnectionError(
@@ -847,10 +819,8 @@ class TestAdversarialWeatherResilience:
         assert archive_res is None
 
         # Test interpolated temperature for timestamp returns None
-        interp_res = (
-            await client.async_get_historical_temperature_for_timestamp(
-                39.7392, -104.9903, "2026-08-20T14:30:00Z"
-            )
+        interp_res = await client.async_get_historical_temperature_for_timestamp(
+            39.7392, -104.9903, "2026-08-20T14:30:00Z"
         )
         assert interp_res is None
 
@@ -875,12 +845,8 @@ class TestAdversarialWeatherResilience:
     def test_interpolated_temperature_boundary_clamping(self) -> None:
         """Test timestamp interpolation clamps properly at bounds."""
         hourly = {"2026-08-20T10:00": 65.0, "2026-08-20T11:00": 75.0}
-        assert (
-            get_interpolated_temperature(hourly, "2026-08-20T09:00:00Z") == 65.0
-        )
-        assert (
-            get_interpolated_temperature(hourly, "2026-08-20T12:00:00Z") == 75.0
-        )
+        assert get_interpolated_temperature(hourly, "2026-08-20T09:00:00Z") == 65.0
+        assert get_interpolated_temperature(hourly, "2026-08-20T12:00:00Z") == 75.0
 
 
 # ==============================================================================
@@ -917,13 +883,9 @@ class TestAdversarialDashboardValidation:
         self, dashboard_raw_fixture: str
     ) -> None:
         """Verify hex color codes: Downhill #1E88E5, Flat #43A047, Uphill #FB8C00."""
-        assert "#1E88E5" in dashboard_raw_fixture, (
-            "Downhill hex code #1E88E5 missing"
-        )
+        assert "#1E88E5" in dashboard_raw_fixture, "Downhill hex code #1E88E5 missing"
         assert "#43A047" in dashboard_raw_fixture, "Flat hex code #43A047 missing"
-        assert "#FB8C00" in dashboard_raw_fixture, (
-            "Uphill hex code #FB8C00 missing"
-        )
+        assert "#FB8C00" in dashboard_raw_fixture, "Uphill hex code #FB8C00 missing"
 
     def test_all_8_entity_ids_present_in_dashboard(
         self, dashboard_raw_fixture: str
@@ -941,9 +903,7 @@ class TestAdversarialDashboardValidation:
         ]
         for key in expected_keys:
             entity_id = f"sensor.{{vin}}_{key}"
-            assert entity_id in dashboard_raw_fixture, (
-                f"Entity {entity_id} missing"
-            )
+            assert entity_id in dashboard_raw_fixture, f"Entity {entity_id} missing"
 
     def test_core_card_fallback_view_validity(
         self, dashboard_parsed_fixture: dict[str, Any]
