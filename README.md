@@ -117,7 +117,10 @@ Note: If you are having issues with pairing your vehicle, we recommend investing
 | Door Rear Right Lock                                | Binary Sensor  | Locked/unlocked status                 |
 | Door State                                          | Binary Sensor  | Open/closed status of all doors        |
 | Drive Mode                                          | Sensor         |                                        |
+| Drive Status                                        | Sensor         | Active driving status (parked, driving) |
 | Driver Temperature                                  | Sensor         |                                        |
+| Efficiency (30 days)                                | Sensor         | Rolling 30-day average drive efficiency |
+| Efficiency (all-time)                               | Sensor         | Lifetime average drive efficiency      |
 | Estimated Vehicle Range                             | Sensor         |                                        |
 | Front Trunk                                         | Binary Sensor  | Open/closed status                     |
 | Front Trunk Lock                                    | Binary Sensor  | Locked/unlocked status                 |
@@ -139,6 +142,9 @@ Note: If you are having issues with pairing your vehicle, we recommend investing
 | Heated Seat Rear Right                              | Binary Sensor  | Running/not running status             |
 | Heated Steering Wheel                               | Binary Sensor  | Running/not running status             |
 | In Use State                                        | Binary Sensor  | Moving/stopped status                  |
+| Last Drive Distance                                 | Sensor         | Distance traveled during last drive    |
+| Last Drive Efficiency                               | Sensor         | Energy efficiency of last drive        |
+| Last Drive MPGe                                     | Sensor         | MPGe equivalent of last drive          |
 | Liftgate                                            | Binary Sensor  | Open/close status                      |
 | Liftgate Lock                                       | Binary Sensor  | Locked/unlocked status                 |
 | Liftgate Next Action                                | Sensor         |                                        |
@@ -146,6 +152,8 @@ Note: If you are having issues with pairing your vehicle, we recommend investing
 | Limited Regenerative Braking (Cold)                 | Sensor         |                                        |
 | Location                                            | Device Tracker |                                        |
 | Locked State                                        | Binary Sensor  | Locked/unlocked status of all closures |
+| MPGe (30 days)                                      | Sensor         | Rolling 30-day MPGe equivalent         |
+| MPGe (all-time)                                     | Sensor         | Lifetime MPGe equivalent               |
 | Odometer                                            | Sensor         |                                        |
 | Pet Mode                                            | Binary Sensor  | Running/not running status             |
 | Pet Mode Temperature Status                         | Sensor         |                                        |
@@ -232,6 +240,18 @@ Note: If you are having issues with pairing your vehicle, we recommend investing
 | Tonneau                        | Cover   | Open/close powered tonneau, R1T only                                                                                                                      |
 | Wake                           | Button  | Wake vehicle                                                                                                                                              |
 | Windows                        | Cover   | Vent/close all windows                                                                                                                                    |
+
+## Services
+
+### `rivian.backfill_drive_history`
+
+Reconstruct past drive efficiency and MPGe from Home Assistant recorder history without modifying the SQLite database.
+
+| Service Data Attribute | Optional | Description |
+| ---------------------- | -------- | ----------- |
+| `vin`                  | yes      | Specific vehicle VIN to backfill (leave blank for all configured vehicles). |
+| `days`                 | yes      | Number of past days of history to backfill (defaults to 365 days). |
+| `dry_run`              | yes      | If true, analyzes and logs detected drives in Home Assistant logs without saving to storage (default: true). |
 
 ## Special Thanks
 
