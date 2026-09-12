@@ -565,8 +565,9 @@ class TestServiceRegistration:
             assert setup_ok is True
 
         assert mock_hass.services.has_service(DOMAIN, "backfill_drive_history")
+        assert mock_hass.services.has_service(DOMAIN, "create_efficiency_dashboard")
 
-        # Test calling service
+        # Test calling service with default dry_run (should default to True)
         with patch(
             "custom_components.rivian.async_backfill_from_recorder",
             new_callable=AsyncMock,
@@ -576,7 +577,6 @@ class TestServiceRegistration:
                 "backfill_drive_history",
                 service_data={
                     "vin": TEST_VIN,
-                    "dry_run": True,
                     "db_path": FIXTURE_DB_PATH,
                 },
             )
@@ -589,13 +589,37 @@ class TestServiceRegistration:
                 store=ANY,
             )
 
-        # Test unload cleans up service
+        # Test calling service with explicit dry_run=False
+        with patch(
+            "custom_components.rivian.async_backfill_from_recorder",
+            new_callable=AsyncMock,
+        ) as mock_backfill_live:
+            await mock_hass.services.async_call(
+                DOMAIN,
+                "backfill_drive_history",
+                service_data={
+                    "vin": TEST_VIN,
+                    "dry_run": False,
+                    "db_path": FIXTURE_DB_PATH,
+                },
+            )
+            mock_backfill_live.assert_called_once_with(
+                hass=mock_hass,
+                vin=TEST_VIN,
+                days=None,
+                dry_run=False,
+                db_path=FIXTURE_DB_PATH,
+                store=ANY,
+            )
+
+        # Test unload cleans up both services
         with patch(
             "custom_components.rivian.get_rivian_api_from_entry", return_value=mock_api
         ):
             await async_unload_entry(mock_hass, mock_config_entry)
 
         assert not mock_hass.services.has_service(DOMAIN, "backfill_drive_history")
+        assert not mock_hass.services.has_service(DOMAIN, "create_efficiency_dashboard")
 
 
 class TestVampireEventReconstruction:

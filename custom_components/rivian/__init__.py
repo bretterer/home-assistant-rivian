@@ -71,7 +71,7 @@ BACKFILL_SERVICE_SCHEMA = vol.Schema(
     {
         vol.Optional("vin"): cv.string,
         vol.Optional("days"): vol.Coerce(int),
-        vol.Optional("dry_run", default=False): cv.boolean,
+        vol.Optional("dry_run", default=True): cv.boolean,
         vol.Optional("db_path"): cv.string,
     }
 )
@@ -276,7 +276,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         """Handle backfill historical drives service call."""
         vin = call.data.get("vin")
         days = call.data.get("days")
-        dry_run = call.data.get("dry_run", False)
+        dry_run = call.data.get("dry_run", True)
         db_path = call.data.get("db_path")
 
         target_vins: list[str] = []
@@ -377,10 +377,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id, None)
 
-    if not hass.data.get(DOMAIN) and hass.services.has_service(
-        DOMAIN, SERVICE_BACKFILL_DRIVE_HISTORY
-    ):
-        hass.services.async_remove(DOMAIN, SERVICE_BACKFILL_DRIVE_HISTORY)
+    if not hass.data.get(DOMAIN):
+        if hass.services.has_service(DOMAIN, SERVICE_BACKFILL_DRIVE_HISTORY):
+            hass.services.async_remove(DOMAIN, SERVICE_BACKFILL_DRIVE_HISTORY)
+        if hass.services.has_service(DOMAIN, SERVICE_CREATE_EFFICIENCY_DASHBOARD):
+            hass.services.async_remove(DOMAIN, SERVICE_CREATE_EFFICIENCY_DASHBOARD)
 
     return unload_ok
 

@@ -220,6 +220,26 @@ class TestTranslationFiles:
             assert key in en_sensors
             assert strings_sensors[key]["name"] == en_sensors[key]["name"]
 
+        # Verify services parity
+        assert "services" in strings_data
+        assert "services" in en_data
+        strings_services = strings_data["services"]
+        en_services = en_data["services"]
+
+        for svc in ("backfill_drive_history", "create_efficiency_dashboard"):
+            assert svc in strings_services, f"Missing service {svc} in strings.json"
+            assert svc in en_services, f"Missing service {svc} in en.json"
+            assert strings_services[svc]["name"] == en_services[svc]["name"]
+            assert (
+                strings_services[svc]["description"] == en_services[svc]["description"]
+            )
+            for f_key in strings_services[svc]["fields"]:
+                assert f_key in en_services[svc]["fields"]
+                assert (
+                    strings_services[svc]["fields"][f_key]["name"]
+                    == en_services[svc]["fields"][f_key]["name"]
+                )
+
 
 class TestConstDefinitions:
     """Tests for constants and entity descriptions in const.py."""

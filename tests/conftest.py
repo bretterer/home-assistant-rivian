@@ -303,8 +303,8 @@ def _setup_mock_environment() -> None:
             "homeassistant.helpers.issue_registry", is_package=False
         )
         helpers_mod.issue_registry.IssueSeverity = MagicMock()  # type: ignore[attr-defined]
-        helpers_mod.issue_registry.async_create_issue = AsyncMock()  # type: ignore[attr-defined]
-        helpers_mod.issue_registry.async_delete_issue = AsyncMock()  # type: ignore[attr-defined]
+        helpers_mod.issue_registry.async_create_issue = MagicMock()  # type: ignore[attr-defined]
+        helpers_mod.issue_registry.async_delete_issue = MagicMock()  # type: ignore[attr-defined]
 
         class MockDataUpdateCoordinator(Generic[T]):
             """Mock DataUpdateCoordinator."""

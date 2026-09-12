@@ -137,6 +137,24 @@
           "description": "Simulate backfill without writing to storage."
         }
       }
+    },
+    "create_efficiency_dashboard": {
+      "name": "Create efficiency dashboard",
+      "description": "Automatically generate and register a turnkey Rivian Efficiency dashboard with bundled Plotly scatterplots and telemetry cards in your Home Assistant sidebar.",
+      "fields": {
+        "title": {
+          "name": "Dashboard Title",
+          "description": "Title displayed in the sidebar and header."
+        },
+        "icon": {
+          "name": "Sidebar Icon",
+          "description": "Material Design icon for the sidebar navigation."
+        },
+        "url_path": {
+          "name": "URL Path",
+          "description": "URL slug for the dashboard."
+        }
+      }
     }
   },
   "issues": {
