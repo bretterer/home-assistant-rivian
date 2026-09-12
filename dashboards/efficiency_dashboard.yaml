@@ -281,7 +281,312 @@ views:
                 });
               })()
 
-      # Section 4: Detailed Drive Statistics Grid
+      # Section 4: MPGe Distribution by Speed Range (Box Plot)
+      - type: custom:plotly-graph
+        raw_plotly_config: true
+        title: MPGe Distribution by Speed Range (Box Plot)
+        layout:
+          xaxis:
+            title: Speed Range (mph)
+            type: category
+            categoryorder: array
+            categoryarray: ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+']
+            tickmode: array
+            tickvals: ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+']
+          yaxis:
+            title: Segment MPGe (miles / 33.705 kWh)
+            type: linear
+            autorange: true
+            gridcolor: '#444444'
+            zeroline: false
+          boxmode: group
+          boxgroupgap: 0.1
+          boxgap: 0.15
+          legend:
+            orientation: h
+            y: -0.25
+            x: 0.05
+          margin:
+            l: 50
+            r: 20
+            t: 40
+            b: 60
+        config:
+          displayModeBar: false
+        entities:
+          - entity: ''
+            name: Uphill (+)
+            type: box
+            boxpoints: all
+            jitter: 0.35
+            pointpos: 0
+            boxmean: true
+            marker:
+              symbol: cross
+              size: 6
+              color: '#FF9800'
+              opacity: 0.8
+            line:
+              color: '#FF9800'
+              width: 1.5
+            fillcolor: 'rgba(255, 152, 0, 0.25)'
+            hovertemplate: >-
+              <b>Uphill Segment (+)</b><br>Speed Range: %{x} mph<br>MPGe: %{y:.1f} MPGe (%{customdata[0]:.2f} mi/kWh)<br>Avg Speed: %{customdata[1]:.1f} mph<br>Distance: %{customdata[2]:.2f} mi (%{customdata[3]:.0f}s)<br>Elevation Δh: %{customdata[4]:+.0f} ft<br>Temp: %{customdata[5]:.1f}°F<extra></extra>
+            x: >-
+              $ex (function() {
+                const order = ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+'];
+                const segs = (hass.states['sensor.{vin}_efficiency_30d']?.attributes?.recent_segments || []).filter(s => s.elevation_change_ft >= 0).sort((a, b) => order.indexOf(a.speed_bin) - order.indexOf(b.speed_bin));
+                return segs.map(s => s.speed_bin);
+              })()
+            y: >-
+              $ex (function() {
+                const order = ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+'];
+                const segs = (hass.states['sensor.{vin}_efficiency_30d']?.attributes?.recent_segments || []).filter(s => s.elevation_change_ft >= 0).sort((a, b) => order.indexOf(a.speed_bin) - order.indexOf(b.speed_bin));
+                return segs.map(s => s.mpge || Math.round((s.efficiency_mi_kwh || 0) * 33.705 * 10) / 10);
+              })()
+            customdata: >-
+              $ex (function() {
+                const order = ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+'];
+                const segs = (hass.states['sensor.{vin}_efficiency_30d']?.attributes?.recent_segments || []).filter(s => s.elevation_change_ft >= 0).sort((a, b) => order.indexOf(a.speed_bin) - order.indexOf(b.speed_bin));
+                return segs.map(s => [s.efficiency_mi_kwh, s.avg_speed_mph, s.distance_miles, s.duration_seconds, s.elevation_change_ft, s.temp_f || 70]);
+              })()
+
+          - entity: ''
+            name: Downhill (o)
+            type: box
+            boxpoints: all
+            jitter: 0.35
+            pointpos: 0
+            boxmean: true
+            marker:
+              symbol: circle
+              size: 6
+              color: '#2196F3'
+              opacity: 0.8
+            line:
+              color: '#2196F3'
+              width: 1.5
+            fillcolor: 'rgba(33, 150, 243, 0.25)'
+            hovertemplate: >-
+              <b>Downhill Segment (o)</b><br>Speed Range: %{x} mph<br>MPGe: %{y:.1f} MPGe (%{customdata[0]:.2f} mi/kWh)<br>Avg Speed: %{customdata[1]:.1f} mph<br>Distance: %{customdata[2]:.2f} mi (%{customdata[3]:.0f}s)<br>Elevation Δh: %{customdata[4]:+.0f} ft<br>Temp: %{customdata[5]:.1f}°F<extra></extra>
+            x: >-
+              $ex (function() {
+                const order = ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+'];
+                const segs = (hass.states['sensor.{vin}_efficiency_30d']?.attributes?.recent_segments || []).filter(s => s.elevation_change_ft < 0).sort((a, b) => order.indexOf(a.speed_bin) - order.indexOf(b.speed_bin));
+                return segs.map(s => s.speed_bin);
+              })()
+            y: >-
+              $ex (function() {
+                const order = ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+'];
+                const segs = (hass.states['sensor.{vin}_efficiency_30d']?.attributes?.recent_segments || []).filter(s => s.elevation_change_ft < 0).sort((a, b) => order.indexOf(a.speed_bin) - order.indexOf(b.speed_bin));
+                return segs.map(s => s.mpge || Math.round((s.efficiency_mi_kwh || 0) * 33.705 * 10) / 10);
+              })()
+            customdata: >-
+              $ex (function() {
+                const order = ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+'];
+                const segs = (hass.states['sensor.{vin}_efficiency_30d']?.attributes?.recent_segments || []).filter(s => s.elevation_change_ft < 0).sort((a, b) => order.indexOf(a.speed_bin) - order.indexOf(b.speed_bin));
+                return segs.map(s => [s.efficiency_mi_kwh, s.avg_speed_mph, s.distance_miles, s.duration_seconds, s.elevation_change_ft, s.temp_f || 70]);
+              })()
+
+      # Section 5: Vampire Drain Rate vs. Ambient Temperature
+      - type: custom:plotly-graph
+        raw_plotly_config: true
+        title: Vampire Drain Rate vs. Ambient Temperature
+        layout:
+          xaxis:
+            title: Ambient Temperature (°F)
+            type: linear
+            autorange: true
+            gridcolor: '#444444'
+            zeroline: false
+          yaxis:
+            title: Drain Rate (% SoC / day)
+            type: linear
+            autorange: true
+            gridcolor: '#444444'
+            zeroline: false
+          margin:
+            l: 50
+            r: 20
+            t: 40
+            b: 60
+        config:
+          displayModeBar: false
+        entities:
+          - entity: ''
+            name: Parked Drain Rate
+            type: scatter
+            mode: markers
+            marker:
+              size: >-
+                $ex (function() {
+                  const events = (hass.states['sensor.{vin}_efficiency_30d']?.attributes?.recent_vampire_events || []).filter(e => (e.drain_kwh || 0) > 0);
+                  return events.map(e => Math.max(7, Math.min(32, Math.round(6 + Math.sqrt(e.idle_hours || 0) * 4))));
+                })()
+              color: >-
+                $ex (function() {
+                  const events = (hass.states['sensor.{vin}_efficiency_30d']?.attributes?.recent_vampire_events || []).filter(e => (e.drain_kwh || 0) > 0);
+                  return events.map(e => e.avg_watts || 0);
+                })()
+              colorscale: Viridis
+              showscale: true
+              cauto: true
+              colorbar:
+                title: Avg Watts (W)
+                thickness: 14
+                len: 0.85
+                x: 1.02
+              line:
+                width: 1
+                color: '#ffffff'
+              opacity: 0.9
+            customdata: >-
+              $ex (function() {
+                const events = (hass.states['sensor.{vin}_efficiency_30d']?.attributes?.recent_vampire_events || []).filter(e => (e.drain_kwh || 0) > 0);
+                return events.map(e => [e.idle_hours, e.drain_kwh, e.drain_soc, e.avg_watts, e.start_time ? e.start_time.substring(5, 16).replace('T', ' ') : '', e.end_time ? e.end_time.substring(5, 16).replace('T', ' ') : '']);
+              })()
+            hovertemplate: >-
+              <b>Parked Vampire Drain Rate</b><br>Ambient Temp: %{x:.1f}°F<br>Loss Rate: %{y:.2f}%/day<br>Avg Continuous Load: %{customdata[3]:.0f} W<br>Total Drain: %{customdata[1]:.2f} kWh (%{customdata[2]:.1f}%)<br>Parked Idle Time: %{customdata[0]:.1f} hrs<br>Window: %{customdata[4]} to %{customdata[5]}<extra></extra>
+            x: >-
+              $ex (function() {
+                const events = (hass.states['sensor.{vin}_efficiency_30d']?.attributes?.recent_vampire_events || []).filter(e => (e.drain_kwh || 0) > 0);
+                return events.map(e => e.avg_temp_f ?? 70);
+              })()
+            y: >-
+              $ex (function() {
+                const events = (hass.states['sensor.{vin}_efficiency_30d']?.attributes?.recent_vampire_events || []).filter(e => (e.drain_kwh || 0) > 0);
+                return events.map(e => e.rate_pct_per_day);
+              })()
+
+      # Section 6: DC Fast Charging Curves (Power vs. Battery SoC)
+      - type: custom:plotly-graph
+        raw_plotly_config: true
+        title: DC Fast Charging Curves (Power vs. Battery SoC)
+        layout:
+          xaxis:
+            title: Battery State of Charge (%)
+            range: [0, 100]
+            type: linear
+            gridcolor: '#444444'
+            zeroline: false
+          yaxis:
+            title: Charging Power (kW)
+            type: linear
+            autorange: true
+            gridcolor: '#444444'
+            zeroline: false
+          legend:
+            orientation: h
+            y: -0.25
+            x: 0.05
+          margin:
+            l: 50
+            r: 20
+            t: 40
+            b: 60
+        config:
+          displayModeBar: false
+        entities:
+          - entity: ''
+            name: DCFC Sessions (Last 50)
+            type: scatter
+            mode: lines+markers
+            line:
+              color: 'rgba(33, 150, 243, 0.45)'
+              width: 1.5
+            marker:
+              size: 4
+              color: '#64B5F6'
+              opacity: 0.6
+            customdata: >-
+              $ex (function() {
+                const sessions = hass.states['sensor.{vin}_efficiency_30d']?.attributes?.recent_dcfc_sessions || [];
+                const cd = [];
+                sessions.forEach(s => {
+                  const label = s.start_time ? s.start_time.substring(5, 16).replace('T', ' ') : 'Session';
+                  (s.samples || []).forEach(pt => cd.push([label, s.energy_added_kwh || 0, s.max_power_kw || 0]));
+                  cd.push([null, null, null]);
+                });
+                return cd;
+              })()
+            hovertemplate: >-
+              <b>DCFC Session: %{customdata[0]}</b><br>SoC: %{x:.1f}%<br>Power: %{y:.1f} kW<br>Energy Added: +%{customdata[1]:.1f} kWh<br>Peak: %{customdata[2]:.0f} kW<extra></extra>
+            x: >-
+              $ex (function() {
+                const sessions = hass.states['sensor.{vin}_efficiency_30d']?.attributes?.recent_dcfc_sessions || [];
+                const x = [];
+                sessions.forEach(s => {
+                  (s.samples || []).forEach(pt => x.push(pt.soc));
+                  x.push(null);
+                });
+                return x;
+              })()
+            y: >-
+              $ex (function() {
+                const sessions = hass.states['sensor.{vin}_efficiency_30d']?.attributes?.recent_dcfc_sessions || [];
+                const y = [];
+                sessions.forEach(s => {
+                  (s.samples || []).forEach(pt => y.push(pt.power_kw));
+                  y.push(null);
+                });
+                return y;
+              })()
+
+          - entity: ''
+            name: Average DCFC Curve
+            type: scatter
+            mode: lines+markers
+            line:
+              color: '#FFFFFF'
+              width: 3.5
+            marker:
+              size: 6
+              color: '#FFFFFF'
+              symbol: circle
+            customdata: >-
+              $ex (function() {
+                const sessions = hass.states['sensor.{vin}_efficiency_30d']?.attributes?.recent_dcfc_sessions || [];
+                if (!sessions || sessions.length === 0) return [];
+                const buckets = {};
+                sessions.forEach(s => { (s.samples || []).forEach(pt => { const b = Math.round(pt.soc); if (!buckets[b]) buckets[b] = []; buckets[b].push(pt.power_kw); }); });
+                const socs = Object.keys(buckets).map(Number).sort((a, b) => a - b);
+                return socs.map(soc => [buckets[soc].length, `${sessions.length} sessions`]);
+              })()
+            hovertemplate: >-
+              <b>Average DCFC Curve</b><br>SoC: %{x}%<br>Average Power: %{y:.1f} kW<br>Observed: %{customdata[0]} samples (%{customdata[1]})<extra></extra>
+            x: >-
+              $ex (function() {
+                const sessions = hass.states['sensor.{vin}_efficiency_30d']?.attributes?.recent_dcfc_sessions || [];
+                if (!sessions || sessions.length === 0) return [];
+                const buckets = {};
+                sessions.forEach(s => { (s.samples || []).forEach(pt => { const b = Math.round(pt.soc); if (!buckets[b]) buckets[b] = []; buckets[b].push(pt.power_kw); }); });
+                const socs = Object.keys(buckets).map(Number).sort((a, b) => a - b);
+                return socs;
+              })()
+            y: >-
+              $ex (function() {
+                const sessions = hass.states['sensor.{vin}_efficiency_30d']?.attributes?.recent_dcfc_sessions || [];
+                if (!sessions || sessions.length === 0) return [];
+                const buckets = {};
+                sessions.forEach(s => { (s.samples || []).forEach(pt => { const b = Math.round(pt.soc); if (!buckets[b]) buckets[b] = []; buckets[b].push(pt.power_kw); }); });
+                const socs = Object.keys(buckets).map(Number).sort((a, b) => a - b);
+                return socs.map(soc => { const vals = buckets[soc]; return Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10; });
+              })()
+
+          - entity: ''
+            name: R1 Benchmark (Reference)
+            type: scatter
+            mode: lines
+            line:
+              color: 'rgba(255, 255, 255, 0.3)'
+              width: 1.5
+              dash: dot
+            hovertemplate: >-
+              <b>Rivian Benchmark</b><br>SoC: %{x}%<br>Power: %{y} kW<extra></extra>
+            x: [10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90]
+            y: [215, 215, 212, 208, 200, 185, 170, 155, 145, 130, 118, 105, 92, 78, 62, 45, 28]
+
+      # Section 7: Detailed Drive Statistics Grid
       - type: grid
         title: Drive Statistics & Aggregations
         columns: 3

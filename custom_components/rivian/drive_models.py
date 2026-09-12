@@ -69,6 +69,11 @@ class DriveSegment:
     elevation_change_ft: float = 0.0
     temp_f: float | None = None
 
+    @property
+    def mpge(self) -> float:
+        """Return MPGe equivalent."""
+        return round(self.efficiency_mi_kwh * MPGE_FACTOR, 1)
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize drive segment to dictionary."""
         return {
@@ -77,6 +82,7 @@ class DriveSegment:
             "distance_miles": round(self.distance_miles, 2),
             "energy_kwh": round(self.energy_kwh, 2),
             "efficiency_mi_kwh": round(self.efficiency_mi_kwh, 2),
+            "mpge": self.mpge,
             "avg_speed_mph": round(self.avg_speed_mph, 1),
             "speed_bin": self.speed_bin,
             "elevation_change_ft": round(self.elevation_change_ft, 1),
@@ -470,4 +476,96 @@ class VampireDrainRecord:
                 float(data["longitude"]) if data.get("longitude") is not None else None
             ),
         )
+
+
+DCFC_MIN_POWER_KW: Final[float] = 22.0
+MAX_DCFC_HISTORY_SESSIONS: Final[int] = 50
+
+
+@dataclass
+class ChargingSample:
+    """Individual telemetry sample during a charging session."""
+
+    timestamp: str
+    soc: float
+    power_kw: float
+    battery_temp_f: float | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize charging sample to dictionary."""
+        return {
+            "timestamp": self.timestamp,
+            "soc": round(self.soc, 1),
+            "power_kw": round(self.power_kw, 1),
+            "battery_temp_f": (
+                round(self.battery_temp_f, 1) if self.battery_temp_f is not None else None
+            ),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ChargingSample:
+        """Instantiate charging sample from dictionary."""
+        return cls(
+            timestamp=str(data.get("timestamp", "")),
+            soc=float(data.get("soc", 0.0)),
+            power_kw=float(data.get("power_kw", 0.0)),
+            battery_temp_f=(
+                float(data["battery_temp_f"])
+                if data.get("battery_temp_f") is not None
+                else None
+            ),
+        )
+
+
+@dataclass
+class ChargingSessionRecord:
+    """DC Fast Charging session record and curve telemetry."""
+
+    session_id: str
+    start_time: str
+    end_time: str
+    start_soc: float
+    end_soc: float
+    energy_added_kwh: float
+    max_power_kw: float
+    avg_power_kw: float
+    samples: list[ChargingSample] = field(default_factory=list)
+    is_dcfc: bool = True
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize charging session to dictionary."""
+        return {
+            "session_id": self.session_id,
+            "start_time": self.start_time,
+            "end_time": self.end_time,
+            "start_soc": round(self.start_soc, 1),
+            "end_soc": round(self.end_soc, 1),
+            "energy_added_kwh": round(self.energy_added_kwh, 2),
+            "max_power_kw": round(self.max_power_kw, 1),
+            "avg_power_kw": round(self.avg_power_kw, 1),
+            "is_dcfc": self.is_dcfc,
+            "samples": [s.to_dict() for s in self.samples],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ChargingSessionRecord:
+        """Instantiate charging session from dictionary."""
+        raw_samples = data.get("samples", [])
+        return cls(
+            session_id=str(data.get("session_id", "")),
+            start_time=str(data.get("start_time", "")),
+            end_time=str(data.get("end_time", "")),
+            start_soc=float(data.get("start_soc", 0.0)),
+            end_soc=float(data.get("end_soc", 0.0)),
+            energy_added_kwh=float(data.get("energy_added_kwh", 0.0)),
+            max_power_kw=float(data.get("max_power_kw", 0.0)),
+            avg_power_kw=float(data.get("avg_power_kw", 0.0)),
+            is_dcfc=bool(data.get("is_dcfc", True)),
+            samples=[
+                ChargingSample.from_dict(s)
+                for s in raw_samples
+                if isinstance(s, dict)
+            ],
+        )
+
 

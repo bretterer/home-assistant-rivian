@@ -9,9 +9,11 @@ from typing import TYPE_CHECKING, Any, Final
 from homeassistant.helpers.storage import Store
 
 from .drive_models import (
+    MAX_DCFC_HISTORY_SESSIONS,
     MICRO_DRIVE_THRESHOLD_MILES,
     MPGE_FACTOR,
     AggregatedDriveStats,
+    ChargingSessionRecord,
     DriveRecord,
     VampireDrainRecord,
 )
@@ -57,6 +59,7 @@ class DriveStore:
         self._drives: list[DriveRecord] = []
         self._drives_by_id: dict[str, DriveRecord] = {}
         self._vampire_events: list[VampireDrainRecord] = []
+        self._dcfc_sessions: list[ChargingSessionRecord] = []
         self._loaded: bool = False
 
     @property
@@ -70,6 +73,11 @@ class DriveStore:
         return list(self._vampire_events)
 
     @property
+    def dcfc_sessions(self) -> list[ChargingSessionRecord]:
+        """Return cached DC Fast Charging session records."""
+        return list(self._dcfc_sessions)
+
+    @property
     def is_loaded(self) -> bool:
         """Return whether storage has been loaded from disk."""
         return self._loaded
@@ -80,6 +88,7 @@ class DriveStore:
         self._drives = []
         self._drives_by_id = {}
         self._vampire_events = []
+        self._dcfc_sessions = []
 
         if data is None:
             _LOGGER.debug("No existing drive storage found for VIN %s", self.vin)
@@ -89,12 +98,15 @@ class DriveStore:
         if isinstance(data, dict):
             raw_drives = data.get("drives", [])
             raw_vampire = data.get("vampire_events", [])
+            raw_dcfc = data.get("dcfc_sessions", [])
         elif isinstance(data, list):
             raw_drives = data
             raw_vampire = []
+            raw_dcfc = []
         else:
             raw_drives = []
             raw_vampire = []
+            raw_dcfc = []
 
         for raw_drive in raw_drives:
             if isinstance(raw_drive, dict):
@@ -106,11 +118,19 @@ class DriveStore:
             if isinstance(raw_v, dict):
                 self._vampire_events.append(VampireDrainRecord.from_dict(raw_v))
 
+        for raw_c in raw_dcfc:
+            if isinstance(raw_c, dict):
+                self._dcfc_sessions.append(ChargingSessionRecord.from_dict(raw_c))
+
+        if len(self._dcfc_sessions) > MAX_DCFC_HISTORY_SESSIONS:
+            self._dcfc_sessions = self._dcfc_sessions[-MAX_DCFC_HISTORY_SESSIONS:]
+
         self._loaded = True
         _LOGGER.debug(
-            "Loaded %d drive records and %d vampire events for VIN %s",
+            "Loaded %d drive records, %d vampire events, and %d DCFC sessions for VIN %s",
             len(self._drives),
             len(self._vampire_events),
+            len(self._dcfc_sessions),
             self.vin,
         )
         return list(self._drives)
@@ -366,11 +386,45 @@ class DriveStore:
         self._vampire_events.append(event)
         await self._async_persist()
 
+    async def async_save_dcfc_sessions(
+        self, sessions: list[ChargingSessionRecord]
+    ) -> None:
+        """Save DC fast charging records to storage, enforcing 50-session FIFO cap."""
+        if not self._loaded:
+            await self.async_load()
+        existing_ids = {s.session_id for s in self._dcfc_sessions}
+        for s in sessions:
+            if s.session_id not in existing_ids:
+                self._dcfc_sessions.append(s)
+                existing_ids.add(s.session_id)
+        self._dcfc_sessions.sort(key=lambda s: s.start_time)
+        if len(self._dcfc_sessions) > MAX_DCFC_HISTORY_SESSIONS:
+            self._dcfc_sessions = self._dcfc_sessions[-MAX_DCFC_HISTORY_SESSIONS:]
+        await self._async_persist()
+
+    async def async_append_dcfc_session(
+        self, session: ChargingSessionRecord
+    ) -> None:
+        """Append a single DC fast charging record to storage, enforcing 50-session FIFO cap."""
+        if not self._loaded:
+            await self.async_load()
+        self._dcfc_sessions.append(session)
+        if len(self._dcfc_sessions) > MAX_DCFC_HISTORY_SESSIONS:
+            self._dcfc_sessions = self._dcfc_sessions[-MAX_DCFC_HISTORY_SESSIONS:]
+        await self._async_persist()
+
+    def get_dcfc_sessions(
+        self, limit: int = MAX_DCFC_HISTORY_SESSIONS
+    ) -> list[ChargingSessionRecord]:
+        """Return cached DC Fast Charging sessions up to limit."""
+        return list(self._dcfc_sessions[-limit:])
+
     async def async_reset(self) -> None:
         """Reset in-memory records and delete storage file with zero database footprint."""
         self._drives = []
         self._drives_by_id = {}
         self._vampire_events = []
+        self._dcfc_sessions = []
         self._loaded = True
         await self._store.async_remove()
         _LOGGER.info(
@@ -403,6 +457,9 @@ class DriveStore:
             },
             "drives": [d.to_dict() for d in self._drives],
             "vampire_events": [v.to_dict() for v in self._vampire_events],
+            "dcfc_sessions": [
+                s.to_dict() for s in self._dcfc_sessions[-MAX_DCFC_HISTORY_SESSIONS:]
+            ],
         }
         await self._store.async_save(payload)
 

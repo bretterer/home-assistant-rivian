@@ -12,9 +12,12 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import async_call_later
 
 from .drive_models import (
+    DCFC_MIN_POWER_KW,
     MICRO_DRIVE_THRESHOLD_MILES,
     MPGE_FACTOR,
     STANDARD_SPEED_BINS,
+    ChargingSample,
+    ChargingSessionRecord,
     DriveRecord,
     DriveSegment,
     DriveState,
@@ -88,6 +91,7 @@ class DriveTracker:
         self._park_start_soc: float | None = None
         self._park_lat: float | None = None
         self._park_lon: float | None = None
+        self._active_charge_session: dict[str, Any] | None = None
 
     @property
     def is_driving(self) -> bool:
@@ -98,6 +102,11 @@ class DriveTracker:
     def is_debouncing_park(self) -> bool:
         """Return whether park debounce timer is currently active."""
         return self._park_debounce_unsub is not None
+
+    @property
+    def active_charge_session(self) -> dict[str, Any] | None:
+        """Return active charging session dictionary if currently charging."""
+        return self._active_charge_session
 
     @property
     def active_drive(self) -> dict[str, Any] | None:
@@ -166,6 +175,8 @@ class DriveTracker:
         if not self.coordinator.data:
             return
 
+        self._handle_charging_state()
+
         raw_gear = self.coordinator.get("gearStatus")
         gear = str(raw_gear).lower() if raw_gear is not None else None
 
@@ -222,6 +233,9 @@ class DriveTracker:
 
         odometer_m = self._get_float_coordinator_val("vehicleMileage")
         battery_soc = self._get_float_coordinator_val("batteryLevel", default=0.0)
+
+        if self._active_charge_session is not None:
+            self._finalize_active_charge_session(now_iso, battery_soc)
         battery_cap = self._get_float_coordinator_val(
             "batteryCapacity",
             default=float(self.vehicle_info.get("battery_capacity", 135.0) or 135.0),
@@ -746,6 +760,145 @@ class DriveTracker:
         )
         self._notify_listeners()
         return record
+
+    def _handle_charging_state(self) -> None:
+        """Track live DC fast charging sessions and sample charging curve points."""
+        raw_charger_state = self.coordinator.get("chargerState")
+        charger_state = (
+            str(raw_charger_state).lower() if raw_charger_state is not None else ""
+        )
+        is_charging = charger_state in ("charging_active", "charging_connecting")
+
+        power_val: float | None = None
+        if (
+            hasattr(self.coordinator, "charging_coordinator")
+            and self.coordinator.charging_coordinator.data
+        ):
+            cdata = self.coordinator.charging_coordinator.data
+            raw_p = cdata.get("power")
+            if raw_p is not None:
+                try:
+                    power_val = float(raw_p)
+                except (ValueError, TypeError):
+                    pass
+
+        if power_val is None:
+            raw_p = self.coordinator.get("power") or self.coordinator.get(
+                "chargerPower"
+            )
+            if raw_p is not None:
+                try:
+                    power_val = float(raw_p)
+                except (ValueError, TypeError):
+                    pass
+
+        now_dt = datetime.now(timezone.utc)
+        now_iso = now_dt.isoformat()
+        soc_val = self._get_float_coordinator_val("batteryLevel")
+
+        if is_charging:
+            # When charging is active, pause park idle timer so charge intake isn't seen as phantom drain
+            self._park_start_dt = None
+            self._park_start_soc = None
+
+            if self._active_charge_session is None:
+                self._active_charge_session = {
+                    "session_id": f"{self.vin}_{int(now_dt.timestamp())}",
+                    "start_time": now_iso,
+                    "start_soc": soc_val if soc_val is not None else 0.0,
+                    "max_power_kw": power_val or 0.0,
+                    "samples": [],
+                }
+
+            session = self._active_charge_session
+            if power_val is not None:
+                session["max_power_kw"] = max(session["max_power_kw"], power_val)
+                if soc_val is not None:
+                    samples: list[ChargingSample] = session["samples"]
+                    should_append = True
+                    if samples:
+                        last_s = samples[-1]
+                        if (
+                            abs(last_s.soc - soc_val) < 0.2
+                            and abs(last_s.power_kw - power_val) < 1.0
+                        ):
+                            should_append = False
+                    if should_append:
+                        temp_val = self._get_float_coordinator_val(
+                            "batteryTemperature"
+                        )
+                        samples.append(
+                            ChargingSample(
+                                timestamp=now_iso,
+                                soc=round(soc_val, 1),
+                                power_kw=round(power_val, 1),
+                                battery_temp_f=temp_val,
+                            )
+                        )
+
+        elif self._active_charge_session is not None:
+            self._finalize_active_charge_session(now_iso, soc_val)
+
+    def _finalize_active_charge_session(
+        self, end_iso: str, end_soc: float | None = None
+    ) -> None:
+        """Finalize active charging session and persist if qualified as DC Fast Charging."""
+        if self._active_charge_session is None:
+            return
+
+        session = self._active_charge_session
+        self._active_charge_session = None
+
+        max_power = session["max_power_kw"]
+        if max_power < DCFC_MIN_POWER_KW:
+            _LOGGER.debug(
+                "Discarding charging session for VIN %s: max power %.1f kW below DCFC threshold %.1f kW",
+                self.vin,
+                max_power,
+                DCFC_MIN_POWER_KW,
+            )
+            return
+
+        samples: list[ChargingSample] = session["samples"]
+        start_soc = session["start_soc"]
+        final_soc = (
+            end_soc
+            if end_soc is not None
+            else (samples[-1].soc if samples else start_soc)
+        )
+        avg_power = (
+            sum(s.power_kw for s in samples) / len(samples) if samples else max_power
+        )
+
+        battery_cap = (
+            self._get_float_coordinator_val("batteryCapacity")
+            or float(self.vehicle_info.get("battery_capacity", 135.0) or 135.0)
+        )
+        energy_added = max(0.0, (final_soc - start_soc) * battery_cap / 100.0)
+
+        record = ChargingSessionRecord(
+            session_id=session["session_id"],
+            start_time=session["start_time"],
+            end_time=end_iso,
+            start_soc=round(start_soc, 1),
+            end_soc=round(final_soc, 1),
+            energy_added_kwh=round(energy_added, 2),
+            max_power_kw=round(max_power, 1),
+            avg_power_kw=round(avg_power, 1),
+            samples=samples,
+            is_dcfc=True,
+        )
+
+        _LOGGER.info(
+            "Recording DCFC session for VIN %s: %.1f%% to %.1f%%, peak %.1f kW, %.2f kWh (%d samples)",
+            self.vin,
+            start_soc,
+            final_soc,
+            max_power,
+            energy_added,
+            len(samples),
+        )
+        self._schedule_coro(self.store.async_append_dcfc_session(record))
 
     async def _async_record_vampire_event(self, event: VampireDrainRecord) -> None:
         """Fetch weather and save vampire drain event."""

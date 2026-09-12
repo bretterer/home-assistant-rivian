@@ -11,9 +11,13 @@ import sqlite3
 from typing import TYPE_CHECKING, Any, Final
 
 from .drive_models import (
+    DCFC_MIN_POWER_KW,
+    MAX_DCFC_HISTORY_SESSIONS,
     MICRO_DRIVE_THRESHOLD_MILES,
     MPGE_FACTOR,
     STANDARD_SPEED_BINS,
+    ChargingSample,
+    ChargingSessionRecord,
     DriveRecord,
     DriveSegment,
     SpeedBinData,
@@ -189,6 +193,14 @@ def resolve_recorder_entities(
     cap_id = find_entity_id(["battery_capacity"])
     if cap_id is not None:
         resolved["battery_capacity"] = cap_id
+
+    charging_id = (
+        find_entity_id(["charging_status"])
+        or find_entity_id(["charger_state"])
+        or find_entity_id(["is_charging"])
+    )
+    if charging_id is not None:
+        resolved["charging_status"] = charging_id
 
     _LOGGER.debug("Resolved recorder entities: %s", resolved)
     return resolved
@@ -733,13 +745,207 @@ def reconstruct_drives_from_sqlite(
         vampire_events = reconstruct_vampire_events_from_drives(
             reconstructed_drives, pack_capacity
         )
+        dcfc_sessions = reconstruct_dcfc_sessions_from_sqlite(
+            conn=conn,
+            entity_map=entities,
+            pack_capacity=pack_capacity,
+            vin=effective_vin,
+            start_ts=cutoff_ts,
+        )
         return reconstructed_drives, {
             "total_segments": len(raw_segments),
             "merged_drives": len(merged_segments),
             "vampire_events": vampire_events,
+            "dcfc_sessions": dcfc_sessions,
         }
     finally:
         conn.close()
+
+
+def reconstruct_dcfc_sessions_from_sqlite(
+    conn: sqlite3.Connection,
+    entity_map: dict[str, int],
+    pack_capacity: float = DEFAULT_BATTERY_CAPACITY_KWH,
+    vin: str | None = None,
+    start_ts: float | None = None,
+) -> list[ChargingSessionRecord]:
+    """Extract historical DC Fast Charging sessions and power curves from recorder states."""
+    status_id = entity_map.get("charging_status")
+    soc_id = entity_map.get("battery_level")
+    if not soc_id:
+        return []
+
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA table_info(states)")
+    columns = [row["name"] for row in cursor.fetchall()]
+    ts_col = "last_updated_ts" if "last_updated_ts" in columns else "last_updated"
+
+    charging_windows: list[tuple[float, float]] = []
+    if status_id:
+        query = f"SELECT state, {ts_col} FROM states WHERE metadata_id = ? "
+        params: list[Any] = [status_id]
+        if start_ts is not None:
+            query += f"AND {ts_col} >= ? "
+            params.append(start_ts)
+        query += f"ORDER BY {ts_col} ASC"
+        cursor.execute(query, params)
+        cur_start = None
+        cur_end = None
+        for r in cursor.fetchall():
+            st = str(r["state"]).lower()
+            raw_ts = r[ts_col]
+            ts = (
+                float(raw_ts)
+                if isinstance(raw_ts, (int, float))
+                else datetime.fromisoformat(
+                    str(raw_ts).replace("Z", "+00:00")
+                ).timestamp()
+            )
+            if st in ("on", "true", "charging_active", "charging_connecting"):
+                if cur_start is None:
+                    cur_start = ts
+                cur_end = ts
+            elif (
+                st in ("off", "false", "charging_complete", "charging_stopped")
+                and cur_start is not None
+            ):
+                charging_windows.append(
+                    (cur_start, cur_end if cur_end is not None else ts)
+                )
+                cur_start = None
+                cur_end = None
+        if cur_start is not None:
+            charging_windows.append(
+                (cur_start, cur_end if cur_end is not None else cur_start)
+            )
+
+    # Merge intervals closer than 5 minutes
+    merged_windows: list[tuple[float, float]] = []
+    for w_start, w_end in charging_windows:
+        if not merged_windows:
+            merged_windows.append((w_start, w_end))
+        else:
+            p_start, p_end = merged_windows[-1]
+            if w_start - p_end <= 300.0:
+                merged_windows[-1] = (p_start, max(p_end, w_end))
+            else:
+                merged_windows.append((w_start, w_end))
+
+    effective_vin = vin or "vehicle"
+    dcfc_records: list[ChargingSessionRecord] = []
+
+    for win_start, win_end in merged_windows:
+        dur_sec = win_end - win_start
+        if dur_sec < 60.0:
+            continue
+
+        query = (
+            f"SELECT state, {ts_col} FROM states WHERE metadata_id = ? "
+            f"AND {ts_col} BETWEEN ? AND ? "
+            f"ORDER BY {ts_col} ASC"
+        )
+        cursor.execute(query, (soc_id, win_start - 60.0, win_end + 60.0))
+        raw_soc: list[tuple[float, float]] = []
+        for sr in cursor.fetchall():
+            val_str = sr["state"]
+            if val_str in (None, "unknown", "unavailable", "fault"):
+                continue
+            try:
+                val = float(val_str)
+                if 0.0 < val < 99.5:
+                    raw_ts = sr[ts_col]
+                    ts = (
+                        float(raw_ts)
+                        if isinstance(raw_ts, (int, float))
+                        else datetime.fromisoformat(
+                            str(raw_ts).replace("Z", "+00:00")
+                        ).timestamp()
+                    )
+                    raw_soc.append((ts, val))
+            except (ValueError, TypeError):
+                continue
+
+        if len(raw_soc) < 5:
+            continue
+
+        # Deduplicate
+        dedup: list[tuple[float, float]] = []
+        for ts, soc in raw_soc:
+            if not dedup:
+                dedup.append((ts, soc))
+            elif abs(soc - dedup[-1][1]) >= 0.05 or (ts - dedup[-1][0]) >= 20.0:
+                dedup.append((ts, soc))
+
+        start_soc = dedup[0][1]
+        end_soc = dedup[-1][1]
+        delta_soc = end_soc - start_soc
+        if delta_soc <= 1.0:
+            continue
+
+        energy_added = (delta_soc / 100.0) * pack_capacity
+        avg_power = energy_added / (dur_sec / 3600.0)
+        if avg_power < DCFC_MIN_POWER_KW:
+            continue
+
+        window_sec = 60.0
+        samples: list[ChargingSample] = []
+        max_power = 0.0
+        for i in range(len(dedup)):
+            ts_i, soc_i = dedup[i]
+            past = [p for p in dedup if 0.0 < (ts_i - p[0]) <= window_sec]
+            future = [f for f in dedup if 0.0 < (f[0] - ts_i) <= window_sec]
+
+            t_start = past[0][0] if past else ts_i
+            s_start = past[0][1] if past else soc_i
+            t_end = future[-1][0] if future else ts_i
+            s_end = future[-1][1] if future else soc_i
+
+            dt = t_end - t_start
+            dsoc = s_end - s_start
+            if dt >= 30.0 and dsoc > 0.0:
+                p_kw = (dsoc / 100.0 * pack_capacity) / (dt / 3600.0)
+                p_kw = min(225.0, p_kw)
+                if p_kw > max_power:
+                    max_power = p_kw
+
+                if not samples or (
+                    abs(samples[-1].soc - soc_i) >= 0.2
+                    and abs(samples[-1].power_kw - p_kw) >= 1.0
+                ):
+                    samples.append(
+                        ChargingSample(
+                            timestamp=datetime.fromtimestamp(
+                                ts_i, tz=timezone.utc
+                            ).isoformat(),
+                            soc=round(soc_i, 1),
+                            power_kw=round(p_kw, 1),
+                            battery_temp_f=None,
+                        )
+                    )
+
+        if max_power < DCFC_MIN_POWER_KW or not samples:
+            continue
+
+        start_iso = datetime.fromtimestamp(win_start, tz=timezone.utc).isoformat()
+        end_iso = datetime.fromtimestamp(win_end, tz=timezone.utc).isoformat()
+        session_id = f"{effective_vin}_{int(win_start)}"
+
+        dcfc_records.append(
+            ChargingSessionRecord(
+                session_id=session_id,
+                start_time=start_iso,
+                end_time=end_iso,
+                start_soc=round(start_soc, 1),
+                end_soc=round(end_soc, 1),
+                energy_added_kwh=round(energy_added, 2),
+                max_power_kw=round(max_power, 1),
+                avg_power_kw=round(avg_power, 1),
+                is_dcfc=True,
+                samples=samples,
+            )
+        )
+
+    return dcfc_records
 
 
 async def async_backfill_from_recorder(
@@ -791,6 +997,7 @@ async def async_backfill_from_recorder(
         )
 
     vampire_events: list[VampireDrainRecord] = _meta.get("vampire_events", [])
+    dcfc_sessions: list[ChargingSessionRecord] = _meta.get("dcfc_sessions", [])
 
     # Weather Enrichment (Open-Meteo Historical Archive API - batched by grid and date range)
     default_lat = getattr(getattr(hass, "config", None), "latitude", None)
@@ -904,7 +1111,7 @@ async def async_backfill_from_recorder(
     duplicates_skipped = 0
 
     # Persist if not dry run
-    if not dry_run and (drives or vampire_events):
+    if not dry_run and (drives or vampire_events or dcfc_sessions):
         target_store = store
         if target_store is None and hass is not None and vin:
             target_store = DriveStore(hass=hass, vin=vin)
@@ -915,12 +1122,15 @@ async def async_backfill_from_recorder(
                 duplicates_skipped = len(drives) - new_added
             if vampire_events:
                 await target_store.async_save_vampire_events(vampire_events)
+            if dcfc_sessions:
+                await target_store.async_save_dcfc_sessions(dcfc_sessions)
 
     result = {
         "drives_found": len(drives),
         "valid_drives": len(valid_drives),
         "micro_drives": len(micro_drives),
         "vampire_events_found": len(vampire_events),
+        "dcfc_sessions_found": len(dcfc_sessions),
         "total_miles": total_miles,
         "total_kwh": total_kwh,
         "efficiency_mi_kwh": efficiency,
@@ -928,15 +1138,17 @@ async def async_backfill_from_recorder(
         "duplicates_skipped": duplicates_skipped,
         "drives": drives,
         "vampire_events": vampire_events,
+        "dcfc_sessions": dcfc_sessions,
     }
 
     _LOGGER.info(
-        "Historical backfill complete for VIN %s: %d drives found (%d valid, %d micro), %d vampire events, %.2f mi, %.2f kWh, %.2f mi/kWh",
+        "Historical backfill complete for VIN %s: %d drives found (%d valid, %d micro), %d vampire events, %d DCFC sessions, %.2f mi, %.2f kWh, %.2f mi/kWh",
         vin,
         len(drives),
         len(valid_drives),
         len(micro_drives),
         len(vampire_events),
+        len(dcfc_sessions),
         total_miles,
         total_kwh,
         efficiency,

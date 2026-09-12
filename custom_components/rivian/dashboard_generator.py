@@ -19,6 +19,43 @@ DEFAULT_URL_PATH = "rivian-efficiency"
 DEFAULT_TITLE = "Rivian Efficiency"
 DEFAULT_ICON = "mdi:gauge"
 
+DCFC_SESSION_COLORS: list[str] = [
+    "#00E5FF",  # 1. Electric Cyan
+    "#E040FB",  # 2. Neon Magenta
+    "#FF9100",  # 3. Vivid Orange
+    "#FFD600",  # 4. Bright Yellow
+    "#FF5252",  # 5. Coral Red
+    "#7C4DFF",  # 6. Deep Violet
+    "#00E676",  # 7. Spring Green
+    "#FF4081",  # 8. Hot Pink
+    "#40C4FF",  # 9. Sky Blue
+    "#AEEA00",  # 10. Neon Lime
+]
+
+DCFC_REFERENCE_CURVES: dict[str, dict[str, Any]] = {
+    "standard": {
+        "name": "R1 Standard Pack (106 kWh Ref)",
+        "min_capacity": 0.0,
+        "max_capacity": 115.0,
+        "x": [10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90],
+        "y": [205, 205, 200, 195, 185, 170, 155, 140, 125, 110, 95, 82, 70, 58, 45, 32, 20],
+    },
+    "large": {
+        "name": "R1 Large Pack (135 kWh Ref)",
+        "min_capacity": 115.0,
+        "max_capacity": 139.0,
+        "x": [10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90],
+        "y": [215, 215, 212, 208, 200, 185, 170, 155, 145, 130, 118, 105, 92, 78, 62, 45, 28],
+    },
+    "max": {
+        "name": "R1 Max Pack (149 kWh Ref)",
+        "min_capacity": 139.0,
+        "max_capacity": 200.0,
+        "x": [10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90],
+        "y": [220, 220, 218, 215, 210, 198, 185, 172, 160, 146, 132, 118, 104, 88, 70, 50, 32],
+    },
+}
+
 
 def _build_vehicle_analytics_view(
     vehicle_name: str,
@@ -33,6 +70,8 @@ def _build_vehicle_analytics_view(
     mpge_all_entity = f"{entity_prefix}mpge_all_time"
     eff_all_entity = f"{entity_prefix}efficiency_all_time"
     status_entity = f"{entity_prefix}drive_status"
+    battery_cap_entity = f"{entity_prefix}battery_capacity"
+    battery_cap_fallback = f"sensor.{vehicle_name.lower().replace(' ', '_')}_battery_capacity"
 
     return {
         "title": f"{vehicle_name} Efficiency",
@@ -572,7 +611,126 @@ def _build_vehicle_analytics_view(
                     },
                 ],
             },
-            # Section 6: Vampire Drain vs. Time Idle (Parked Phantom Drain Analysis)
+            # Section 6: MPGe Distribution by Speed Range (Box Plot)
+            {
+                "type": "custom:plotly-graph",
+                "raw_plotly_config": True,
+                "title": "MPGe Distribution by Speed Range (Box Plot)",
+                "layout": {
+                    "xaxis": {
+                        "title": "Speed Range (mph)",
+                        "type": "category",
+                        "categoryorder": "array",
+                        "categoryarray": [
+                            "0-9",
+                            "10-19",
+                            "20-29",
+                            "30-39",
+                            "40-49",
+                            "50-59",
+                            "60-69",
+                            "70-79",
+                            "80+",
+                        ],
+                        "tickmode": "array",
+                        "tickvals": [
+                            "0-9",
+                            "10-19",
+                            "20-29",
+                            "30-39",
+                            "40-49",
+                            "50-59",
+                            "60-69",
+                            "70-79",
+                            "80+",
+                        ],
+                    },
+                    "yaxis": {
+                        "title": "Segment MPGe (miles / 33.705 kWh)",
+                        "type": "linear",
+                        "autorange": True,
+                        "gridcolor": "#444444",
+                        "zeroline": False,
+                    },
+                    "boxmode": "group",
+                    "boxgroupgap": 0.1,
+                    "boxgap": 0.15,
+                    "legend": {"orientation": "h", "y": -0.25, "x": 0.05},
+                    "margin": {"l": 50, "r": 20, "t": 40, "b": 60},
+                },
+                "config": {"displayModeBar": False},
+                "entities": [
+                    {
+                        "entity": "",
+                        "name": "Uphill (+)",
+                        "type": "box",
+                        "boxpoints": "all",
+                        "jitter": 0.35,
+                        "pointpos": 0,
+                        "boxmean": True,
+                        "marker": {"symbol": "cross", "size": 6, "color": "#FF9800", "opacity": 0.8},
+                        "line": {"color": "#FF9800", "width": 1.5},
+                        "fillcolor": "rgba(255, 152, 0, 0.25)",
+                        "hovertemplate": "<b>Uphill Segment (+)</b><br>Speed Range: %{x} mph<br>MPGe: %{y:.1f} MPGe (%{customdata[0]:.2f} mi/kWh)<br>Avg Speed: %{customdata[1]:.1f} mph<br>Distance: %{customdata[2]:.2f} mi (%{customdata[3]:.0f}s)<br>Elevation Δh: %{customdata[4]:+.0f} ft<br>Temp: %{customdata[5]:.1f}°F<extra></extra>",
+                        "x": (
+                            f"$ex (function() {{ "
+                            f"const order = ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+']; "
+                            f"const segs = (hass.states['{eff_30d_entity}']?.attributes?.recent_segments || []).filter(s => s.elevation_change_ft >= 0).sort((a, b) => order.indexOf(a.speed_bin) - order.indexOf(b.speed_bin)); "
+                            "return segs.map(s => s.speed_bin); "
+                            "})()"
+                        ),
+                        "y": (
+                            f"$ex (function() {{ "
+                            f"const order = ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+']; "
+                            f"const segs = (hass.states['{eff_30d_entity}']?.attributes?.recent_segments || []).filter(s => s.elevation_change_ft >= 0).sort((a, b) => order.indexOf(a.speed_bin) - order.indexOf(b.speed_bin)); "
+                            "return segs.map(s => s.mpge || Math.round((s.efficiency_mi_kwh || 0) * 33.705 * 10) / 10); "
+                            "})()"
+                        ),
+                        "customdata": (
+                            f"$ex (function() {{ "
+                            f"const order = ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+']; "
+                            f"const segs = (hass.states['{eff_30d_entity}']?.attributes?.recent_segments || []).filter(s => s.elevation_change_ft >= 0).sort((a, b) => order.indexOf(a.speed_bin) - order.indexOf(b.speed_bin)); "
+                            "return segs.map(s => [s.efficiency_mi_kwh, s.avg_speed_mph, s.distance_miles, s.duration_seconds, s.elevation_change_ft, s.temp_f || 70]); "
+                            "})()"
+                        ),
+                    },
+                    {
+                        "entity": "",
+                        "name": "Downhill (o)",
+                        "type": "box",
+                        "boxpoints": "all",
+                        "jitter": 0.35,
+                        "pointpos": 0,
+                        "boxmean": True,
+                        "marker": {"symbol": "circle", "size": 6, "color": "#2196F3", "opacity": 0.8},
+                        "line": {"color": "#2196F3", "width": 1.5},
+                        "fillcolor": "rgba(33, 150, 243, 0.25)",
+                        "hovertemplate": "<b>Downhill Segment (o)</b><br>Speed Range: %{x} mph<br>MPGe: %{y:.1f} MPGe (%{customdata[0]:.2f} mi/kWh)<br>Avg Speed: %{customdata[1]:.1f} mph<br>Distance: %{customdata[2]:.2f} mi (%{customdata[3]:.0f}s)<br>Elevation Δh: %{customdata[4]:+.0f} ft<br>Temp: %{customdata[5]:.1f}°F<extra></extra>",
+                        "x": (
+                            f"$ex (function() {{ "
+                            f"const order = ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+']; "
+                            f"const segs = (hass.states['{eff_30d_entity}']?.attributes?.recent_segments || []).filter(s => s.elevation_change_ft < 0).sort((a, b) => order.indexOf(a.speed_bin) - order.indexOf(b.speed_bin)); "
+                            "return segs.map(s => s.speed_bin); "
+                            "})()"
+                        ),
+                        "y": (
+                            f"$ex (function() {{ "
+                            f"const order = ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+']; "
+                            f"const segs = (hass.states['{eff_30d_entity}']?.attributes?.recent_segments || []).filter(s => s.elevation_change_ft < 0).sort((a, b) => order.indexOf(a.speed_bin) - order.indexOf(b.speed_bin)); "
+                            "return segs.map(s => s.mpge || Math.round((s.efficiency_mi_kwh || 0) * 33.705 * 10) / 10); "
+                            "})()"
+                        ),
+                        "customdata": (
+                            f"$ex (function() {{ "
+                            f"const order = ['0-9', '10-19', '20-29', '30-39', '40-49', '50-59', '60-69', '70-79', '80+']; "
+                            f"const segs = (hass.states['{eff_30d_entity}']?.attributes?.recent_segments || []).filter(s => s.elevation_change_ft < 0).sort((a, b) => order.indexOf(a.speed_bin) - order.indexOf(b.speed_bin)); "
+                            "return segs.map(s => [s.efficiency_mi_kwh, s.avg_speed_mph, s.distance_miles, s.duration_seconds, s.elevation_change_ft, s.temp_f || 70]); "
+                            "})()"
+                        ),
+                    },
+                ],
+            },
+            # Section 7: Vampire Drain vs. Time Idle (Parked Phantom Drain Analysis)
             {
                 "type": "custom:plotly-graph",
                 "raw_plotly_config": True,
@@ -643,7 +801,236 @@ def _build_vehicle_analytics_view(
                     }
                 ],
             },
-            # Section 7: Detailed Statistics Grid
+            # Section 8: Vampire Drain Rate vs. Ambient Temperature (Dots Sized by Parked Idle Time)
+            {
+                "type": "custom:plotly-graph",
+                "raw_plotly_config": True,
+                "title": "Vampire Drain Rate vs. Ambient Temperature",
+                "layout": {
+                    "xaxis": {
+                        "title": "Ambient Temperature (°F)",
+                        "type": "linear",
+                        "autorange": True,
+                        "gridcolor": "#444444",
+                        "zeroline": False,
+                    },
+                    "yaxis": {
+                        "title": "Drain Rate (% SoC / day)",
+                        "type": "linear",
+                        "autorange": True,
+                        "gridcolor": "#444444",
+                        "zeroline": False,
+                    },
+                    "margin": {"l": 50, "r": 20, "t": 40, "b": 60},
+                },
+                "config": {"displayModeBar": False},
+                "entities": [
+                    {
+                        "entity": "",
+                        "name": "Parked Drain Rate",
+                        "type": "scatter",
+                        "mode": "markers",
+                        "marker": {
+                            "size": (
+                                f"$ex (function() {{ "
+                                f"const events = (hass.states['{eff_30d_entity}']?.attributes?.recent_vampire_events || []).filter(e => (e.drain_kwh || 0) > 0); "
+                                "return events.map(e => Math.max(7, Math.min(32, Math.round(6 + Math.sqrt(e.idle_hours || 0) * 4)))); "
+                                "})()"
+                            ),
+                            "color": (
+                                f"$ex (function() {{ "
+                                f"const events = (hass.states['{eff_30d_entity}']?.attributes?.recent_vampire_events || []).filter(e => (e.drain_kwh || 0) > 0); "
+                                "return events.map(e => e.avg_watts || 0); "
+                                "})()"
+                            ),
+                            "colorscale": "Viridis",
+                            "showscale": True,
+                            "cauto": True,
+                            "colorbar": {
+                                "title": "Avg Watts (W)",
+                                "thickness": 14,
+                                "len": 0.85,
+                                "x": 1.02,
+                            },
+                            "line": {"width": 1, "color": "#ffffff"},
+                            "opacity": 0.9,
+                        },
+                        "customdata": (
+                            f"$ex (function() {{ "
+                            f"const events = (hass.states['{eff_30d_entity}']?.attributes?.recent_vampire_events || []).filter(e => (e.drain_kwh || 0) > 0); "
+                            "return events.map(e => [e.idle_hours, e.drain_kwh, e.drain_soc, e.avg_watts, e.start_time ? e.start_time.substring(5, 16).replace('T', ' ') : '', e.end_time ? e.end_time.substring(5, 16).replace('T', ' ') : '']); "
+                            "})()"
+                        ),
+                        "hovertemplate": "<b>Parked Vampire Drain Rate</b><br>Ambient Temp: %{x:.1f}°F<br>Loss Rate: %{y:.2f}%/day<br>Avg Continuous Load: %{customdata[3]:.0f} W<br>Total Drain: %{customdata[1]:.2f} kWh (%{customdata[2]:.1f}%)<br>Parked Idle Time: %{customdata[0]:.1f} hrs<br>Window: %{customdata[4]} to %{customdata[5]}<extra></extra>",
+                        "x": (
+                            f"$ex (function() {{ "
+                            f"const events = (hass.states['{eff_30d_entity}']?.attributes?.recent_vampire_events || []).filter(e => (e.drain_kwh || 0) > 0); "
+                            "return events.map(e => e.avg_temp_f ?? 70); "
+                            "})()"
+                        ),
+                        "y": (
+                            f"$ex (function() {{ "
+                            f"const events = (hass.states['{eff_30d_entity}']?.attributes?.recent_vampire_events || []).filter(e => (e.drain_kwh || 0) > 0); "
+                            "return events.map(e => e.rate_pct_per_day); "
+                            "})()"
+                        ),
+                    }
+                ],
+            },
+            # Section 9: DC Fast Charging Curves (Power vs. Battery SoC)
+            {
+                "type": "custom:plotly-graph",
+                "raw_plotly_config": True,
+                "title": "DC Fast Charging Curves (Power vs. Battery SoC)",
+                "layout": {
+                    "xaxis": {
+                        "title": "Battery State of Charge (%)",
+                        "range": [0, 100],
+                        "type": "linear",
+                        "gridcolor": "#444444",
+                        "zeroline": False,
+                    },
+                    "yaxis": {
+                        "title": "Charging Power (kW)",
+                        "type": "linear",
+                        "autorange": True,
+                        "gridcolor": "#444444",
+                        "zeroline": False,
+                    },
+                    "legend": {"orientation": "h", "y": -0.25, "x": 0.05},
+                    "margin": {"l": 50, "r": 20, "t": 40, "b": 60},
+                },
+                "config": {"displayModeBar": False},
+                "entities": (
+                    [
+                        {
+                            "entity": "",
+                            "name": (
+                                f"$ex (function() {{ "
+                                f"const sessions = (hass.states['{eff_30d_entity}']?.attributes?.recent_dcfc_sessions || []).slice(-10); "
+                                f"if ({idx} >= sessions.length) return ''; "
+                                f"const s = sessions[{idx}]; "
+                                f"const label = s.start_time ? s.start_time.substring(5, 16).replace('T', ' ') : 'Session {idx+1}'; "
+                                f"return label + ' (Peak: ' + Math.round(s.max_power_kw || 0) + ' kW)'; "
+                                f"}})()"
+                            ),
+                            "showlegend": (
+                                f"$ex (function() {{ "
+                                f"const sessions = (hass.states['{eff_30d_entity}']?.attributes?.recent_dcfc_sessions || []).slice(-10); "
+                                f"return {idx} < sessions.length; "
+                                f"}})()"
+                            ),
+                            "type": "scatter",
+                            "mode": "lines+markers",
+                            "line": {"color": color, "width": 2},
+                            "marker": {"size": 5, "color": color},
+                            "customdata": (
+                                f"$ex (function() {{ "
+                                f"const sessions = (hass.states['{eff_30d_entity}']?.attributes?.recent_dcfc_sessions || []).slice(-10); "
+                                f"if ({idx} >= sessions.length) return []; "
+                                f"const s = sessions[{idx}]; "
+                                f"const label = s.start_time ? s.start_time.substring(5, 16).replace('T', ' ') : 'Session {idx+1}'; "
+                                f"return (s.samples || []).map(pt => [label, s.energy_added_kwh || 0, s.max_power_kw || 0]); "
+                                f"}})()"
+                            ),
+                            "hovertemplate": (
+                                "<b>%{customdata[0]}</b><br>"
+                                "SoC: %{x:.1f}%<br>"
+                                "Power: %{y:.1f} kW<br>"
+                                "Energy Added: +%{customdata[1]:.1f} kWh<br>"
+                                "Session Peak: %{customdata[2]:.0f} kW<extra></extra>"
+                            ),
+                            "x": (
+                                f"$ex (function() {{ "
+                                f"const sessions = (hass.states['{eff_30d_entity}']?.attributes?.recent_dcfc_sessions || []).slice(-10); "
+                                f"if ({idx} >= sessions.length) return []; "
+                                f"return (sessions[{idx}].samples || []).map(pt => pt.soc); "
+                                f"}})()"
+                            ),
+                            "y": (
+                                f"$ex (function() {{ "
+                                f"const sessions = (hass.states['{eff_30d_entity}']?.attributes?.recent_dcfc_sessions || []).slice(-10); "
+                                f"if ({idx} >= sessions.length) return []; "
+                                f"return (sessions[{idx}].samples || []).map(pt => pt.power_kw); "
+                                f"}})()"
+                            ),
+                        }
+                        for idx, color in enumerate(DCFC_SESSION_COLORS)
+                    ]
+                    + [
+                        {
+                            "entity": "",
+                            "name": "Average DCFC Curve",
+                            "type": "scatter",
+                            "mode": "lines+markers",
+                            "line": {"color": "#FFFFFF", "width": 3.5},
+                            "marker": {"size": 6, "color": "#FFFFFF", "symbol": "circle"},
+                            "customdata": (
+                                f"$ex (function() {{ "
+                                f"const sessions = hass.states['{eff_30d_entity}']?.attributes?.recent_dcfc_sessions || []; "
+                                "if (!sessions || sessions.length === 0) return []; "
+                                "const buckets = {}; "
+                                "sessions.forEach(s => { (s.samples || []).forEach(pt => { const b = Math.round(pt.soc); if (!buckets[b]) buckets[b] = []; buckets[b].push(pt.power_kw); }); }); "
+                                "const socs = Object.keys(buckets).map(Number).sort((a, b) => a - b); "
+                                "return socs.map(soc => [buckets[soc].length, sessions.length + ' sessions']); "
+                                "})()"
+                            ),
+                            "hovertemplate": "<b>Average DCFC Curve</b><br>SoC: %{x}%<br>Average Power: %{y:.1f} kW<br>Observed: %{customdata[0]} samples across %{customdata[1]}<extra></extra>",
+                            "x": (
+                                f"$ex (function() {{ "
+                                f"const sessions = hass.states['{eff_30d_entity}']?.attributes?.recent_dcfc_sessions || []; "
+                                "if (!sessions || sessions.length === 0) return []; "
+                                "const buckets = {}; "
+                                "sessions.forEach(s => { (s.samples || []).forEach(pt => { const b = Math.round(pt.soc); if (!buckets[b]) buckets[b] = []; buckets[b].push(pt.power_kw); }); }); "
+                                "const socs = Object.keys(buckets).map(Number).sort((a, b) => a - b); "
+                                "return socs; "
+                                "})()"
+                            ),
+                            "y": (
+                                f"$ex (function() {{ "
+                                f"const sessions = hass.states['{eff_30d_entity}']?.attributes?.recent_dcfc_sessions || []; "
+                                "if (!sessions || sessions.length === 0) return []; "
+                                "const buckets = {}; "
+                                "sessions.forEach(s => { (s.samples || []).forEach(pt => { const b = Math.round(pt.soc); if (!buckets[b]) buckets[b] = []; buckets[b].push(pt.power_kw); }); }); "
+                                "const socs = Object.keys(buckets).map(Number).sort((a, b) => a - b); "
+                                "return socs.map(soc => { const vals = buckets[soc]; return Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10; }); "
+                                "})()"
+                            ),
+                        },
+                        {
+                            "entity": "",
+                            "name": (
+                                f"$ex (function() {{ "
+                                f"const cap = parseFloat(hass.states['{battery_cap_entity}']?.state || hass.states['{battery_cap_fallback}']?.state || 135.0); "
+                                "if (cap > 139.0) return 'R1 Max Pack (149 kWh Ref)'; "
+                                "if (cap < 115.0) return 'R1 Standard Pack (106 kWh Ref)'; "
+                                "return 'R1 Large Pack (135 kWh Ref)'; "
+                                f"}})()"
+                            ),
+                            "type": "scatter",
+                            "mode": "lines",
+                            "line": {"color": "rgba(255, 255, 255, 0.3)", "width": 1.5, "dash": "dot"},
+                            "hovertemplate": (
+                                f"$ex (function() {{ "
+                                f"const cap = parseFloat(hass.states['{battery_cap_entity}']?.state || hass.states['{battery_cap_fallback}']?.state || 135.0); "
+                                "const label = cap > 139.0 ? 'Max Pack (149 kWh Ref)' : (cap < 115.0 ? 'Standard Pack (106 kWh Ref)' : 'Large Pack (135 kWh Ref)'); "
+                                "return '<b>Rivian ' + label + '</b><br>SoC: %{x}%<br>Power: %{y} kW<extra></extra>'; "
+                                f"}})()"
+                            ),
+                            "x": [10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90],
+                            "y": (
+                                f"$ex (function() {{ "
+                                f"const cap = parseFloat(hass.states['{battery_cap_entity}']?.state || hass.states['{battery_cap_fallback}']?.state || 135.0); "
+                                "if (cap > 139.0) return [220, 220, 218, 215, 210, 198, 185, 172, 160, 146, 132, 118, 104, 88, 70, 50, 32]; "
+                                "if (cap < 115.0) return [205, 205, 200, 195, 185, 170, 155, 140, 125, 110, 95, 82, 70, 58, 45, 32, 20]; "
+                                "return [215, 215, 212, 208, 200, 185, 170, 155, 145, 130, 118, 105, 92, 78, 62, 45, 28]; "
+                                f"}})()"
+                            ),
+                        },
+                    ]
+                ),
+            },
+            # Section 10: Detailed Statistics Grid
             {
                 "type": "grid",
                 "title": "Drive Telemetry",

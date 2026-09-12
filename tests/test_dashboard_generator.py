@@ -19,7 +19,7 @@ def test_build_vehicle_analytics_view() -> None:
     view = _build_vehicle_analytics_view("Reggie", "sensor.rivian_r1s_reggie_")
     assert view["title"] == "Reggie Efficiency"
     assert view["path"] == "reggie"
-    assert len(view["cards"]) == 7
+    assert len(view["cards"]) == 10
 
     # Check Mushroom Card
     hero_card = view["cards"][0]
@@ -67,8 +67,17 @@ def test_build_vehicle_analytics_view() -> None:
     assert speed_eff_card["entities"][1]["marker"]["symbol"] == "circle"
     assert speed_eff_card["entities"][1]["boxpoints"] == "all"
 
+    # Check MPGe Distribution by Speed Range Box Plot Card
+    mpge_card = view["cards"][5]
+    assert mpge_card["type"] == "custom:plotly-graph"
+    assert mpge_card["title"] == "MPGe Distribution by Speed Range (Box Plot)"
+    assert len(mpge_card["entities"]) == 2
+    assert mpge_card["entities"][0]["type"] == "box"
+    assert mpge_card["entities"][0]["name"] == "Uphill (+)"
+    assert mpge_card["entities"][1]["name"] == "Downhill (o)"
+
     # Check Vampire Drain vs. Time Idle Card
-    vampire_card = view["cards"][5]
+    vampire_card = view["cards"][6]
     assert vampire_card["type"] == "custom:plotly-graph"
     assert vampire_card["title"] == "Vampire Drain vs. Time Idle"
     assert len(vampire_card["entities"]) == 1
@@ -77,6 +86,37 @@ def test_build_vehicle_analytics_view() -> None:
     assert vampire_card["entities"][0]["mode"] == "markers"
     assert vampire_card["entities"][0]["marker"]["colorscale"] == "Bluered"
     assert vampire_card["entities"][0]["marker"]["showscale"] is True
+
+    # Check Vampire Drain Rate vs. Ambient Temperature Card
+    vampire_temp_card = view["cards"][7]
+    assert vampire_temp_card["type"] == "custom:plotly-graph"
+    assert vampire_temp_card["title"] == "Vampire Drain Rate vs. Ambient Temperature"
+    assert len(vampire_temp_card["entities"]) == 1
+    assert vampire_temp_card["entities"][0]["name"] == "Parked Drain Rate"
+    assert vampire_temp_card["entities"][0]["marker"]["colorscale"] == "Viridis"
+
+    # Check DC Fast Charging Curves Card
+    dcfc_card = view["cards"][8]
+    assert dcfc_card["type"] == "custom:plotly-graph"
+    assert dcfc_card["title"] == "DC Fast Charging Curves (Power vs. Battery SoC)"
+    assert len(dcfc_card["entities"]) == 12
+    # Check first individual session trace
+    assert dcfc_card["entities"][0]["name"].startswith("$ex")
+    assert dcfc_card["entities"][0]["mode"] == "lines+markers"
+    assert dcfc_card["entities"][0]["line"]["color"] == "#00E5FF"
+    assert dcfc_card["entities"][0]["marker"]["color"] == "#00E5FF"
+    # Check average trace
+    assert dcfc_card["entities"][10]["name"] == "Average DCFC Curve"
+    assert dcfc_card["entities"][10]["line"]["color"] == "#FFFFFF"
+    assert dcfc_card["entities"][10]["marker"]["color"] == "#FFFFFF"
+    # Check benchmark reference trace (dynamic for pack type)
+    assert dcfc_card["entities"][11]["name"].startswith("$ex")
+    assert dcfc_card["entities"][11]["line"]["dash"] == "dot"
+
+    # Check Detailed Statistics Grid
+    stats_grid = view["cards"][9]
+    assert stats_grid["type"] == "grid"
+    assert len(stats_grid["cards"]) == 6
 
 
 

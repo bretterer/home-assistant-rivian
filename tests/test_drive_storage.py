@@ -11,6 +11,8 @@ from custom_components.rivian.drive_models import (
     MICRO_DRIVE_THRESHOLD_MILES,
     MPGE_FACTOR,
     AggregatedDriveStats,
+    ChargingSample,
+    ChargingSessionRecord,
     DriveRecord,
     DriveState,
     DriveStatus,
@@ -685,5 +687,103 @@ class TestDriveStore:
         assert len(store.drives) == 3
         assert len(store.vampire_events) == 1
         assert "d4" not in [d.drive_id for d in store.drives]
+
+
+class TestDCFCStorageAndModels:
+    """Validate DC fast charging models, serialization, and DriveStore persistence."""
+
+    def test_charging_sample_serialization(self) -> None:
+        """Test ChargingSample serialization and instantiation."""
+        sample = ChargingSample(
+            timestamp="2026-09-01T10:15:00Z",
+            soc=45.2,
+            power_kw=185.6,
+            battery_temp_f=85.0,
+        )
+        data = sample.to_dict()
+        assert data["soc"] == 45.2
+        assert data["power_kw"] == 185.6
+        assert data["battery_temp_f"] == 85.0
+
+        restored = ChargingSample.from_dict(data)
+        assert restored.soc == 45.2
+        assert restored.power_kw == 185.6
+        assert restored.battery_temp_f == 85.0
+
+    def test_charging_session_record_serialization(self) -> None:
+        """Test ChargingSessionRecord serialization."""
+        samples = [
+            ChargingSample(timestamp="2026-09-01T10:00:00Z", soc=15.0, power_kw=215.0),
+            ChargingSample(timestamp="2026-09-01T10:15:00Z", soc=50.0, power_kw=145.0),
+            ChargingSample(timestamp="2026-09-01T10:30:00Z", soc=80.0, power_kw=62.0),
+        ]
+        session = ChargingSessionRecord(
+            session_id="session_1",
+            start_time="2026-09-01T10:00:00Z",
+            end_time="2026-09-01T10:30:00Z",
+            start_soc=15.0,
+            end_soc=80.0,
+            energy_added_kwh=87.75,
+            max_power_kw=215.0,
+            avg_power_kw=140.7,
+            samples=samples,
+            is_dcfc=True,
+        )
+        data = session.to_dict()
+        assert data["session_id"] == "session_1"
+        assert data["max_power_kw"] == 215.0
+        assert data["is_dcfc"] is True
+        assert len(data["samples"]) == 3
+
+        restored = ChargingSessionRecord.from_dict(data)
+        assert restored.session_id == "session_1"
+        assert len(restored.samples) == 3
+        assert restored.samples[0].power_kw == 215.0
+
+    @pytest.mark.asyncio
+    async def test_dcfc_storage_persistence_and_cap(self, mock_hass: Any) -> None:
+        """Test that DriveStore persists DCFC sessions and enforces 50-session FIFO cap."""
+        store = DriveStore(mock_hass, TEST_VIN)
+        await store.async_load()
+        assert len(store.dcfc_sessions) == 0
+
+        # Add 60 sessions to verify FIFO cap at 50
+        for i in range(60):
+            session = ChargingSessionRecord(
+                session_id=f"session_{i}",
+                start_time=f"2026-09-01T{i % 24:02d}:00:00Z",
+                end_time=f"2026-09-01T{i % 24:02d}:30:00Z",
+                start_soc=20.0,
+                end_soc=70.0,
+                energy_added_kwh=67.5,
+                max_power_kw=150.0 + (i % 50),
+                avg_power_kw=100.0,
+                samples=[
+                    ChargingSample(
+                        timestamp=f"2026-09-01T{i % 24:02d}:00:00Z",
+                        soc=20.0,
+                        power_kw=150.0,
+                    )
+                ],
+            )
+            await store.async_append_dcfc_session(session)
+
+        assert len(store.dcfc_sessions) == 50
+        # Oldest sessions (0-9) should have been pruned; session_10 should be the first
+        assert store.dcfc_sessions[0].session_id == "session_10"
+        assert store.dcfc_sessions[-1].session_id == "session_59"
+
+        # Verify get_dcfc_sessions limit
+        recent_10 = store.get_dcfc_sessions(limit=10)
+        assert len(recent_10) == 10
+        assert recent_10[-1].session_id == "session_59"
+
+        # Verify async_load restores the 50 sessions
+        store_reload = DriveStore(mock_hass, TEST_VIN)
+        store_reload._store._data = store._store._data
+        await store_reload.async_load()
+        assert len(store_reload.dcfc_sessions) == 50
+        assert store_reload.dcfc_sessions[0].session_id == "session_10"
+
 
 

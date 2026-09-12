@@ -45,7 +45,7 @@ from .data_classes import (
     RivianSensorEntityDescription,
     RivianWallboxSensorEntityDescription,
 )
-from .drive_models import DriveState, SpeedBinData
+from .drive_models import MPGE_FACTOR, DriveState, SpeedBinData
 from .drive_storage import DriveStore
 from .drive_tracker import DriveTracker
 from .entity import (
@@ -670,6 +670,10 @@ class RivianDriveSensorEntity(RivianVehicleEntity, SensorEntity):
                             and d.integrated_temperature_f is not None
                         ):
                             s_dict["temp_f"] = round(d.integrated_temperature_f, 1)
+                        if "mpge" not in s_dict or s_dict["mpge"] is None:
+                            s_dict["mpge"] = round(
+                                float(s_dict.get("efficiency_mi_kwh", 0.0)) * MPGE_FACTOR, 1
+                            )
                         recent_segments.append(s_dict)
 
             attrs: dict[str, Any] = {
@@ -698,6 +702,10 @@ class RivianDriveSensorEntity(RivianVehicleEntity, SensorEntity):
                 attrs["recent_vampire_events"] = [
                     v.to_dict() for v in interactive_vampire
                 ]
+
+            dcfc_sessions = self._store.get_dcfc_sessions()
+            if dcfc_sessions:
+                attrs["recent_dcfc_sessions"] = [s.to_dict() for s in dcfc_sessions]
 
             return attrs
 

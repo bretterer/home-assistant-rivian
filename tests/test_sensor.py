@@ -27,7 +27,10 @@ from custom_components.rivian.const import (
     MPGE_CONVERSION_FACTOR,
 )
 from custom_components.rivian.drive_models import (
+    ChargingSample,
+    ChargingSessionRecord,
     DriveRecord,
+    DriveSegment,
     SpeedBinData,
     VampireDrainRecord,
 )
@@ -485,6 +488,17 @@ class TestDriveSensorEntities:
             "80+": SpeedBinData(miles=0.0, seconds=0.0),
         }
 
+        segment = DriveSegment(
+            start_time="2026-08-20T14:30:00Z",
+            duration_seconds=180.0,
+            distance_miles=2.0,
+            energy_kwh=0.6,
+            efficiency_mi_kwh=3.33,
+            avg_speed_mph=40.0,
+            speed_bin="40-49",
+            elevation_change_ft=10.0,
+        )
+
         # 20.0 miles, 6.0 kWh -> 3.33 mi/kWh -> 112.35 MPGe
         drive = DriveRecord(
             vin=TEST_VIN,
@@ -507,6 +521,7 @@ class TestDriveSensorEntities:
             integrated_temperature_f=72.5,
             speed_bins=speed_bins,
             is_micro_drive=False,
+            segments=[segment],
         )
         await store.async_save_drive(drive)
         v_event = VampireDrainRecord(
@@ -522,6 +537,32 @@ class TestDriveSensorEntities:
             avg_temp_f=70.0,
         )
         await store.async_save_vampire_events([v_event])
+        dcfc_session = ChargingSessionRecord(
+            session_id=f"{TEST_VIN}_1724160000",
+            start_time="2026-08-20T13:00:00Z",
+            end_time="2026-08-20T13:30:00Z",
+            start_soc=20.0,
+            end_soc=80.0,
+            energy_added_kwh=81.0,
+            max_power_kw=180.0,
+            avg_power_kw=120.0,
+            samples=[
+                ChargingSample(
+                    timestamp="2026-08-20T13:00:00Z",
+                    soc=20.0,
+                    power_kw=180.0,
+                    battery_temp_f=85.0,
+                ),
+                ChargingSample(
+                    timestamp="2026-08-20T13:30:00Z",
+                    soc=80.0,
+                    power_kw=65.0,
+                    battery_temp_f=98.0,
+                ),
+            ],
+            is_dcfc=True,
+        )
+        await store.async_save_dcfc_sessions([dcfc_session])
 
         tracker = DriveTracker(
             mock_hass, mock_config_entry, coordinator, mock_vehicle_info, store
@@ -573,6 +614,15 @@ class TestDriveSensorEntities:
         assert len(eff_30d_attrs["recent_vampire_events"]) == 1
         assert eff_30d_attrs["recent_vampire_events"][0]["idle_hours"] == 4.5
         assert eff_30d_attrs["recent_vampire_events"][0]["drain_kwh"] == 0.68
+        assert "recent_segments" in eff_30d_attrs
+        assert len(eff_30d_attrs["recent_segments"]) == 1
+        assert eff_30d_attrs["recent_segments"][0]["mpge"] == segment.mpge
+        assert eff_30d_attrs["recent_segments"][0]["efficiency_mi_kwh"] == 3.33
+        assert "recent_dcfc_sessions" in eff_30d_attrs
+        assert len(eff_30d_attrs["recent_dcfc_sessions"]) == 1
+        assert eff_30d_attrs["recent_dcfc_sessions"][0]["max_power_kw"] == 180.0
+        assert eff_30d_attrs["recent_dcfc_sessions"][0]["start_soc"] == 20.0
+        assert eff_30d_attrs["recent_dcfc_sessions"][0]["end_soc"] == 80.0
 
         # 3. efficiency_all_time
         assert entities_by_key["efficiency_all_time"].native_value == 3.33
@@ -580,6 +630,8 @@ class TestDriveSensorEntities:
         assert eff_all_attrs is not None
         assert eff_all_attrs["drive_count"] == 1
         assert eff_all_attrs["total_miles"] == 20.0
+        assert "recent_dcfc_sessions" in eff_all_attrs
+        assert len(eff_all_attrs["recent_dcfc_sessions"]) == 1
 
         # 4. last_drive_distance
         assert entities_by_key["last_drive_distance"].native_value == 20.0

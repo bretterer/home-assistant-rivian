@@ -49,6 +49,9 @@ class MockVehicleCoordinator:
         latitude: float = 39.7392,
         longitude: float = -104.9903,
         power_state: str = "go",
+        charger_state: str | None = None,
+        charger_power: float | None = None,
+        battery_temp_f: float | None = None,
     ) -> None:
         """Update coordinator data and broadcast to listeners."""
         self.data = {
@@ -65,6 +68,12 @@ class MockVehicleCoordinator:
             },
             "powerState": {"value": power_state},
         }
+        if charger_state is not None:
+            self.data["chargerState"] = {"value": charger_state}
+        if charger_power is not None:
+            self.data["chargerPower"] = {"value": charger_power}
+        if battery_temp_f is not None:
+            self.data["batteryTemperature"] = {"value": battery_temp_f}
         for listener in list(self._listeners):
             listener()
 
@@ -749,3 +758,195 @@ class TestListenersAndUnload:
         assert len(drive.weather_samples) == 2
         # Average of 70°F (0-20 mi) and 80°F (at 20 mi) = 75.0°F
         assert drive.integrated_temperature_f == pytest.approx(75.0, rel=1e-1)
+
+
+class TestDriveTrackerCharging:
+    """Tests for DriveTracker DC fast charging detection, sampling, and L1/L2 filtering."""
+
+    @pytest.mark.asyncio
+    async def test_dcfc_session_recorded_and_persisted(self, mock_hass: Any) -> None:
+        """Verify DC fast charging sessions (>22 kW) are sampled and saved to DriveStore."""
+        coordinator = MockVehicleCoordinator()
+        store = DriveStore(mock_hass, TEST_VIN)
+        tracker = DriveTracker(
+            hass=mock_hass,
+            entry=MagicMock(),
+            coordinator=coordinator,  # type: ignore[arg-type]
+            vehicle_info={"vin": TEST_VIN, "id": TEST_VEHICLE_ID, "battery_capacity": 135.0},
+            store=store,
+        )
+        await tracker.async_setup()
+
+        # Vehicle parked, plug in and initiate DC fast charge
+        coordinator.set_telemetry(
+            gear="park",
+            battery_soc=20.0,
+            charger_state="charging_active",
+            charger_power=150.0,
+            battery_temp_f=85.0,
+        )
+        assert tracker._active_charge_session is not None
+        assert tracker._active_charge_session["max_power_kw"] == 150.0
+        assert len(tracker._active_charge_session["samples"]) == 1
+
+        # Mid-charge update (SoC rises to 35%, power adjusts to 135 kW)
+        coordinator.set_telemetry(
+            gear="park",
+            battery_soc=35.0,
+            charger_state="charging_active",
+            charger_power=135.0,
+            battery_temp_f=92.0,
+        )
+        assert len(tracker._active_charge_session["samples"]) == 2
+
+        # Final charge point (SoC 50%, power tapering to 100 kW)
+        coordinator.set_telemetry(
+            gear="park",
+            battery_soc=50.0,
+            charger_state="charging_active",
+            charger_power=100.0,
+            battery_temp_f=95.0,
+        )
+        assert len(tracker._active_charge_session["samples"]) == 3
+
+        # Unplug / complete charging
+        coordinator.set_telemetry(
+            gear="park",
+            battery_soc=50.0,
+            charger_state="charging_complete",
+            charger_power=0.0,
+        )
+        assert tracker._active_charge_session is None
+
+        # Allow scheduled coroutines to execute in event loop
+        await asyncio.sleep(0)
+
+        # Verify persisted DCFC session in DriveStore
+        dcfc_sessions = store.get_dcfc_sessions()
+        assert len(dcfc_sessions) == 1
+        session = dcfc_sessions[0]
+        assert session.is_dcfc is True
+        assert session.start_soc == 20.0
+        assert session.end_soc == 50.0
+        assert session.max_power_kw == 150.0
+        assert session.avg_power_kw == pytest.approx((150.0 + 135.0 + 100.0) / 3.0, rel=1e-2)
+        assert len(session.samples) == 3
+        # Energy added: (50 - 20) * 135 / 100 = 40.5 kWh
+        assert session.energy_added_kwh == pytest.approx(40.5, rel=1e-2)
+
+    @pytest.mark.asyncio
+    async def test_l2_charging_discarded_under_22kw(self, mock_hass: Any) -> None:
+        """Verify AC Level 1 / Level 2 charging sessions (<= 22 kW) are discarded."""
+        coordinator = MockVehicleCoordinator()
+        store = DriveStore(mock_hass, TEST_VIN)
+        tracker = DriveTracker(
+            hass=mock_hass,
+            entry=MagicMock(),
+            coordinator=coordinator,  # type: ignore[arg-type]
+            vehicle_info={"vin": TEST_VIN, "id": TEST_VEHICLE_ID, "battery_capacity": 135.0},
+            store=store,
+        )
+        await tracker.async_setup()
+
+        # Connect to 48A L2 Wallbox (11.5 kW)
+        coordinator.set_telemetry(
+            gear="park",
+            battery_soc=40.0,
+            charger_state="charging_active",
+            charger_power=11.5,
+        )
+        assert tracker._active_charge_session is not None
+
+        # Charge to 60.0%
+        coordinator.set_telemetry(
+            gear="park",
+            battery_soc=60.0,
+            charger_state="charging_active",
+            charger_power=11.5,
+        )
+
+        # Disconnect charger
+        coordinator.set_telemetry(
+            gear="park",
+            battery_soc=60.0,
+            charger_state="charging_ready",
+            charger_power=0.0,
+        )
+        assert tracker._active_charge_session is None
+
+        await asyncio.sleep(0)
+
+        # Verify nothing persisted to DCFC history
+        assert len(store.get_dcfc_sessions()) == 0
+
+    @pytest.mark.asyncio
+    async def test_charging_pauses_vampire_drain(self, mock_hass: Any) -> None:
+        """Verify active charging resets/pauses vampire drain idle tracking."""
+        coordinator = MockVehicleCoordinator()
+        store = DriveStore(mock_hass, TEST_VIN)
+        tracker = DriveTracker(
+            hass=mock_hass,
+            entry=MagicMock(),
+            coordinator=coordinator,  # type: ignore[arg-type]
+            vehicle_info={"vin": TEST_VIN, "id": TEST_VEHICLE_ID},
+            store=store,
+        )
+        await tracker.async_setup()
+
+        # Simulate prior drive finalization establishing park baseline
+        tracker._park_start_dt = datetime.now(timezone.utc)
+        tracker._park_start_soc = 80.0
+
+        # Charging starts: park idle baseline is paused
+        coordinator.set_telemetry(
+            gear="park",
+            battery_soc=80.0,
+            charger_state="charging_active",
+            charger_power=150.0,
+        )
+        assert tracker._park_start_dt is None
+        assert tracker._park_start_soc is None
+
+    @pytest.mark.asyncio
+    async def test_dcfc_session_finalized_on_shift_to_drive(self, mock_hass: Any) -> None:
+        """Verify active DCFC session is cleanly finalized when shifting into drive."""
+        coordinator = MockVehicleCoordinator()
+        store = DriveStore(mock_hass, TEST_VIN)
+        tracker = DriveTracker(
+            hass=mock_hass,
+            entry=MagicMock(),
+            coordinator=coordinator,  # type: ignore[arg-type]
+            vehicle_info={"vin": TEST_VIN, "id": TEST_VEHICLE_ID, "battery_capacity": 135.0},
+            store=store,
+        )
+        await tracker.async_setup()
+
+        # Start DC fast charge at 150 kW
+        coordinator.set_telemetry(
+            gear="park",
+            battery_soc=30.0,
+            charger_state="charging_active",
+            charger_power=150.0,
+        )
+        assert tracker._active_charge_session is not None
+
+        # Shift to drive (unplug and depart)
+        coordinator.set_telemetry(
+            gear="drive",
+            battery_soc=75.0,
+            charger_state="charging_ready",
+            charger_power=0.0,
+        )
+        assert tracker._active_charge_session is None
+
+        # Allow scheduled coroutines to execute in event loop
+        await asyncio.sleep(0)
+
+        # Verify DCFC session was finalized and recorded
+        dcfc_sessions = store.get_dcfc_sessions()
+        assert len(dcfc_sessions) == 1
+        assert dcfc_sessions[0].start_soc == 30.0
+        assert dcfc_sessions[0].end_soc == 75.0
+        assert dcfc_sessions[0].max_power_kw == 150.0
+
+
