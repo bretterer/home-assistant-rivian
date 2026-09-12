@@ -75,6 +75,34 @@
           "plugged_in": "Plugged in",
           "charging": "Charging"
         }
+      },
+      "last_drive_efficiency": {
+        "name": "Last drive efficiency"
+      },
+      "efficiency_30d": {
+        "name": "Efficiency (30 days)"
+      },
+      "efficiency_all_time": {
+        "name": "Efficiency (all-time)"
+      },
+      "last_drive_distance": {
+        "name": "Last drive distance"
+      },
+      "last_drive_mpge": {
+        "name": "Last drive MPGe"
+      },
+      "mpge_30d": {
+        "name": "MPGe (30 days)"
+      },
+      "mpge_all_time": {
+        "name": "MPGe (all-time)"
+      },
+      "drive_status": {
+        "name": "Drive status",
+        "state": {
+          "parked": "Parked",
+          "driving": "Driving"
+        }
       }
     },
     "switch": {
@@ -88,6 +116,44 @@
       },
       "charging_schedule_end": {
         "name": "Charging schedule end"
+      }
+    }
+  },
+  "services": {
+    "backfill_drive_history": {
+      "name": "Backfill drive history",
+      "description": "Reconstruct past drive efficiency and MPGe from Home Assistant recorder history without modifying the SQLite database.",
+      "fields": {
+        "vin": {
+          "name": "Vehicle VIN",
+          "description": "Specific vehicle VIN to backfill (leave blank for all configured vehicles)."
+        },
+        "days": {
+          "name": "Days",
+          "description": "Number of past days of history to backfill (defaults to 365 days)."
+        },
+        "dry_run": {
+          "name": "Dry run",
+          "description": "If true, analyzes and logs detected drives in Home Assistant logs without saving to storage."
+        }
+      }
+    },
+    "create_efficiency_dashboard": {
+      "name": "Create efficiency dashboard",
+      "description": "Automatically generate and register a turnkey Rivian Efficiency dashboard with bundled Plotly scatterplots and telemetry cards in your Home Assistant sidebar.",
+      "fields": {
+        "title": {
+          "name": "Dashboard Title",
+          "description": "Title displayed in the sidebar and header."
+        },
+        "icon": {
+          "name": "Sidebar Icon",
+          "description": "Material Design icon for the sidebar navigation."
+        },
+        "url_path": {
+          "name": "URL Path",
+          "description": "URL slug for the dashboard."
+        }
       }
     }
   },

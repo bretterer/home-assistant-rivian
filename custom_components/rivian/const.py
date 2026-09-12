@@ -31,6 +31,8 @@ ISSUE_URL = "https://github.com/bretterer/home-assistant-rivian/issues"
 # Attributes
 ATTR_API = "api"
 ATTR_COORDINATOR = "coordinator"
+ATTR_DRIVE_STORE = "drive_store"
+ATTR_DRIVE_TRACKER = "drive_tracker"
 ATTR_USER = "user"
 ATTR_VEHICLE = "vehicle"
 ATTR_WALLBOX = "wallbox"
@@ -1104,3 +1106,81 @@ DEFAULT_CHARGING_SCHEDULE: Final[dict[str, Any]] = {
     "enabled": True,
     "weekDays": list(WEEK_DAYS_ORDERED),
 }
+
+MPGE_CONVERSION_FACTOR: Final[float] = 33.705
+
+DRIVE_SENSORS: Final[tuple[RivianSensorEntityDescription, ...]] = (
+    RivianSensorEntityDescription(
+        key="last_drive_efficiency",
+        field="last_drive_efficiency",
+        name="Last drive efficiency",
+        translation_key="last_drive_efficiency",
+        native_unit_of_measurement="mi/kWh",
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=2,
+    ),
+    RivianSensorEntityDescription(
+        key="efficiency_30d",
+        field="efficiency_30d",
+        name="Efficiency (30 days)",
+        translation_key="efficiency_30d",
+        native_unit_of_measurement="mi/kWh",
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=2,
+    ),
+    RivianSensorEntityDescription(
+        key="efficiency_all_time",
+        field="efficiency_all_time",
+        name="Efficiency (all-time)",
+        translation_key="efficiency_all_time",
+        native_unit_of_measurement="mi/kWh",
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=2,
+    ),
+    RivianSensorEntityDescription(
+        key="last_drive_distance",
+        field="last_drive_distance",
+        name="Last drive distance",
+        translation_key="last_drive_distance",
+        device_class=SensorDeviceClass.DISTANCE,
+        native_unit_of_measurement=UnitOfLength.MILES,
+        suggested_unit_of_measurement=UnitOfLength.MILES,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+    ),
+    RivianSensorEntityDescription(
+        key="last_drive_mpge",
+        field="last_drive_mpge",
+        name="Last drive MPGe",
+        translation_key="last_drive_mpge",
+        native_unit_of_measurement="MPGe",
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+    ),
+    RivianSensorEntityDescription(
+        key="mpge_30d",
+        field="mpge_30d",
+        name="MPGe (30 days)",
+        translation_key="mpge_30d",
+        native_unit_of_measurement="MPGe",
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+    ),
+    RivianSensorEntityDescription(
+        key="mpge_all_time",
+        field="mpge_all_time",
+        name="MPGe (all-time)",
+        translation_key="mpge_all_time",
+        native_unit_of_measurement="MPGe",
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+    ),
+    RivianSensorEntityDescription(
+        key="drive_status",
+        field="drive_status",
+        name="Drive status",
+        translation_key="drive_status",
+        device_class=SensorDeviceClass.ENUM,
+        options=["Parked", "Driving", "parked", "driving"],
+    ),
+)

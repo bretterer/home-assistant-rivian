@@ -24,16 +24,19 @@ from homeassistant.const import (
     UnitOfSpeed,
     UnitOfTime,
 )
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import StateType
 
 from .const import (
     ATTR_COORDINATOR,
+    ATTR_DRIVE_STORE,
+    ATTR_DRIVE_TRACKER,
     ATTR_VEHICLE,
     ATTR_WALLBOX,
     DOMAIN,
+    DRIVE_SENSORS,
     SENSORS,
     WEEK_DAYS_ORDERED,
 )
@@ -42,6 +45,9 @@ from .data_classes import (
     RivianSensorEntityDescription,
     RivianWallboxSensorEntityDescription,
 )
+from .drive_models import MPGE_FACTOR, DriveState, SpeedBinData
+from .drive_storage import DriveStore
+from .drive_tracker import DriveTracker
 from .entity import (
     RivianChargingEntity,
     RivianEntity,
@@ -114,6 +120,30 @@ async def async_setup_entry(
                 coord, entry, CHARGING_SCHEDULE_DAYS_SENSOR, vehicle
             )
         )
+
+    # Add drive efficiency and status entities
+    drive_trackers: dict[str, DriveTracker] = data.get(ATTR_DRIVE_TRACKER, {})
+    drive_stores: dict[str, DriveStore] = data.get(ATTR_DRIVE_STORE, {})
+    for vehicle_id, vehicle in vehicles.items():
+        if (
+            vehicle_id in vehicle_coordinators
+            and vehicle_id in drive_trackers
+            and vehicle_id in drive_stores
+        ):
+            coord = vehicle_coordinators[vehicle_id]
+            tracker = drive_trackers[vehicle_id]
+            store = drive_stores[vehicle_id]
+            entities.extend(
+                RivianDriveSensorEntity(
+                    coordinator=coord,
+                    config_entry=entry,
+                    description=description,
+                    vehicle=vehicle,
+                    tracker=tracker,
+                    store=store,
+                )
+                for description in DRIVE_SENSORS
+            )
 
     async_add_entities(entities)
 
@@ -444,3 +474,297 @@ class RivianDriverSensorEntity(RivianEntity[DriverKeyCoordinator], SensorEntity)
 
             return {"paired": get_count("isPaired"), "enabled": get_count("isEnabled")}
         return super().extra_state_attributes
+
+
+class RivianDriveSensorEntity(RivianVehicleEntity, SensorEntity):
+    """Representation of a Rivian drive efficiency and status sensor entity."""
+
+    entity_description: RivianSensorEntityDescription
+
+    def __init__(
+        self,
+        coordinator: VehicleCoordinator,
+        config_entry: ConfigEntry,
+        description: RivianSensorEntityDescription,
+        vehicle: dict[str, Any],
+        tracker: DriveTracker,
+        store: DriveStore,
+    ) -> None:
+        """Initialize the drive sensor entity."""
+        super().__init__(coordinator, config_entry, description, vehicle)
+        self._tracker = tracker
+        self._store = store
+
+    @property
+    def available(self) -> bool:
+        """Return availability."""
+        return self._available
+
+    async def async_added_to_hass(self) -> None:
+        """Register callbacks with DriveTracker."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self._tracker.async_add_listener(self._handle_tracker_update)
+        )
+
+    @callback
+    def _handle_tracker_update(self, _drive_state: DriveState) -> None:
+        """Handle real-time update from DriveTracker."""
+        self.async_write_ha_state()
+
+    @property
+    def native_value(self) -> StateType:
+        """Return the native value of the sensor."""
+        key = self.entity_description.key
+        drives = self._store.drives
+        last_drive = drives[-1] if drives else None
+
+        if key == "last_drive_efficiency":
+            return round(last_drive.efficiency_mi_kwh, 2) if last_drive else None
+
+        if key == "efficiency_30d":
+            stats = self._store.get_stats_30d()
+            return round(stats.efficiency_mi_kwh, 2) if stats.drive_count > 0 else None
+
+        if key == "efficiency_all_time":
+            stats = self._store.get_stats_all_time()
+            return round(stats.efficiency_mi_kwh, 2) if stats.drive_count > 0 else None
+
+        if key == "last_drive_distance":
+            return round(last_drive.distance_miles, 1) if last_drive else None
+
+        if key == "last_drive_mpge":
+            return round(last_drive.mpge, 1) if last_drive else None
+
+        if key == "mpge_30d":
+            stats = self._store.get_stats_30d()
+            return round(stats.mpge, 1) if stats.drive_count > 0 else None
+
+        if key == "mpge_all_time":
+            stats = self._store.get_stats_all_time()
+            return round(stats.mpge, 1) if stats.drive_count > 0 else None
+
+        if key == "drive_status":
+            return self._tracker.drive_state.status
+
+        return None
+
+    @property
+    def extra_state_attributes(self) -> Mapping[str, Any] | None:
+        """Return extra state attributes."""
+        key = self.entity_description.key
+        drives = self._store.drives
+        last_drive = drives[-1] if drives else None
+
+        if key == "last_drive_efficiency":
+            if not last_drive:
+                return None
+            kwh_per_mi = (
+                round(last_drive.energy_kwh / last_drive.distance_miles, 3)
+                if last_drive.distance_miles > 0
+                else 0.0
+            )
+            speed_bins_dict: dict[str, Any] = {}
+            for bin_key, val in last_drive.speed_bins.items():
+                if isinstance(val, SpeedBinData):
+                    speed_bins_dict[bin_key] = val.to_dict()
+                elif isinstance(val, dict):
+                    speed_bins_dict[bin_key] = val
+                elif isinstance(val, (int, float)):
+                    speed_bins_dict[bin_key] = {
+                        "miles": round(float(val), 3),
+                        "seconds": 0.0,
+                    }
+                else:
+                    speed_bins_dict[bin_key] = val
+
+            return {
+                "mpge": last_drive.mpge,
+                "kwh_per_mi": kwh_per_mi,
+                "distance": last_drive.distance_miles,
+                "distance_miles": last_drive.distance_miles,
+                "duration": last_drive.duration_seconds,
+                "duration_seconds": last_drive.duration_seconds,
+                "elevation_change_ft": last_drive.elevation_change_ft,
+                "avg_speed": last_drive.avg_speed_mph,
+                "avg_speed_mph": last_drive.avg_speed_mph,
+                "max_speed": last_drive.max_speed_mph,
+                "max_speed_mph": last_drive.max_speed_mph,
+                "integrated_temp_f": last_drive.integrated_temperature_f,
+                "speed_bins": speed_bins_dict,
+                "start_time": last_drive.start_time,
+                "end_time": last_drive.end_time,
+                "start_soc": last_drive.start_soc,
+                "end_soc": last_drive.end_soc,
+                "energy_kwh": last_drive.energy_kwh,
+                "is_micro_drive": last_drive.is_micro_drive,
+            }
+
+        if key in ("efficiency_30d", "efficiency_all_time"):
+            stats = (
+                self._store.get_stats_30d()
+                if key == "efficiency_30d"
+                else self._store.get_stats_all_time()
+            )
+            stats_90d = self._store.get_stats_90d()
+            stats_365d = self._store.get_stats_365d()
+            valid_drives = [
+                drive
+                for drive in self._store.drives
+                if not drive.is_micro_drive and drive.distance_miles >= 0.5
+            ]
+
+            # 90 interactive days by default for dashboard graphs
+            interactive_drives = self._store.get_drives_for_period(days=90)
+            if len(interactive_drives) < 50:
+                interactive_drives = valid_drives[-50:]
+            elif len(interactive_drives) > 500:
+                interactive_drives = interactive_drives[-500:]
+
+            recent_drives = [
+                {
+                    "start_time": d.start_time,
+                    "distance": round(d.distance_miles, 2),
+                    "energy_kwh": round(d.energy_kwh, 2),
+                    "efficiency": round(d.efficiency_mi_kwh, 2),
+                    "mpge": round(d.mpge, 1),
+                    "elevation_change_ft": round(d.elevation_change_ft, 0),
+                    "avg_speed_mph": round(d.avg_speed_mph, 1),
+                    "temp_f": (
+                        round(d.integrated_temperature_f, 1)
+                        if d.integrated_temperature_f is not None
+                        else None
+                    ),
+                    "speed_bins": (
+                        {
+                            k: {
+                                "miles": round(
+                                    v.miles
+                                    if hasattr(v, "miles")
+                                    else (
+                                        v.get("miles", 0) if isinstance(v, dict) else v
+                                    ),
+                                    2,
+                                ),
+                                "seconds": round(
+                                    v.seconds
+                                    if hasattr(v, "seconds")
+                                    else (
+                                        v.get("seconds", 0)
+                                        if isinstance(v, dict)
+                                        else 0
+                                    ),
+                                    0,
+                                ),
+                            }
+                            for k, v in d.speed_bins.items()
+                        }
+                        if d.speed_bins
+                        else {}
+                    ),
+                }
+                for d in interactive_drives
+            ]
+
+            recent_segments = []
+            for d in interactive_drives:
+                if d.segments:
+                    for s in d.segments:
+                        s_dict = s.to_dict() if hasattr(s, "to_dict") else dict(s)
+                        if (
+                            s_dict.get("temp_f") is None
+                            and d.integrated_temperature_f is not None
+                        ):
+                            s_dict["temp_f"] = round(d.integrated_temperature_f, 1)
+                        if "mpge" not in s_dict or s_dict["mpge"] is None:
+                            s_dict["mpge"] = round(
+                                float(s_dict.get("efficiency_mi_kwh", 0.0))
+                                * MPGE_FACTOR,
+                                1,
+                            )
+                        recent_segments.append(s_dict)
+
+            attrs: dict[str, Any] = {
+                "mpge": stats.mpge,
+                "total_miles": stats.total_miles,
+                "total_kwh": stats.total_kwh,
+                "drive_count": stats.drive_count,
+                "total_duration_seconds": stats.total_duration_seconds,
+                "avg_distance_miles": stats.avg_distance_miles,
+                "total_micro_drives": stats.total_micro_drives,
+                "stats_90d": stats_90d.to_dict(),
+                "stats_365d": stats_365d.to_dict(),
+                "recent_drives": recent_drives,
+            }
+            if recent_segments:
+                attrs["recent_segments"] = recent_segments[-1500:]
+
+            vampire_events = self._store.vampire_events
+            interactive_vampire = self._store.get_vampire_events_for_period(days=90)
+            if len(interactive_vampire) < 50 and vampire_events:
+                interactive_vampire = vampire_events[-50:]
+            elif len(interactive_vampire) > 250:
+                interactive_vampire = interactive_vampire[-250:]
+
+            if interactive_vampire:
+                attrs["recent_vampire_events"] = [
+                    v.to_dict() for v in interactive_vampire
+                ]
+
+            dcfc_sessions = self._store.get_dcfc_sessions()
+            if dcfc_sessions:
+                attrs["recent_dcfc_sessions"] = [s.to_dict() for s in dcfc_sessions]
+
+            return attrs
+
+        if key == "last_drive_distance":
+            if not last_drive:
+                return None
+            return {
+                "start_time": last_drive.start_time,
+                "end_time": last_drive.end_time,
+                "duration_seconds": last_drive.duration_seconds,
+                "energy_kwh": last_drive.energy_kwh,
+                "is_micro_drive": last_drive.is_micro_drive,
+            }
+
+        if key == "last_drive_mpge":
+            if not last_drive:
+                return None
+            return {
+                "efficiency_mi_kwh": last_drive.efficiency_mi_kwh,
+                "distance_miles": last_drive.distance_miles,
+                "energy_kwh": last_drive.energy_kwh,
+            }
+
+        if key in ("mpge_30d", "mpge_all_time"):
+            stats = (
+                self._store.get_stats_30d()
+                if key == "mpge_30d"
+                else self._store.get_stats_all_time()
+            )
+            return {
+                "total_miles": stats.total_miles,
+                "total_kwh": stats.total_kwh,
+                "drive_count": stats.drive_count,
+                "efficiency_mi_kwh": stats.efficiency_mi_kwh,
+                "stats_90d": self._store.get_stats_90d().to_dict(),
+                "stats_365d": self._store.get_stats_365d().to_dict(),
+            }
+
+        if key == "drive_status":
+            state = self._tracker.drive_state
+            return {
+                "is_driving": state.is_driving,
+                "current_trip_distance_mi": state.current_trip_distance_mi,
+                "current_trip_duration": state.current_trip_duration,
+                "current_trip_duration_s": state.current_trip_duration,
+                "current_trip_kwh": state.current_trip_kwh,
+                "current_trip_efficiency": state.current_trip_efficiency,
+                "current_speed_mph": state.current_speed_mph,
+                "current_altitude_ft": state.current_altitude_ft,
+                "gps_locked": state.gps_locked,
+                "is_debouncing_park": self._tracker.is_debouncing_park,
+            }
+
+        return None
