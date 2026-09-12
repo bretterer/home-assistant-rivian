@@ -9,6 +9,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import yaml
 
 from custom_components.rivian import (
     async_setup_entry as integration_async_setup_entry,
@@ -220,24 +221,45 @@ class TestTranslationFiles:
             assert key in en_sensors
             assert strings_sensors[key]["name"] == en_sensors[key]["name"]
 
-        # Verify services parity
+        # Verify services parity with en.json and services.yaml
         assert "services" in strings_data
         assert "services" in en_data
         strings_services = strings_data["services"]
         en_services = en_data["services"]
 
+        services_yaml_path = (
+            REPO_ROOT / "custom_components" / "rivian" / "services.yaml"
+        )
+        with services_yaml_path.open("r", encoding="utf-8") as f:
+            services_yaml = yaml.safe_load(f)
+
         for svc in ("backfill_drive_history", "create_efficiency_dashboard"):
             assert svc in strings_services, f"Missing service {svc} in strings.json"
             assert svc in en_services, f"Missing service {svc} in en.json"
+            assert svc in services_yaml, f"Missing service {svc} in services.yaml"
             assert strings_services[svc]["name"] == en_services[svc]["name"]
+            assert strings_services[svc]["name"] == services_yaml[svc]["name"]
             assert (
                 strings_services[svc]["description"] == en_services[svc]["description"]
             )
+            assert (
+                strings_services[svc]["description"]
+                == services_yaml[svc]["description"]
+            )
             for f_key in strings_services[svc]["fields"]:
                 assert f_key in en_services[svc]["fields"]
+                assert f_key in services_yaml[svc]["fields"]
                 assert (
                     strings_services[svc]["fields"][f_key]["name"]
                     == en_services[svc]["fields"][f_key]["name"]
+                )
+                assert (
+                    strings_services[svc]["fields"][f_key]["name"]
+                    == services_yaml[svc]["fields"][f_key]["name"]
+                )
+                assert (
+                    strings_services[svc]["fields"][f_key]["description"]
+                    == services_yaml[svc]["fields"][f_key]["description"]
                 )
 
 

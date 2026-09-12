@@ -122,19 +122,19 @@
   "services": {
     "backfill_drive_history": {
       "name": "Backfill drive history",
-      "description": "Backfill completed drive history from Home Assistant SQLite recorder without writing to the database.",
+      "description": "Reconstruct past drive efficiency and MPGe from Home Assistant recorder history without modifying the SQLite database.",
       "fields": {
         "vin": {
           "name": "Vehicle VIN",
-          "description": "The vehicle VIN to backfill (leave empty for all vehicles)."
+          "description": "Specific vehicle VIN to backfill (leave blank for all configured vehicles)."
         },
         "days": {
           "name": "Days",
-          "description": "Number of historical days to backfill (defaults to all available)."
+          "description": "Number of past days of history to backfill (defaults to 365 days)."
         },
         "dry_run": {
           "name": "Dry run",
-          "description": "Simulate backfill without writing to storage."
+          "description": "If true, analyzes and logs detected drives in Home Assistant logs without saving to storage."
         }
       }
     },
