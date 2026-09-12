@@ -90,10 +90,15 @@ def resolve_recorder_entities(
         for row in cursor.fetchall():
             entity_map[row["entity_id"].lower()] = row["metadata_id"]
     else:
-        # Older schema fallback
-        cursor.execute("SELECT DISTINCT entity_id FROM states")
-        for idx, row in enumerate(cursor.fetchall(), start=1):
-            entity_map[row["entity_id"].lower()] = idx
+        # Older schema fallback: check if states table exists
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='states'"
+        )
+        has_states = cursor.fetchone() is not None
+        if has_states:
+            cursor.execute("SELECT DISTINCT entity_id FROM states")
+            for idx, row in enumerate(cursor.fetchall(), start=1):
+                entity_map[row["entity_id"].lower()] = idx
 
     resolved: dict[str, int] = {}
     target_tokens = []
@@ -459,7 +464,12 @@ def reconstruct_drives_from_sqlite(
     battery_capacity: float | None = None,
 ) -> tuple[list[DriveRecord], dict[str, Any]]:
     """Synchronously reconstruct historical drive records from SQLite database."""
-    conn = open_sqlite_readonly(db_path)
+    try:
+        conn = open_sqlite_readonly(db_path)
+    except (sqlite3.Error, OSError) as err:
+        _LOGGER.error("Failed to open SQLite recorder database '%s': %s", db_path, err)
+        return [], {}
+
     try:
         entities = resolve_recorder_entities(conn, vin=vin, vehicle_id=vehicle_id)
         if "gear_selector" not in entities:
@@ -757,6 +767,11 @@ def reconstruct_drives_from_sqlite(
             "vampire_events": vampire_events,
             "dcfc_sessions": dcfc_sessions,
         }
+    except (sqlite3.Error, OSError) as err:
+        _LOGGER.error(
+            "SQLite error while reconstructing drives from '%s': %s", db_path, err
+        )
+        return [], {}
     finally:
         conn.close()
 

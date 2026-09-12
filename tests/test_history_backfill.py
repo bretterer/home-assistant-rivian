@@ -134,6 +134,24 @@ class TestEntityResolution:
             if os.path.exists(temp_db):
                 os.remove(temp_db)
 
+    def test_resolve_entities_empty_database(self) -> None:
+        """Test entity resolution on an empty database with no tables returns empty dict."""
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tf:
+            temp_db = tf.name
+
+        try:
+            conn = sqlite3.connect(temp_db)
+            conn.close()
+
+            ro_conn = open_sqlite_readonly(temp_db)
+            resolved = resolve_recorder_entities(ro_conn, vehicle_id="r1s_test")
+            ro_conn.close()
+
+            assert resolved == {}
+        finally:
+            if os.path.exists(temp_db):
+                os.remove(temp_db)
+
 
 class TestEmpiricalBaselineBackfill:
     """Test suite verifying exact empirical baseline reproduction for R1S Test 10-day dataset."""
@@ -213,6 +231,38 @@ class TestEmpiricalBaselineBackfill:
             assert drive.start_soc >= drive.end_soc
             assert drive.battery_capacity_kwh == 135.0
             assert drive.duration_seconds > 0
+
+    def test_reconstruct_from_empty_database(self) -> None:
+        """Test reconstruct_drives_from_sqlite handles an empty database gracefully."""
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tf:
+            temp_db = tf.name
+
+        try:
+            conn = sqlite3.connect(temp_db)
+            conn.close()
+
+            drives, meta = reconstruct_drives_from_sqlite(temp_db)
+            assert drives == []
+            assert meta == {}
+        finally:
+            if os.path.exists(temp_db):
+                os.remove(temp_db)
+
+    def test_reconstruct_from_corrupt_database(self) -> None:
+        """Test reconstruct_drives_from_sqlite handles a corrupted database file gracefully."""
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tf:
+            temp_db = tf.name
+
+        try:
+            with open(temp_db, "wb") as f:
+                f.write(b"NOT_A_VALID_SQLITE_DATABASE_HEADER_DATA")
+
+            drives, meta = reconstruct_drives_from_sqlite(temp_db)
+            assert drives == []
+            assert meta == {}
+        finally:
+            if os.path.exists(temp_db):
+                os.remove(temp_db)
 
 
 class TestParkDebounceLogic:

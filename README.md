@@ -253,6 +253,17 @@ Reconstruct past drive efficiency and MPGe from Home Assistant recorder history 
 | `days`                 | yes      | Number of past days of history to backfill (defaults to 365 days). |
 | `dry_run`              | yes      | If true, analyzes and logs detected drives in Home Assistant logs without saving to storage (default: true). |
 
+### `rivian.create_efficiency_dashboard`
+
+Automatically generate and register a turnkey Rivian Efficiency dashboard with bundled Plotly scatterplots and telemetry cards in your Home Assistant sidebar.
+
+| Service Data Attribute | Optional | Description |
+| ---------------------- | -------- | ----------- |
+| `title`                | yes      | Title displayed in the sidebar and header (default: "Rivian Efficiency"). |
+| `icon`                 | yes      | Material Design icon for the sidebar navigation (default: "mdi:gauge"). |
+| `url_path`             | yes      | URL slug for the dashboard (default: "rivian-efficiency"). |
+
+
 ## Special Thanks
 
 - [jrgutier](https://github.com/jrgutier) - Helped with getting information on the Rivian API
