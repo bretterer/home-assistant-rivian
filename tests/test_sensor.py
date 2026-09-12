@@ -113,7 +113,7 @@ def mock_vehicle_info() -> dict[str, Any]:
     return {
         "id": TEST_VEHICLE_ID,
         "vin": TEST_VIN,
-        "name": "reggie",
+        "name": "r1s_adventure",
         "model": "R1S",
         "battery_capacity": 135.0,
     }

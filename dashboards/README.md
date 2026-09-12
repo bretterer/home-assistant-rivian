@@ -35,7 +35,7 @@ The provided dashboard configuration ([`lovelace_efficiency_dashboard.yaml`](../
 
 1. Open [`lovelace_efficiency_dashboard.yaml`](../lovelace_efficiency_dashboard.yaml).
 2. Replace `{vin}` with your vehicle entity ID prefix.
-   - For example, if your vehicle sensor is `sensor.rivian_r1s_reggie_last_drive_efficiency`, replace `sensor.{vin}_` with `sensor.rivian_r1s_reggie_`.
+   - For example, if your vehicle sensor is `sensor.rivian_r1s_my_rivian_last_drive_efficiency`, replace `sensor.{vin}_` with `sensor.rivian_r1s_my_rivian_`.
 3. In Home Assistant:
    - Go to any dashboard → click **Three Dots (⋮)** → **Edit Dashboard** → **Raw configuration editor**.
    - Paste the desired view into your `views:` list.

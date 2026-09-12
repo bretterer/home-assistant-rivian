@@ -388,7 +388,7 @@ class TestDriveStore:
 
     @pytest.mark.asyncio
     async def test_empirical_baseline_aggregation(self, mock_hass: Any) -> None:
-        """Test R1S Reggie empirical baseline aggregation: 370.93 mi, 131.05 kWh -> 2.83 mi/kWh (95.4 MPGe)."""
+        """Test R1S empirical baseline aggregation: 370.93 mi, 131.05 kWh -> 2.83 mi/kWh (95.4 MPGe)."""
         store = DriveStore(mock_hass, TEST_VIN)
 
         # Synthesize 58 valid drives totaling 370.93 miles and 131.05 kWh
@@ -400,7 +400,7 @@ class TestDriveStore:
         for i in range(58):
             drives.append(
                 _create_sample_drive(
-                    drive_id=f"reggie_drive_{i}",
+                    drive_id=f"test_drive_{i}",
                     distance_miles=miles_per_drive,
                     energy_kwh=kwh_per_drive,
                     start_time="2026-08-20T12:00:00Z",
@@ -411,7 +411,7 @@ class TestDriveStore:
         for j in range(4):
             drives.append(
                 _create_sample_drive(
-                    drive_id=f"reggie_micro_{j}",
+                    drive_id=f"test_micro_{j}",
                     distance_miles=0.3,
                     energy_kwh=0.1,
                     is_micro_drive=True,

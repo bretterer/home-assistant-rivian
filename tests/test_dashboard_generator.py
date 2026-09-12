@@ -16,9 +16,9 @@ from custom_components.rivian.dashboard_generator import (
 
 def test_build_vehicle_analytics_view() -> None:
     """Test building the Plotly and Mushroom analytics view."""
-    view = _build_vehicle_analytics_view("Reggie", "sensor.rivian_r1s_reggie_")
-    assert view["title"] == "Reggie Efficiency"
-    assert view["path"] == "reggie"
+    view = _build_vehicle_analytics_view("R1S", "sensor.rivian_r1s_")
+    assert view["title"] == "R1S Efficiency"
+    assert view["path"] == "r1s"
     assert len(view["cards"]) == 10
 
     # Check Mushroom Card
@@ -26,7 +26,7 @@ def test_build_vehicle_analytics_view() -> None:
     assert hero_card["type"] == "vertical-stack"
     template_card = hero_card["cards"][0]
     assert template_card["type"] == "custom:mushroom-template-card"
-    assert "sensor.rivian_r1s_reggie_last_drive_efficiency" in template_card["primary"]
+    assert "sensor.rivian_r1s_last_drive_efficiency" in template_card["primary"]
 
     # Check Plotly Scatterplot
     scatter_card = view["cards"][1]
@@ -122,9 +122,9 @@ def test_build_vehicle_analytics_view() -> None:
 
 def test_build_core_fallback_view() -> None:
     """Test building the zero-dependency Native Core fallback view."""
-    view = _build_core_fallback_view("Reggie", "sensor.rivian_r1s_reggie_")
+    view = _build_core_fallback_view("R1S", "sensor.rivian_r1s_")
     assert "Native Core" in view["title"]
-    assert view["path"] == "reggie-core"
+    assert view["path"] == "r1s-core"
     assert len(view["cards"]) == 3
 
     grid_card = view["cards"][0]
@@ -139,15 +139,15 @@ async def test_async_discover_vehicle_prefixes() -> None:
     hass = MagicMock()
     hass.data = {}
     hass.states.async_entity_ids.return_value = [
-        "sensor.rivian_r1s_reggie_last_drive_efficiency",
-        "sensor.rivian_r1s_reggie_battery_state_of_charge",
+        "sensor.rivian_r1s_last_drive_efficiency",
+        "sensor.rivian_r1s_battery_state_of_charge",
     ]
 
     prefixes = await async_discover_vehicle_prefixes(hass)
     assert len(prefixes) == 1
     name, prefix = prefixes[0]
-    assert "Reggie" in name
-    assert prefix == "sensor.rivian_r1s_reggie_"
+    assert "Rivian R1S" in name
+    assert prefix == "sensor.rivian_r1s_"
 
 
 @pytest.mark.asyncio
@@ -156,7 +156,7 @@ async def test_async_create_efficiency_dashboard() -> None:
     hass = MagicMock()
     hass.data = {}
     hass.states.async_entity_ids.return_value = [
-        "sensor.rivian_r1s_reggie_last_drive_efficiency",
+        "sensor.rivian_r1s_last_drive_efficiency",
     ]
 
     mock_saved_data = {}

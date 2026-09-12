@@ -1,4 +1,4 @@
-"""Deterministic Test Fixture Generator for R1S Reggie 10-Day Historical Recorder Database."""
+"""Deterministic Test Fixture Generator for R1S Test 10-Day Historical Recorder Database."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import sys
 from typing import Any
 
 TARGET_VIN = "7PDSGABA1NN000001"
-TARGET_VEHICLE_NAME = "reggie"
+TARGET_VEHICLE_NAME = "r1s_test"
 TARGET_BATTERY_CAPACITY = 135.0
 
 TARGET_VALID_DRIVES = 58
@@ -53,7 +53,7 @@ def generate_drives_distribution() -> tuple[
     return valid_drives, micro_drives
 
 
-def create_reggie_sqlite_db(output_path: str) -> None:
+def create_test_sqlite_db(output_path: str) -> None:
     """Create the SQLite database populated with 10 days of historical recorder states."""
     if os.path.exists(output_path):
         os.remove(output_path)
@@ -319,6 +319,6 @@ if __name__ == "__main__":
     target_path = (
         sys.argv[1]
         if len(sys.argv) > 1
-        else os.path.join(os.path.dirname(__file__), "reggie_10day_history.db")
+        else os.path.join(os.path.dirname(__file__), "r1s_10day_history.db")
     )
-    create_reggie_sqlite_db(target_path)
+    create_test_sqlite_db(target_path)

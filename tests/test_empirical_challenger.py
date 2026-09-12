@@ -27,7 +27,7 @@ from custom_components.rivian.history_backfill import (
 )
 
 FIXTURE_DB_PATH = os.path.join(
-    os.path.dirname(__file__), "fixtures", "reggie_10day_history.db"
+    os.path.dirname(__file__), "fixtures", "r1s_10day_history.db"
 )
 TEST_VIN = "7PDSGABA1NN000001"
 
@@ -35,10 +35,10 @@ TEST_VIN = "7PDSGABA1NN000001"
 class TestEmpiricalChallengerReproduction:
     """Empirical Challenger Test 1: Exact baseline reproduction & deduplication."""
 
-    def test_reggie_empirical_baseline(self) -> None:
+    def test_empirical_baseline(self) -> None:
         """Verify exact reproduction of empirical baseline: 58 valid drives, 370.93 mi, 131.05 kWh, 2.83 mi/kWh, 95.4 MPGe."""
         drives, _meta = reconstruct_drives_from_sqlite(
-            FIXTURE_DB_PATH, vin=TEST_VIN, vehicle_id="reggie"
+            FIXTURE_DB_PATH, vin=TEST_VIN, vehicle_id="r1s_test"
         )
         valid_drives = [
             d

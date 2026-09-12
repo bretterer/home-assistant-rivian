@@ -28,7 +28,7 @@ from custom_components.rivian.history_backfill import (
 )
 
 FIXTURE_DB_PATH = os.path.join(
-    os.path.dirname(__file__), "fixtures", "reggie_10day_history.db"
+    os.path.dirname(__file__), "fixtures", "r1s_10day_history.db"
 )
 TEST_VIN = "7PDSGABA1NN000001"
 
@@ -83,9 +83,9 @@ class TestEntityResolution:
     """Test suite for dynamic entity resolution from recorder metadata."""
 
     def test_resolve_entities_from_fixture(self) -> None:
-        """Test resolving entities for reggie from fixture database."""
+        """Test resolving entities for r1s_test from fixture database."""
         conn = open_sqlite_readonly(FIXTURE_DB_PATH)
-        entities = resolve_recorder_entities(conn, vin=TEST_VIN, vehicle_id="reggie")
+        entities = resolve_recorder_entities(conn, vin=TEST_VIN, vehicle_id="r1s_test")
         conn.close()
 
         assert "gear_selector" in entities
@@ -136,7 +136,7 @@ class TestEntityResolution:
 
 
 class TestEmpiricalBaselineBackfill:
-    """Test suite verifying exact empirical baseline reproduction for R1S Reggie 10-day dataset."""
+    """Test suite verifying exact empirical baseline reproduction for R1S Test 10-day dataset."""
 
     @pytest.mark.asyncio
     async def test_reconstruct_drives_baseline_metrics(self) -> None:
@@ -144,7 +144,7 @@ class TestEmpiricalBaselineBackfill:
         drives, _meta = reconstruct_drives_from_sqlite(
             db_path=FIXTURE_DB_PATH,
             vin=TEST_VIN,
-            vehicle_id="reggie",
+            vehicle_id="r1s_test",
         )
 
         assert len(drives) == 62
@@ -251,11 +251,11 @@ class TestParkDebounceLogic:
                 "CREATE TABLE states_meta (metadata_id INTEGER PRIMARY KEY, entity_id VARCHAR(255))"
             )
             cur.execute(
-                "INSERT INTO states_meta VALUES (1, 'sensor.reggie_gear_selector')"
+                "INSERT INTO states_meta VALUES (1, 'sensor.r1s_test_gear_selector')"
             )
-            cur.execute("INSERT INTO states_meta VALUES (2, 'sensor.reggie_odometer')")
+            cur.execute("INSERT INTO states_meta VALUES (2, 'sensor.r1s_test_odometer')")
             cur.execute(
-                "INSERT INTO states_meta VALUES (3, 'sensor.reggie_battery_level')"
+                "INSERT INTO states_meta VALUES (3, 'sensor.r1s_test_battery_level')"
             )
 
             cur.execute("""
@@ -466,7 +466,7 @@ class TestServiceRegistration:
                 "test_vehicle_id_1": {
                     "id": "test_vehicle_id_1",
                     "vin": TEST_VIN,
-                    "name": "reggie",
+                    "name": "r1s_test",
                     "model": "R1S",
                 }
             }

@@ -5,11 +5,11 @@
 #
 # INSTRUCTIONS FOR USE:
 # 1. Entity Replacement:
-#    Replace all occurrences of '{vin}' (or vehicle name such as 'reggie' / 'r1s_reggie')
+#    Replace all occurrences of '{vin}' (or vehicle name such as 'my_rivian')
 #    with your Rivian vehicle's entity ID prefix in Home Assistant.
 #    Example:
-#      sensor.{vin}_last_drive_efficiency -> sensor.reggie_last_drive_efficiency
-#      sensor.{vin}_drive_status          -> sensor.reggie_drive_status
+#      sensor.{vin}_last_drive_efficiency -> sensor.my_rivian_last_drive_efficiency
+#      sensor.{vin}_drive_status          -> sensor.my_rivian_drive_status
 #
 # 2. Frontend Dependencies (for View 1: Advanced Analytics):
 #    - Mushroom Cards (custom:mushroom-template-card, custom:mushroom-chips-card, custom:mushroom-entity-card)

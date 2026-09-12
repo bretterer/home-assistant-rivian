@@ -340,7 +340,7 @@ class TestEntityAndAttributeReferences:
     ) -> None:
 
         """Verify that substituting {vin} produces valid Home Assistant entity IDs without leftovers."""
-        test_vins = ["reggie", "7pdsgaba8nn000000", "r1s_reggie"]
+        test_vins = ["my_rivian", "7pdsgaba8nn000000", "r1s_test"]
 
         for test_vin in test_vins:
             substituted_content = dashboard_raw_content.replace(

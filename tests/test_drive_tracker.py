@@ -115,7 +115,7 @@ class TestDriveTrackerLifecycle:
         vehicle_info = {
             "vin": TEST_VIN,
             "id": TEST_VEHICLE_ID,
-            "name": "reggie",
+            "name": "r1s_adventure",
             "model": "R1S",
             "battery_capacity": 135.0,
         }
@@ -296,7 +296,7 @@ class TestGPSLockGateAndWeatherSampling:
         vehicle_info = {
             "vin": TEST_VIN,
             "id": TEST_VEHICLE_ID,
-            "name": "reggie",
+            "name": "r1s_adventure",
             "model": "R1S",
         }
         tracker = DriveTracker(
@@ -436,7 +436,7 @@ class TestSpeedBinningAndCalculations:
         vehicle_info = {
             "vin": TEST_VIN,
             "id": TEST_VEHICLE_ID,
-            "name": "reggie",
+            "name": "r1s_adventure",
             "model": "R1S",
         }
         tracker = DriveTracker(

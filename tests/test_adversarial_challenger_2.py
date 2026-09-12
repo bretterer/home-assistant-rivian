@@ -150,7 +150,7 @@ class TestAdversarialDriveTrackerTransitions:
         vehicle_info = {
             "vin": TEST_VIN,
             "id": TEST_VEHICLE_ID,
-            "name": "reggie_stress",
+            "name": "stress_vehicle",
             "model": "R1S",
             "battery_capacity": 135.0,
         }

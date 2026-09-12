@@ -12,7 +12,6 @@ from typing import TYPE_CHECKING, Any, Final
 
 from .drive_models import (
     DCFC_MIN_POWER_KW,
-    MAX_DCFC_HISTORY_SESSIONS,
     MICRO_DRIVE_THRESHOLD_MILES,
     MPGE_FACTOR,
     STANDARD_SPEED_BINS,
@@ -871,9 +870,11 @@ def reconstruct_dcfc_sessions_from_sqlite(
         # Deduplicate
         dedup: list[tuple[float, float]] = []
         for ts, soc in raw_soc:
-            if not dedup:
-                dedup.append((ts, soc))
-            elif abs(soc - dedup[-1][1]) >= 0.05 or (ts - dedup[-1][0]) >= 20.0:
+            if (
+                not dedup
+                or abs(soc - dedup[-1][1]) >= 0.05
+                or (ts - dedup[-1][0]) >= 20.0
+            ):
                 dedup.append((ts, soc))
 
         start_soc = dedup[0][1]
@@ -905,8 +906,7 @@ def reconstruct_dcfc_sessions_from_sqlite(
             if dt >= 30.0 and dsoc > 0.0:
                 p_kw = (dsoc / 100.0 * pack_capacity) / (dt / 3600.0)
                 p_kw = min(225.0, p_kw)
-                if p_kw > max_power:
-                    max_power = p_kw
+                max_power = max(max_power, p_kw)
 
                 if not samples or (
                     abs(samples[-1].soc - soc_i) >= 0.2

@@ -61,7 +61,7 @@ The subsystem provides native trip efficiency (`mi/kWh`), MPGe tracking, real-ti
 | F8 | Historical Backfill Service | `async_backfill_from_recorder` service with read-only SQLite (`mode=ro`), drive trip reconstruction, Open-Meteo Archive API integration, and deduplication | M4 | R4 |
 | F9 | Standalone Backfill CLI | `scripts/backfill_drives_from_sqlite.py` with `--dry-run` and `--output` flags | M4 | R4 |
 | F10 | Lovelace Dashboard Package | `lovelace_efficiency_dashboard.yaml` featuring Mushroom/Tile overview cards, Plotly elevation-colored scatterplot, and speed bin bar chart | M5 | R5 |
-| F11 | Empirical Baseline & E2E Validation | Pass 100% of test suite and validate 10-day dataset for R1S `reggie` (370.93 mi, 131.05 kWh, 2.83 mi/kWh, 95.4 MPGe across 58 drives) and ruff linting | M6 | Acceptance Criteria |
+| F11 | Empirical Baseline & E2E Validation | Pass 100% of test suite and validate 10-day dataset for R1S test vehicle (370.93 mi, 131.05 kWh, 2.83 mi/kWh, 95.4 MPGe across 58 drives) and ruff linting | M6 | Acceptance Criteria |
 
 ## Code Layout
 - `custom_components/rivian/drive_models.py` — Data models (`DriveRecord`, `SpeedBinData`, `AggregatedDriveStats`, `DriveState`, `DriveStatus`) and serialization helpers.
@@ -85,7 +85,7 @@ The subsystem provides native trip efficiency (`mi/kWh`), MPGe tracking, real-ti
 | M3 | Entity Platform & Translations | `const.py`, `sensor.py`, `strings.json`, `en.json` (F6, F7) | M1, M2 | DONE |
 | M4 | Historical Backfill Engine & CLI | `history_backfill.py`, `scripts/backfill_drives_from_sqlite.py`, service registration in `__init__.py` (F8, F9) | M1, M2 | DONE |
 | M5 | Turnkey Lovelace Dashboard | `lovelace_efficiency_dashboard.yaml` (F10) | M3 | DONE |
-| M6 | Test Infra, E2E Baseline & Lint Gate | `tests/`, test runner, empirical baseline fixture for `reggie`, ruff clean verification (F11) | M1-M5 | DONE |
+| M6 | Test Infra, E2E Baseline & Lint Gate | `tests/`, test runner, empirical baseline fixture, ruff clean verification (F11) | M1-M5 | DONE |
 
 ## Interface Contracts
 
