@@ -36,6 +36,7 @@ from homeassistant.helpers.selector import (
 
 from .const import (
     CONF_ACCESS_TOKEN,
+    CONF_MFA_VERIFIED,
     CONF_OTP,
     CONF_REFRESH_TOKEN,
     CONF_USER_SESSION_TOKEN,
@@ -47,7 +48,7 @@ from .const import (
     IMAGE_STYLE_PHOTO,
 )
 from .coordinator import UserCoordinator
-from .helpers import get_rivian_api_from_entry
+from .helpers import get_rivian_api_from_entry, has_verified_2fa
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -90,10 +91,6 @@ async def validate_vehicle_control(
     vehicle_control = user_input.get(CONF_VEHICLE_CONTROL, [])
     device_registry = dr.async_get(hass)
 
-    if vehicle_control and not user.data.get("registrationChannels"):
-        await api.close()
-        raise SchemaFlowError("2fa_missing")
-
     if vehicle_control and not entry.options.get("private_key"):
         public_key, private_key = generate_key_pair()
         user_input["public_key"] = public_key
@@ -115,6 +112,14 @@ async def validate_vehicle_control(
         }
     else:
         control_vehicles = {}
+
+    # Enrolling a new phone key grants new access, so require 2FA first.
+    # Re-authenticating records it when Rivian asks for an OTP.
+    to_enroll = [v for v in control_vehicles if v not in vehicle_identity]
+    if to_enroll and not has_verified_2fa(entry, user.data):
+        await api.close()
+        entry.async_start_reauth(hass)
+        raise SchemaFlowError("2fa_unverified")
 
     for vehicle_id, vehicle in vehicles.items():
         vehicle_name = vehicle["name"]
@@ -204,6 +209,7 @@ class RivianFlowHandler(ConfigFlow, domain=DOMAIN):
         self._refresh_token = None
         self._session_token = None
         self._user_session_token = None
+        self._mfa_verified = False
 
     @property
     def rivian(self) -> Rivian:
@@ -248,6 +254,7 @@ class RivianFlowHandler(ConfigFlow, domain=DOMAIN):
                 return await self._show_credential_fields(user_input)
 
             if self.rivian._access_token:
+                self._mfa_verified = True
                 self._access_token = self.rivian._access_token
                 self._refresh_token = self.rivian._refresh_token
                 self._user_session_token = self.rivian._user_session_token
@@ -289,6 +296,7 @@ class RivianFlowHandler(ConfigFlow, domain=DOMAIN):
             CONF_ACCESS_TOKEN: self._access_token,
             CONF_REFRESH_TOKEN: self._refresh_token,
             CONF_USER_SESSION_TOKEN: self._user_session_token,
+            CONF_MFA_VERIFIED: self._mfa_verified,
         }
 
         entry_id = self.context.get("entry_id")

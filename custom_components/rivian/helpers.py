@@ -12,7 +12,12 @@ from homeassistant.const import CONF_EMAIL, CONF_LATITUDE, CONF_LONGITUDE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .const import CONF_ACCESS_TOKEN, CONF_REFRESH_TOKEN, CONF_USER_SESSION_TOKEN
+from .const import (
+    CONF_ACCESS_TOKEN,
+    CONF_MFA_VERIFIED,
+    CONF_REFRESH_TOKEN,
+    CONF_USER_SESSION_TOKEN,
+)
 
 TO_REDACT = {
     CONF_EMAIL,
@@ -47,3 +52,15 @@ def get_rivian_api_from_entry(hass: HomeAssistant, entry: ConfigEntry) -> Rivian
 def redact(data: Any) -> dict:
     """Redact sensitive data."""
     return async_redact_data(data, TO_REDACT)
+
+
+def has_verified_2fa(entry: ConfigEntry, user_data: dict[str, Any]) -> bool:
+    """Return True if the account is known to use 2FA.
+
+    registrationChannels only lists SMS numbers, so authenticator-app and email
+    OTP users show up empty there. Rivian asking for an OTP at login proves 2FA
+    of any type, so the config flow records that as CONF_MFA_VERIFIED.
+    """
+    return bool(
+        entry.data.get(CONF_MFA_VERIFIED) or user_data.get("registrationChannels")
+    )
