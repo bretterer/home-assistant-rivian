@@ -17,6 +17,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import (
     CONF_ACCESS_TOKEN,
+    CONF_MFA_VERIFIED,
     CONF_REFRESH_TOKEN,
     CONF_USER_SESSION_TOKEN,
     DOMAIN,
@@ -88,3 +89,15 @@ def async_remove_stale_entities(
         if entity_id := registry.async_get_entity_id(platform, DOMAIN, unique_id):
             _LOGGER.info("Removing %s, which is no longer provided", entity_id)
             registry.async_remove(entity_id)
+
+
+def has_verified_2fa(entry: ConfigEntry, user_data: dict[str, Any]) -> bool:
+    """Return True if the account is known to use 2FA.
+
+    registrationChannels only lists SMS numbers, so authenticator-app and email
+    OTP users show up empty there. Rivian asking for an OTP at login proves 2FA
+    of any type, so the config flow records that as CONF_MFA_VERIFIED.
+    """
+    return bool(
+        entry.data.get(CONF_MFA_VERIFIED) or user_data.get("registrationChannels")
+    )
