@@ -32,7 +32,7 @@
       }
     },
     "error": {
-      "2fa_missing": "Two-factor authentication is required to enable vehicle control",
+      "2fa_unverified": "Enrolling a new vehicle key needs two-factor authentication confirmed. Turn on 2FA in your Rivian account if needed, re-authenticate the Rivian integration from Settings > Devices & services, then try again.",
       "phone_limit": "Insufficient phone slots available to enable vehicle control"
     }
   },
@@ -89,12 +89,6 @@
       "charging_schedule_end": {
         "name": "Charging schedule end"
       }
-    }
-  },
-  "issues": {
-    "2fa_missing": {
-      "title": "Two-factor authentication (2FA) required for vehicle control",
-      "description": "Please enable 2FA in your Rivian account and then reload the integration or re-configure the integration and remove any devices selected for vehicle control."
     }
   }
 }

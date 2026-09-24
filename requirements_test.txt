@@ -1,0 +1,2 @@
+pytest-homeassistant-custom-component
+rivian-python-client==2.0.0

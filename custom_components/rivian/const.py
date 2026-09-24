@@ -37,6 +37,7 @@ ATTR_WALLBOX = "wallbox"
 
 # Config properties
 CONF_ACCESS_TOKEN = "access_token"
+CONF_MFA_VERIFIED = "mfa_verified"
 CONF_OTP = "otp"
 CONF_REFRESH_TOKEN = "refresh_token"
 CONF_USER_SESSION_TOKEN = "user_session_token"
