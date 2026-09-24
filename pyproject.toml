@@ -22,3 +22,7 @@ disable = [
     # Handled by ruff
     "broad-except", # BLE001
 ]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
