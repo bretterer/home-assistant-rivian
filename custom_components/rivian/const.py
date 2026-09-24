@@ -961,7 +961,7 @@ BINARY_SENSORS: Final[
             on_value="on",
         ),
     ),
-    ("R1T"): (
+    ("R1T",): (
         RivianBinarySensorEntityDescription(
             key="closure_side_bin_left_closed",
             field="closureSideBinLeftClosed",
