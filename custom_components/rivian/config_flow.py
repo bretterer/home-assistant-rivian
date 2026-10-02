@@ -55,6 +55,7 @@ _LOGGER = logging.getLogger(__name__)
 STEP_OTP_DATA_SCHEMA = vol.Schema({vol.Required(CONF_OTP): str})
 R1S = DeviceFilterSelectorConfig(integration=DOMAIN, manufacturer="Rivian", model="R1S")
 R1T = DeviceFilterSelectorConfig(integration=DOMAIN, manufacturer="Rivian", model="R1T")
+R2 = DeviceFilterSelectorConfig(integration=DOMAIN, manufacturer="Rivian", model="R2")
 OPTIONS_SCHEMA = vol.Schema(
     {
         vol.Optional(CONF_VEHICLE_IMAGE_STYLE, default=IMAGE_STYLE_CEL): SelectSelector(
@@ -65,7 +66,7 @@ OPTIONS_SCHEMA = vol.Schema(
             )
         ),
         vol.Optional(CONF_VEHICLE_CONTROL): DeviceSelector(
-            DeviceSelectorConfig(multiple=True, filter=[R1S, R1T])
+            DeviceSelectorConfig(multiple=True, filter=[R1S, R1T, R2])
         ),
         vol.Optional(CONF_ZONE): EntitySelector(
             EntitySelectorConfig(domain=ZONE_DOMAIN, multiple=True)
