@@ -22,6 +22,8 @@ To use this extension, you'll need the following information
 Your vehicle must be in delivered status and possession for this integration to function.
 
 # Disclaimer
+**Unofficial: not affiliated with, endorsed by or supported by Rivian Automotive.** Rivian and related names are trademarks of their owner, used only to describe compatibility. Provided as is, without warranty of any kind; use at your own risk.
+
 This [Home Assistant](https://www.home-assistant.io/) integration is not affiliated, associated, nor sponsored by Rivian Automotive, Inc.
 
 Any use of this integration is at the sole discretion and risk of the Rivian vehicle owner integrating it into their Home Assistant installation. This owner takes full responsibility for protecting their local Home Assistant installation.
