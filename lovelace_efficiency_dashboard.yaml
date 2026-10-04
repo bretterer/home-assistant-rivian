@@ -1,0 +1,18 @@
+# ==============================================================================
+# DEPRECATED: This hand-maintained dashboard template is no longer functional.
+# ==============================================================================
+# As of this release, the charts in this template depended on bulk sensor
+# attributes (recent_drives, recent_segments, recent_vampire_events,
+# recent_dcfc_sessions) that have been removed for performance reasons - they
+# were rebuilt on every telemetry tick and exceeded Home Assistant's 16 KiB
+# recorder attribute limit.
+#
+# Use the supported path instead: call the `rivian.create_efficiency_dashboard`
+# service (Developer Tools -> Actions). It registers a working dashboard in
+# your sidebar automatically, using a WebSocket-backed card that no longer
+# requires manual VIN/entity-prefix substitution.
+#
+# Optional service fields: `title`, `icon`, `url_path`.
+#
+# See dashboards/README.md for details.
+# ==============================================================================

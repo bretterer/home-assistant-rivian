@@ -22,3 +22,9 @@ disable = [
     # Handled by ruff
     "broad-except", # BLE001
 ]
+
+[tool.pytest.ini_options]
+# Plain `pytest` (as CI runs it) must import `custom_components` from the repo
+# root, the same as `python -m pytest` does.
+pythonpath = ["."]
+testpaths = ["tests"]

@@ -1,0 +1,7 @@
+# Vendored third-party frontend files are stored byte-for-byte (no line-ending
+# conversion), so every checkout matches upstream and the checksums recorded in
+# custom_components/rivian/frontend/leaflet/VERSION.txt. Leaflet 1.9.4 ships
+# with CRLF line endings.
+custom_components/rivian/frontend/leaflet/** -text
+custom_components/rivian/frontend/plotly-graph-card.js -text
+custom_components/rivian/frontend/mushroom.js -text
