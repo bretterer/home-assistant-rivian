@@ -4,6 +4,7 @@
   "after_dependencies": ["bluetooth_adapters"],
   "codeowners": ["@bretterer"],
   "config_flow": true,
+  "dependencies": ["http", "frontend"],
   "documentation": "https://github.com/bretterer/home-assistant-rivian",
   "integration_type": "hub",
   "iot_class": "cloud_polling",

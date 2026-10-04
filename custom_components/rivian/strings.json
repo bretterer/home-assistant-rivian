@@ -27,7 +27,20 @@
         "data": {
           "vehicle_image_style": "Vehicle image style",
           "vehicle_control": "Enable vehicle control (experimental and at your own risk)",
-          "zone": "Limit vehicle control to the following zones"
+          "zone": "Limit vehicle control to the following zones",
+          "analytics_retention_days": "Analytics history retention (days, 0 = keep forever)",
+          "track_capture": "Store GPS routes for drives",
+          "track_retention_days": "Keep GPS routes for (days, 0 = as long as the drive)",
+          "track_full_detail_days": "Thin routes older than (days, 0 = never)",
+          "chart_window_days": "Chart history (days)",
+          "place_geocoding": "Automatically name frequent places"
+        },
+        "data_description": {
+          "track_capture": "When off, drives are still recorded but no GPS route is stored for them, so the map/drive-explorer route view is unavailable.",
+          "track_retention_days": "How long a drive's full GPS route is kept before it's deleted (the drive summary itself follows the analytics history retention setting above). A typical daily-driving route history runs roughly 12 MB/year at full detail.",
+          "track_full_detail_days": "Routes older than this are simplified to about 10% of their original size (same overall shape, fewer points) to save storage, without being deleted.",
+          "chart_window_days": "How many days of history the generated dashboard's charts request. Doesn't affect how much history is stored -- only how far back the charts look.",
+          "place_geocoding": "When on, an unnamed frequent stop (3+ visits within ~200 m) is looked up once via the public OSM Nominatim API to suggest a name. Only that place's coordinates are sent; the result is cached. When off, suggested places keep a numbered label until you name them yourself."
         }
       }
     },
@@ -75,6 +88,39 @@
           "plugged_in": "Plugged in",
           "charging": "Charging"
         }
+      },
+      "last_drive_efficiency": {
+        "name": "Last drive efficiency"
+      },
+      "efficiency_30d": {
+        "name": "Efficiency (30 days)"
+      },
+      "efficiency_all_time": {
+        "name": "Efficiency (all-time)"
+      },
+      "last_drive_distance": {
+        "name": "Last drive distance"
+      },
+      "last_drive_mpge": {
+        "name": "Last drive MPGe"
+      },
+      "mpge_30d": {
+        "name": "MPGe (30 days)"
+      },
+      "mpge_all_time": {
+        "name": "MPGe (all-time)"
+      },
+      "drive_status": {
+        "name": "Drive status",
+        "state": {
+          "parked": "Parked",
+          "driving": "Driving"
+        }
+      }
+    },
+    "select": {
+      "dashboard_vehicle": {
+        "name": "Dashboard vehicle"
       }
     },
     "switch": {
@@ -91,10 +137,187 @@
       }
     }
   },
+  "services": {
+    "backfill_drive_history": {
+      "name": "Backfill drive history",
+      "description": "Reconstruct past drive efficiency and MPGe from Home Assistant recorder history without modifying the SQLite database.",
+      "fields": {
+        "vin": {
+          "name": "Vehicle VIN",
+          "description": "Specific vehicle VIN to backfill (leave blank for all configured vehicles)."
+        },
+        "days": {
+          "name": "Days",
+          "description": "Number of past days of history to backfill (defaults to 365 days)."
+        },
+        "dry_run": {
+          "name": "Dry run",
+          "description": "If true, analyzes and logs detected drives in Home Assistant logs without saving to storage."
+        },
+        "tracks": {
+          "name": "Rebuild GPS routes",
+          "description": "Also rebuild GPS routes for stored drives from the recorder's location history (only the recorder retention window, ~10 days by default)."
+        }
+      }
+    },
+    "create_efficiency_dashboard": {
+      "name": "Create Rivian dashboard",
+      "description": "Automatically generate and register the tabbed Rivian dashboard (Overview, Drives, Charging, Efficiency) with bundled Plotly scatterplots, the drive explorer, and telemetry cards in your Home Assistant sidebar.",
+      "fields": {
+        "title": {
+          "name": "Dashboard Title",
+          "description": "Title displayed in the sidebar and header."
+        },
+        "icon": {
+          "name": "Sidebar Icon",
+          "description": "Material Design icon for the sidebar navigation."
+        },
+        "url_path": {
+          "name": "URL Path",
+          "description": "URL slug for the dashboard."
+        }
+      }
+    },
+    "set_vehicle_picture": {
+      "name": "Set vehicle picture",
+      "description": "Download a picture of your vehicle from an image URL once and keep it as the vehicle's picture (shown on the Rivian dashboard's Overview). Use this when the automatic configurator picture doesn't match your car, e.g. copy the image address of your build on rivian.com.",
+      "fields": {
+        "vin": {
+          "name": "VIN",
+          "description": "Vehicle to set the picture for. Optional when only one Rivian is set up."
+        },
+        "url": {
+          "name": "Image URL",
+          "description": "Web address of a PNG, JPEG or WebP image (up to 10 MB). It is downloaded once and stored locally."
+        }
+      }
+    },
+    "rebuild_heat_map": {
+      "name": "Rebuild road heat map",
+      "description": "Recounts the road heat map from the stored routes. Months whose routes are no longer stored keep their heat. Only needed after changing Home Assistant's time zone.",
+      "fields": {
+        "vin": {
+          "name": "Vehicle VIN",
+          "description": "Specific vehicle VIN to rebuild (leave blank for all configured vehicles)."
+        }
+      }
+    },
+    "recompute_drive_stats": {
+      "name": "Recompute drive summary stats",
+      "description": "Recomputes each drive's Strava-style summary stats (moving/stopped time, stop count, climb/descent, robust max speed, highway share, regen) from its stored GPS route. Live vehicle context (range, drive modes, trailer, driver) is never touched. Thinned routes (older ones simplified to save space) give slightly less accurate stop/climb numbers than a full-detail route.",
+      "fields": {
+        "vin": {
+          "name": "Vehicle VIN",
+          "description": "Specific vehicle VIN to recompute (leave blank for all configured vehicles)."
+        }
+      }
+    },
+    "fit_energy_model": {
+      "name": "Fit energy model",
+      "description": "Refits the anchored energy model (aerodynamic drag, rolling resistance, auxiliary power, regen efficiency) from recent routed drives; each drive's measured SoC-drop energy re-anchors the model's shape. If too few qualifying drives exist in the fitting window, any existing fit is left untouched.",
+      "fields": {
+        "vin": {
+          "name": "Vehicle VIN",
+          "description": "Specific vehicle VIN to refit (leave blank for all configured vehicles)."
+        }
+      }
+    },
+    "backfill_weather": {
+      "name": "Backfill drive weather",
+      "description": "Fills each stored drive's wind, headwind, precipitation, pressure, humidity and air density (and the energy model's expected energy, behind the Efficiency page's score) from the Open-Meteo weather archive. Only empty values are filled, requests are rate-limited, and demo vehicles are skipped. Runs once automatically in the background after the upgrade.",
+      "fields": {
+        "vin": {
+          "name": "Vehicle VIN",
+          "description": "Specific vehicle VIN to process (leave blank for all configured vehicles)."
+        },
+        "days": {
+          "name": "Days",
+          "description": "Number of past days of drives to fill (defaults to 365 days)."
+        }
+      }
+    },
+    "snap_route_gaps": {
+      "name": "Snap route gaps to roads",
+      "description": "Fills recorded GPS dropouts (a stretch where the live stream went quiet mid-drive) by snapping the gap onto the local OpenStreetMap road network, replacing the straight line the map otherwise draws. Uses the public Overpass API, rate-limited and cached per area; a gap that can't be matched to a road within about 50 m is left unfilled.",
+      "fields": {
+        "vin": {
+          "name": "Vehicle VIN",
+          "description": "Specific vehicle VIN to process (leave blank for all configured vehicles)."
+        }
+      }
+    },
+    "rebuild_places": {
+      "name": "Rebuild favorite places",
+      "description": "Re-clusters frequent drive start/stop spots (3+ visits within about 200 m) into places, seeded from HA zones, and reassigns every drive's start/end place. Only needed after editing zones outside of the normal sync, or to force a rebuild after many drives changed at once (e.g. a backfill).",
+      "fields": {
+        "vin": {
+          "name": "Vehicle VIN",
+          "description": "Specific vehicle VIN to rebuild (leave blank for all configured vehicles)."
+        }
+      }
+    },
+    "rebuild_routes": {
+      "name": "Rebuild favorite drives",
+      "description": "Re-groups repeated start->end place pairs (3+ drives) into routes and path-similarity variants, and recomputes each route's fastest/average/slowest stats. Only needed to force a rebuild after many drives or places changed at once (e.g. a backfill or a place merge).",
+      "fields": {
+        "vin": {
+          "name": "Vehicle VIN",
+          "description": "Specific vehicle VIN to rebuild (leave blank for all configured vehicles)."
+        }
+      }
+    },
+    "create_demo_data": {
+      "name": "Create demo vehicles",
+      "description": "Installs two synthetic demo vehicles (a Demo R2 and a Demo R1T for a made-up household in Eagle, ID) with about ten days of drives, routes, places and a DC fast-charge session, so the dashboard can be shown without revealing real locations. They appear in the vehicle picker and the Rivian dashboard is regenerated. Re-running replaces the demo data. Administrators only.",
+      "fields": {}
+    },
+    "delete_demo_data": {
+      "name": "Delete demo vehicles",
+      "description": "Completely removes the demo vehicles (their drives, routes, places, heat map and long-term statistics), then regenerates the Rivian dashboard without them. Never touches a real vehicle. Administrators only.",
+      "fields": {
+        "vin": {
+          "name": "Vehicle VIN",
+          "description": "Specific demo vehicle VIN to remove (leave blank to remove all demo vehicles)."
+        }
+      }
+    },
+    "import_charging_history": {
+      "name": "Import charging history from Rivian",
+      "description": "Imports the Rivian app's completed charging sessions (home and public) and merges them with the ones recorded here. A session that overlaps a stored one adds its vendor, home/public flag and measured energy; a missing one is added. Then looks up the station (brand, network, name, maximum kW) of fast charges from OpenStreetMap. Also runs once a day. Real vehicles only; never sends payment or account details.",
+      "fields": {
+        "vin": {
+          "name": "Vehicle VIN",
+          "description": "Specific vehicle VIN to process (leave blank for all configured vehicles)."
+        }
+      }
+    },
+    "infer_charging_sessions": {
+      "name": "Infer charging sessions from battery history",
+      "description": "Finds charges that the battery level history shows but that neither Home Assistant nor Rivian recorded (older data Rivian no longer stores) and adds them to the charging history, marked as inferred. Scans the whole battery history again and replaces the earlier inferred sessions; one you deleted stays deleted. The whole history is scanned once automatically after installing; after that a nightly run re-checks only the last few days, so this is only needed after changing how charges are detected. Real vehicles only.",
+      "fields": {
+        "vin": {
+          "name": "Vehicle VIN",
+          "description": "Specific vehicle VIN to process (leave blank for all configured vehicles)."
+        }
+      }
+    }
+  },
   "issues": {
     "2fa_missing": {
       "title": "Two-factor authentication (2FA) required for vehicle control",
       "description": "Please enable 2FA in your Rivian account and then reload the integration or re-configure the integration and remove any devices selected for vehicle control."
+    },
+    "analytics_db_repaired": {
+      "title": "Rivian analytics database was corrupt and has been rebuilt",
+      "description": "The SQLite analytics database at `.storage/rivian_analytics.db` failed an integrity check and was quarantined. A fresh database was created and the original legacy JSON drive history is still on disk as a recovery source, but recent analytics may need to be re-imported (for example via the `rivian.backfill_drive_history` service)."
+    },
+    "analytics_db_read_only": {
+      "title": "Rivian analytics database is read-only after a downgrade",
+      "description": "The analytics database schema version is newer than this version of the integration supports, which usually means the integration was downgraded. To avoid corrupting data, analytics writes are paused until you update the integration to a version that supports this schema."
+    },
+    "dashboard_schema_stale": {
+      "title": "Rivian efficiency dashboard needs to be regenerated",
+      "description": "A previously generated Rivian Efficiency dashboard uses an older layout schema. Please re-run the `rivian.create_efficiency_dashboard` service to regenerate it with the latest cards and layout."
     }
   }
 }
