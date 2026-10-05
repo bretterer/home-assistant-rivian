@@ -35,6 +35,7 @@ from .const import (
     INVALID_SENSOR_STATES,
     PARALLAX_NONE_VALUES,
     PARALLAX_RVM_DEFAULTS,
+    PARALLAX_UNDEFINED_IS_VALID,
     VEHICLE_STATE_API_FIELDS,
 )
 from .helpers import redact
@@ -463,7 +464,10 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         for k in vehicle_keys:
             if (value := clean[k]) is None:
                 value = PARALLAX_NONE_VALUES.get(k)
-            if value is None or str(value).lower() in INVALID_SENSOR_STATES:
+            if value is None or (
+                str(value).lower() in INVALID_SENSOR_STATES
+                and not (value == "undefined" and k in PARALLAX_UNDEFINED_IS_VALID)
+            ):
                 continue
             if k == "gnssLocation":
                 vehicle_updates[k] = value

@@ -36,7 +36,7 @@ SWITCHES: Final[tuple[RivianSwitchEntityDescription, ...]] = (
         icon="mdi:lightning-bolt",
         name="Charging Enabled",
         available=lambda coor: (
-            coor.get("remoteChargingAvailable") == 1
+            coor.get("remoteChargingAvailable") == "true"
             or coor.get("chargerState") == "charging_active"
         ),
         is_on=lambda coor: (
