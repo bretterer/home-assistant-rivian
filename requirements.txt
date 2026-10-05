@@ -2,10 +2,10 @@
 homeassistant>=2025.1.0
 numpy
 python-dateutil
-PyTurboJPEG
+PyTurboJPEG==1.8.3
 
 # Integration
-rivian-python-client[ble]==2.1.0
+rivian-python-client[ble]==2.2.0b4
 
 # Development
 colorlog

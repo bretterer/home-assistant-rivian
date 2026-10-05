@@ -57,6 +57,15 @@ WEEKDAYS_ONLY: Final[frozenset[str]] = frozenset(WEEK_DAYS_ORDERED[:5])
 RIVIAN_TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%S.%f%z"
 
 
+def _parse_timestamp(val: datetime | str | None) -> datetime | None:
+    """Parse a Rivian timestamp, which may already be a datetime (Parallax)."""
+    if not val:
+        return None
+    if isinstance(val, str):
+        return datetime.strptime(val, RIVIAN_TIMESTAMP_FORMAT).astimezone(UTC)
+    return val.astimezone(UTC)
+
+
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
@@ -73,8 +82,7 @@ async def async_setup_entry(
         )
         for vehicle_id, vehicle in vehicles.items()
         for models, descriptions in SENSORS.items()
-        for model in models
-        if model in vehicle["model"]
+        if any(model in vehicle["model"] for model in models)
         for description in descriptions
     ]
 
@@ -271,11 +279,7 @@ CHARGING_SENSORS: Final[tuple[RivianSensorEntityDescription, ...]] = (
         field="startTime",
         name="Charging Start Time",
         device_class=SensorDeviceClass.TIMESTAMP,
-        value_lambda=lambda val: (
-            datetime.strptime(val, RIVIAN_TIMESTAMP_FORMAT).astimezone(UTC)
-            if val
-            else val
-        ),
+        value_lambda=_parse_timestamp,
     ),
     RivianSensorEntityDescription(
         key="charging_time_elapsed",

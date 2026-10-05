@@ -802,7 +802,7 @@ BINARY_SENSORS: Final[
             field="petModeStatus",
             name="Pet Mode",
             device_class=BinarySensorDeviceClass.RUNNING,
-            on_value="On",
+            on_value="on",
         ),
         RivianBinarySensorEntityDescription(
             key="seat_front_left_heat",
@@ -961,7 +961,7 @@ BINARY_SENSORS: Final[
             on_value="on",
         ),
     ),
-    ("R1T"): (
+    ("R1T",): (
         RivianBinarySensorEntityDescription(
             key="closure_side_bin_left_closed",
             field="closureSideBinLeftClosed",
@@ -1020,6 +1020,8 @@ BINARY_SENSORS: Final[
             device_class=BinarySensorDeviceClass.LOCK,
             on_value="unlocked",
         ),
+    ),
+    ("R1S",): (
         RivianBinarySensorEntityDescription(
             key="seat_third_row_left_heat",
             field="seatThirdRowLeftHeat",
@@ -1039,6 +1041,92 @@ BINARY_SENSORS: Final[
     ),
 }
 
+BTM_FAILURE_STATUS_FIELDS: Final[frozenset[str]] = frozenset(
+    {
+        "btmFfHardwareFailureStatus",
+        "btmIcHardwareFailureStatus",
+        "btmLfdHardwareFailureStatus",
+        "btmRfHardwareFailureStatus",
+        "btmRfdHardwareFailureStatus",
+    }
+)
+
+# Fields sourced only from the Parallax subscription. Parallax sends a snapshot
+# of every topic on subscribe, so these are dropped from the GraphQL vehicle
+# state subscription. A field stays on GraphQL when Parallax lacks it.
+# Parallax's vehicleMileage is whole km.
+PARALLAX_VEHICLE_FIELDS: Final[frozenset[str]] = frozenset(
+    {
+        *CLOSURE_STATE_ENTITIES,
+        *DOOR_STATE_ENTITIES,
+        *LOCK_STATE_ENTITIES,
+        *BTM_FAILURE_STATUS_FIELDS,
+        "alarmSoundStatus",
+        "batteryCapacity",
+        "batteryLevel",
+        "batteryLimit",
+        "cabinClimateDriverTemperature",
+        "cabinClimateInteriorTemperature",
+        "cabinPreconditioningStatus",
+        "chargePortState",
+        "chargerState",
+        "chargerStatus",
+        "closureLiftgateNextAction",
+        "defrostDefogStatus",
+        "distanceToEmpty",
+        "driveMode",
+        "gearGuardLocked",
+        "gearStatus",
+        "gnssAltitude",
+        "gnssBearing",
+        "gnssLocation",
+        "gnssSpeed",
+        "limitedAccelCold",
+        "limitedRegenCold",
+        "petModeStatus",
+        "petModeTemperatureStatus",
+        "powerState",
+        "rangeThreshold",
+        "seatFrontLeftHeat",
+        "seatFrontLeftVent",
+        "seatFrontRightHeat",
+        "seatFrontRightVent",
+        "seatRearLeftHeat",
+        "seatRearRightHeat",
+        "seatThirdRowLeftHeat",
+        "seatThirdRowRightHeat",
+        "steeringWheelHeat",
+        "timeToEndOfCharge",
+        "tirePressureFrontLeft",
+        "tirePressureFrontRight",
+        "tirePressureRearLeft",
+        "tirePressureRearRight",
+        "tirePressureStatusFrontLeft",
+        "tirePressureStatusFrontRight",
+        "tirePressureStatusRearLeft",
+        "tirePressureStatusRearRight",
+        "tirePressureStatusValidFrontLeft",
+        "tirePressureStatusValidFrontRight",
+        "tirePressureStatusValidRearLeft",
+        "tirePressureStatusValidRearRight",
+        "trailerStatus",
+        "twelveVoltBatteryHealth",
+        "vehicleMileage",
+        "windowFrontLeftClosed",
+        "windowFrontRightClosed",
+        "windowRearLeftClosed",
+        "windowRearRightClosed",
+        "windowsNextAction",
+    }
+)
+
+# Values for Parallax fields that decode to None (unsent) when in their zero
+# state, as GraphQL reports it
+PARALLAX_NONE_VALUES: Final[dict[str, str]] = {
+    **dict.fromkeys(BTM_FAILURE_STATUS_FIELDS, "dtc_not_set"),
+    "alarmSoundStatus": "false",
+}
+
 VEHICLE_STATE_API_FIELDS: Final[set[str]] = {
     *(description.field for sensor in SENSORS.values() for description in sensor),
     *(
@@ -1047,7 +1135,6 @@ VEHICLE_STATE_API_FIELDS: Final[set[str]] = {
         for sensor in sensors
         for field in ([sensor.field] if isinstance(sensor.field, str) else sensor.field)
     ),
-    "gnssLocation",
     "otaCurrentVersion",
     "otaCurrentVersionYear",
     "otaCurrentVersionWeek",
@@ -1059,9 +1146,9 @@ VEHICLE_STATE_API_FIELDS: Final[set[str]] = {
     "otaAvailableVersionNumber",
     "otaAvailableVersionGitHash",
     "otaInstallProgress",
-}
+} - PARALLAX_VEHICLE_FIELDS
 
-VEHICLE_STATE_SANS_TPMS_API_FIELDS: Final[set[str]] = VEHICLE_STATE_API_FIELDS ^ {
+VEHICLE_STATE_SANS_TPMS_API_FIELDS: Final[set[str]] = VEHICLE_STATE_API_FIELDS - {
     "tirePressureFrontLeft",
     "tirePressureFrontRight",
     "tirePressureRearLeft",

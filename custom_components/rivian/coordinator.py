@@ -33,6 +33,7 @@ from .const import (
     DEFAULT_CHARGING_SCHEDULE,
     DOMAIN,
     INVALID_SENSOR_STATES,
+    PARALLAX_NONE_VALUES,
     VEHICLE_STATE_API_FIELDS,
 )
 from .helpers import redact
@@ -46,6 +47,14 @@ T = TypeVar("T", bound=dict[str, Any] | list[dict[str, Any]])
 INITIAL_UPDATE_TIMEOUT = 60
 CHARGING_SCHEDULE_COOL_OFF = 10
 CHARGING_SCHEDULE_REFRESH_INTERVAL = 900
+
+
+def _history(value: Any) -> set[Any]:
+    """Return a history set for value, skipping unhashable values (lists/dicts)."""
+    try:
+        return {value}
+    except TypeError:
+        return set()
 
 
 class RivianDataUpdateCoordinator(DataUpdateCoordinator[T], ABC, Generic[T]):
@@ -395,7 +404,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
                 callback=self._process_new_data,
             )
 
-            # Subscribe to Parallax messages for live charging data
+            # Subscribe to Parallax messages for live vehicle and charging data
             self._unsub_parallax = await self.api.subscribe_for_parallax_messages(
                 vehicle_id=self.vehicle_id,
                 callback=self._process_parallax_data,
@@ -439,30 +448,30 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         if charging_keys := clean.keys() & CHARGING_STATE_KEYS:
             self.charging_coordinator.update_from_parallax(clean)
 
-        # Route vehicle state fields to VehicleCoordinator
+        # Route vehicle state fields to VehicleCoordinator, skipping fields that
+        # GraphQL owns and unsent (None) or invalid values
         # Note: timeToEndOfCharge is defined in VEHICLE_SENSORS, so it updates VehicleCoordinator too
-        vehicle_keys = (clean.keys() - charging_keys) | (
-            clean.keys() & {"timeToEndOfCharge"}
+        vehicle_keys = (
+            ((clean.keys() - charging_keys) | (clean.keys() & {"timeToEndOfCharge"}))
+            - VEHICLE_STATE_API_FIELDS
+            - {"timestamp"}
         )
-        if vehicle_keys:
-            vehicle_updates: dict[str, Any] = {}
-            for k in vehicle_keys:
-                if k == "gnssLocation":
-                    vehicle_updates[k] = clean[k]
-                elif k == "vehicleMileage":
-                    # Parallax encodes odometer as integer km; GraphQL provides float meters.
-                    # Both sources active causes oscillation that corrupts utility meters.
-                    # Only accept Parallax value if >= stored (monotonic increase).
-                    prev_val = (
-                        (self.data or {}).get("vehicleMileage", {}).get("value", 0)
-                    )
-                    new_val = clean[k]
-                    if isinstance(new_val, (int, float)) and new_val >= prev_val:
-                        vehicle_updates[k] = {"value": new_val, "history": {new_val}}
-                else:
-                    vehicle_updates[k] = {"value": clean[k], "history": {clean[k]}}
-            new_data = (self.data or {}) | vehicle_updates
-            self.async_set_updated_data(new_data)
+        timestamp = clean.get("timestamp")
+        vehicle_updates: dict[str, Any] = {}
+        for k in vehicle_keys:
+            if (value := clean[k]) is None:
+                value = PARALLAX_NONE_VALUES.get(k)
+            if value is None or str(value).lower() in INVALID_SENSOR_STATES:
+                continue
+            if k == "gnssLocation":
+                vehicle_updates[k] = value
+                continue
+            vehicle_updates[k] = {"value": value, "history": _history(value)}
+            if timestamp:
+                vehicle_updates[k]["timeStamp"] = timestamp.isoformat()
+        if vehicle_updates:
+            self._process_state_changes(vehicle_updates)
+            self.async_set_updated_data((self.data or {}) | vehicle_updates)
             _LOGGER.debug(
                 "Vehicle state updated from Parallax (%s): %s", px.get("rvm"), clean
             )
@@ -482,17 +491,8 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         self._error_count = 0
         self._initial.set()
 
-    def _build_vehicle_info_dict(self, vijson: dict[str, Any]) -> dict[str, Any]:
-        """Take the json output of vehicle_info and build a dictionary."""
-        items = {
-            k: v | ({"history": {v["value"]}} if "value" in v else {})
-            for k, v in vijson.items()
-            if v
-        }
-
-        if items:
-            _LOGGER.debug("Vehicle %s updated: %s", self.vehicle_id, redact(items))
-
+    def _process_state_changes(self, items: dict[str, Any]) -> None:
+        """Act on power and charger state changes in a batch of new items."""
         if power_state := items.get("powerState"):
             if power_state.get("value") == "sleep":
                 self._awake.clear()
@@ -511,6 +511,19 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             if not is_charging:
                 # Reset instantaneous charging metrics when not actively charging
                 items["timeToEndOfCharge"] = {"value": 0, "history": {0}}
+
+    def _build_vehicle_info_dict(self, vijson: dict[str, Any]) -> dict[str, Any]:
+        """Take the json output of vehicle_info and build a dictionary."""
+        items = {
+            k: v | ({"history": _history(v["value"])} if "value" in v else {})
+            for k, v in vijson.items()
+            if v
+        }
+
+        if items:
+            _LOGGER.debug("Vehicle %s updated: %s", self.vehicle_id, redact(items))
+
+        self._process_state_changes(items)
 
         if not (prev_items := (self.data or {})):
             return items
