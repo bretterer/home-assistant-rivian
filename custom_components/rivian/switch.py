@@ -53,7 +53,7 @@ SWITCHES: Final[tuple[RivianSwitchEntityDescription, ...]] = (
         key="gear_guard_video",
         icon="mdi:cctv",
         name="Gear Guard Video",
-        is_on=lambda coor: coor.get("gearGuardVideoStatus") != "Disabled",
+        is_on=lambda coor: coor.get("gearGuardVideoStatus") != "disabled",
         turn_off=lambda coor: coor.send_vehicle_command(
             command=VehicleCommand.DISABLE_GEAR_GUARD_VIDEO
         ),

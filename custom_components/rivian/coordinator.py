@@ -34,6 +34,7 @@ from .const import (
     DOMAIN,
     INVALID_SENSOR_STATES,
     PARALLAX_NONE_VALUES,
+    PARALLAX_RVM_DEFAULTS,
     VEHICLE_STATE_API_FIELDS,
 )
 from .helpers import redact
@@ -443,6 +444,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         clean = {k: v for k, v in decoded.items() if not k.startswith("_")}
         if not clean:
             return
+        clean = PARALLAX_RVM_DEFAULTS.get(px.get("rvm"), {}) | clean
 
         # Route charging fields to ChargingCoordinator
         if charging_keys := clean.keys() & CHARGING_STATE_KEYS:

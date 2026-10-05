@@ -23,8 +23,8 @@ from .const import ATTR_COORDINATOR, ATTR_VEHICLE, DOMAIN
 from .coordinator import VehicleCoordinator
 from .entity import RivianVehicleEntity
 
-INSTALLING_STATUS = ("Install_Countdown", "Awaiting_Install", "Installing")
-READY_FOR_INSTALL = ("Ready_To_Install", "Scheduled_To_Install")
+INSTALLING_STATUS = ("install_countdown", "awaiting_install", "installing")
+READY_FOR_INSTALL = ("ready_to_install", "scheduled_to_install")
 
 UPDATE_DESCRIPTION = UpdateEntityDescription(
     key="software_ota",
@@ -69,11 +69,15 @@ class RivianUpdateEntity(RivianVehicleEntity, UpdateEntity):
         self._update_version_info()
 
     def _update_version_info(self) -> None:
-        current_version = self._get_value("otaCurrentVersion")
-        if (latest_version := self._get_value("otaAvailableVersion")) == "0.0.0":
+        if not (current_version := self._get_value("otaCurrentVersion")):
+            return
+        if (latest_version := self._get_value("otaAvailableVersion")) in (
+            None,
+            "0.0.0",
+        ):
             latest_version = current_version
-        current_hash = self._get_value("otaCurrentVersionGitHash")
-        if (latest_hash := self._get_value("otaAvailableVersionGitHash")) == "":
+        current_hash = self._get_value("otaCurrentVersionGitHash") or ""
+        if not (latest_hash := self._get_value("otaAvailableVersionGitHash")):
             latest_hash = current_hash
         show_hash = (current_version, current_hash) != (latest_version, latest_hash)
 
@@ -83,9 +87,9 @@ class RivianUpdateEntity(RivianVehicleEntity, UpdateEntity):
         self._attr_latest_version = latest_version + (
             f" ({latest_hash})" if show_hash else ""
         )
-        self._rivian_software_url = (
-            f"https://rivian.software/{latest_version.replace('.', '-')}/"
-        )
+        # year.week.number -> year-week
+        year_week = "-".join(latest_version.split(".")[:2])
+        self._rivian_software_url = f"https://riviantrackr.com/{year_week}"
 
         self._attr_extra_state_attributes = {
             "current_version": {

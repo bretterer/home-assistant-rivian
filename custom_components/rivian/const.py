@@ -241,6 +241,7 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
             options=[
                 "Away From Home",
                 "Everywhere",
+                "None",
             ],
             value_lambda=lambda v: v.replace("_", " ").title(),
         ),
@@ -251,9 +252,10 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
             icon="mdi:cctv",
             device_class=SensorDeviceClass.ENUM,
             options=[
+                "Active",
                 "Disabled",
                 "Enabled",
-                "Engaged",
+                "Faulted",
             ],
             value_lambda=lambda v: v.replace("_", " ").title(),
         ),
@@ -422,6 +424,8 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
                 "Installing",
                 "Install Success",
                 "Connection Lost",
+                "Download Failed",
+                "Fault",
                 "Install Failed",
             ],
             entity_category=EntityCategory.DIAGNOSTIC,
@@ -654,6 +658,7 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
             field="closureLiftgateNextAction",
             name="Liftgate Next Action",
             icon="mdi:gesture-tap-button",
+            entity_category=EntityCategory.DIAGNOSTIC,
         ),
     ),
 }
@@ -674,13 +679,6 @@ BINARY_SENSORS: Final[
             name="Cabin Climate Preconditioning",
             device_class=BinarySensorDeviceClass.RUNNING,
             on_value=["active", "complete_maintain", "initiate"],
-        ),
-        RivianBinarySensorEntityDescription(
-            key="charge_port",
-            field="chargePortState",
-            name="Charge Port",
-            device_class=BinarySensorDeviceClass.DOOR,
-            on_value="open",
         ),
         RivianBinarySensorEntityDescription(
             key="charger_state",
@@ -961,6 +959,16 @@ BINARY_SENSORS: Final[
             on_value="on",
         ),
     ),
+    # The R2 has a manual charge port door
+    ("R1",): (
+        RivianBinarySensorEntityDescription(
+            key="charge_port",
+            field="chargePortState",
+            name="Charge Port",
+            device_class=BinarySensorDeviceClass.DOOR,
+            on_value="open",
+        ),
+    ),
     ("R1T",): (
         RivianBinarySensorEntityDescription(
             key="closure_side_bin_left_closed",
@@ -1051,6 +1059,16 @@ BTM_FAILURE_STATUS_FIELDS: Final[frozenset[str]] = frozenset(
     }
 )
 
+# ota.deployment.state only has an available version while an update is in
+# flight; GraphQL's values for no available update
+OTA_AVAILABLE_VERSION_IDLE: Final[dict[str, Any]] = {
+    "otaAvailableVersion": "0.0.0",
+    "otaAvailableVersionGitHash": "",
+    "otaAvailableVersionNumber": 0,
+    "otaAvailableVersionWeek": 0,
+    "otaAvailableVersionYear": 0,
+}
+
 # Fields sourced only from the Parallax subscription. Parallax sends a snapshot
 # of every topic on subscribe, so these are dropped from the GraphQL vehicle
 # state subscription. A field stays on GraphQL when Parallax lacks it.
@@ -1068,6 +1086,7 @@ PARALLAX_VEHICLE_FIELDS: Final[frozenset[str]] = frozenset(
         "cabinClimateDriverTemperature",
         "cabinClimateInteriorTemperature",
         "cabinPreconditioningStatus",
+        "carWashMode",
         "chargePortState",
         "chargerState",
         "chargerStatus",
@@ -1076,6 +1095,9 @@ PARALLAX_VEHICLE_FIELDS: Final[frozenset[str]] = frozenset(
         "distanceToEmpty",
         "driveMode",
         "gearGuardLocked",
+        "gearGuardVideoMode",
+        "gearGuardVideoStatus",
+        "gearGuardVideoTermsAccepted",
         "gearStatus",
         "gnssAltitude",
         "gnssBearing",
@@ -1083,6 +1105,15 @@ PARALLAX_VEHICLE_FIELDS: Final[frozenset[str]] = frozenset(
         "gnssSpeed",
         "limitedAccelCold",
         "limitedRegenCold",
+        *OTA_AVAILABLE_VERSION_IDLE,
+        "otaCurrentVersion",
+        "otaCurrentVersionGitHash",
+        "otaCurrentVersionNumber",
+        "otaCurrentVersionWeek",
+        "otaCurrentVersionYear",
+        "otaDownloadProgress",
+        "otaInstallProgress",
+        "otaStatus",
         "petModeStatus",
         "petModeTemperatureStatus",
         "powerState",
@@ -1125,6 +1156,13 @@ PARALLAX_VEHICLE_FIELDS: Final[frozenset[str]] = frozenset(
 PARALLAX_NONE_VALUES: Final[dict[str, str]] = {
     **dict.fromkeys(BTM_FAILURE_STATUS_FIELDS, "dtc_not_set"),
     "alarmSoundStatus": "false",
+    "gearGuardVideoMode": "none",
+}
+
+# Values for fields an RVM topic leaves out when they don't apply, so stale
+# values are cleared
+PARALLAX_RVM_DEFAULTS: Final[dict[str, dict[str, Any]]] = {
+    "ota.deployment.state": OTA_AVAILABLE_VERSION_IDLE,
 }
 
 VEHICLE_STATE_API_FIELDS: Final[set[str]] = {
@@ -1135,17 +1173,6 @@ VEHICLE_STATE_API_FIELDS: Final[set[str]] = {
         for sensor in sensors
         for field in ([sensor.field] if isinstance(sensor.field, str) else sensor.field)
     ),
-    "otaCurrentVersion",
-    "otaCurrentVersionYear",
-    "otaCurrentVersionWeek",
-    "otaCurrentVersionNumber",
-    "otaCurrentVersionGitHash",
-    "otaAvailableVersion",
-    "otaAvailableVersionYear",
-    "otaAvailableVersionWeek",
-    "otaAvailableVersionNumber",
-    "otaAvailableVersionGitHash",
-    "otaInstallProgress",
 } - PARALLAX_VEHICLE_FIELDS
 
 VEHICLE_STATE_SANS_TPMS_API_FIELDS: Final[set[str]] = VEHICLE_STATE_API_FIELDS - {
@@ -1157,6 +1184,7 @@ VEHICLE_STATE_SANS_TPMS_API_FIELDS: Final[set[str]] = VEHICLE_STATE_API_FIELDS -
 
 CHARGING_STATE_KEYS: Final[frozenset[str]] = frozenset(
     {
+        "activeChargingTime",
         "currentCurrency",
         "currentPrice",
         "displayStatus",

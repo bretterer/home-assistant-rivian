@@ -283,11 +283,14 @@ CHARGING_SENSORS: Final[tuple[RivianSensorEntityDescription, ...]] = (
     ),
     RivianSensorEntityDescription(
         key="charging_time_elapsed",
-        field="timeElapsed",
+        # Minutes spent charging, as shown in the Rivian app (pauses while
+        # stopped/scheduled, unlike timeElapsed)
+        field="activeChargingTime",
         name="Charging Time Elapsed",
         device_class=SensorDeviceClass.DURATION,
         native_unit_of_measurement=UnitOfTime.SECONDS,
         state_class=SensorStateClass.TOTAL_INCREASING,
+        value_lambda=lambda val: val * 60 if val is not None else None,
     ),
 )
 
