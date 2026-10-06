@@ -960,8 +960,15 @@ BINARY_SENSORS: Final[
             device_class=BinarySensorDeviceClass.LOCK,
             on_value="unlocked",
         ),
+        RivianBinarySensorEntityDescription(
+            key="gear_guard_locked",
+            field="gearGuardLocked",
+            name="Gear Guard",
+            device_class=BinarySensorDeviceClass.LOCK,
+            on_value="unlocked",
+        ),
     ),
-    # The R1S doesn't report tailgate open/closed and has no Gear Guard cable
+    # The R1S doesn't report tailgate open/closed
     ("R1T",): (
         RivianBinarySensorEntityDescription(
             key="closure_tailgate_closed",
@@ -969,13 +976,6 @@ BINARY_SENSORS: Final[
             name="Tailgate",
             device_class=BinarySensorDeviceClass.DOOR,
             on_value="open",
-        ),
-        RivianBinarySensorEntityDescription(
-            key="gear_guard_locked",
-            field="gearGuardLocked",
-            name="Gear Guard",
-            device_class=BinarySensorDeviceClass.LOCK,
-            on_value="unlocked",
         ),
         RivianBinarySensorEntityDescription(
             key="closure_side_bin_left_closed",
