@@ -165,7 +165,7 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
         ),
         RivianSensorEntityDescription(
             key="driver_temperature",
-            field="cabinClimateDriverTemperature",
+            field="hvacTargetTemperature",
             name="Driver Temperature",
             device_class=SensorDeviceClass.TEMPERATURE,
             native_unit_of_measurement=UnitOfTemperature.CELSIUS,

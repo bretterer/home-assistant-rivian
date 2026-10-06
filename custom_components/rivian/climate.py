@@ -75,7 +75,7 @@ class RivianClimateEntity(RivianVehicleControlEntity, ClimateEntity):
     @property
     def target_temperature(self) -> float | None:
         """Return the temperature we try to reach."""
-        return self._get_value("cabinClimateDriverTemperature")
+        return self._get_value("hvacTargetTemperature")
 
     @property
     def hvac_mode(self) -> HVACMode | None:
