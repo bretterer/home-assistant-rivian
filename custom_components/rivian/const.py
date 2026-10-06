@@ -695,10 +695,13 @@ BINARY_SENSORS: Final[
         ),
         RivianBinarySensorEntityDescription(
             key="charger_status",
-            field="chargerStatus",
+            # chargerStatus is only sent briefly on plug-in; connectionState is
+            # in every charging.session.status ("error" and "v2l_connected"
+            # count as plugged in)
+            field="connectionState",
             name="Charger Connection",
             device_class=BinarySensorDeviceClass.PLUG,
-            on_value="chrgr_sts_not_connected",
+            on_value="disconnected",
             negate=True,
         ),
         RivianBinarySensorEntityDescription(
@@ -1128,10 +1131,7 @@ CHARGING_STATE_KEYS: Final[frozenset[str]] = frozenset(
         "activeChargingTime",
         "currentCurrency",
         "currentPrice",
-        "displayStatus",
-        "evseType",
         "kilometersChargedPerHour",
-        "plugConnectionStatus",
         "power",
         "rangeAddedThisSession",
         "startTime",

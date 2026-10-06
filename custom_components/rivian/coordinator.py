@@ -219,7 +219,7 @@ class ChargingCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         """Adjust update interval based on plugged in status.
 
         With Parallax push, polling is disabled. This method is kept for
-        backward compatibility with VehicleCoordinator's chargerStatus handler.
+        backward compatibility with VehicleCoordinator's connectionState handler.
         """
 
 
@@ -514,19 +514,15 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
                 self._awake.clear()
             else:
                 self._awake.set()
-        if charger_status := items.get("chargerStatus"):
-            raw_status = str(charger_status.get("value", "")).lower()
-            is_charging = (
-                "charging" in raw_status
-                and "not" not in raw_status
-                and "disconnected" not in raw_status
-            )
+        if connection := items.get("connectionState"):
             self.charging_coordinator.adjust_update_interval(
-                is_plugged_in=raw_status != "chrgr_sts_not_connected"
+                is_plugged_in=connection.get("value") != "disconnected"
             )
-            if not is_charging:
-                # Reset instantaneous charging metrics when not actively charging
-                items["timeToEndOfCharge"] = {"value": 0, "history": {0}}
+        if (charger_state := items.get("chargerState")) and charger_state.get(
+            "value"
+        ) != "charging_active":
+            # Reset instantaneous charging metrics when not actively charging
+            items["timeToEndOfCharge"] = {"value": 0, "history": {0}}
 
     def _build_vehicle_info_dict(self, vijson: dict[str, Any]) -> dict[str, Any]:
         """Take the json output of vehicle_info and build a dictionary."""
