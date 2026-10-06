@@ -781,13 +781,6 @@ BINARY_SENSORS: Final[
             on_value="unlocked",
         ),
         RivianBinarySensorEntityDescription(
-            key="gear_guard_locked",
-            field="gearGuardLocked",
-            name="Gear Guard",
-            device_class=BinarySensorDeviceClass.LOCK,
-            on_value="unlocked",
-        ),
-        RivianBinarySensorEntityDescription(
             key="pet_mode_status",
             field="petModeStatus",
             name="Pet Mode",
@@ -961,13 +954,6 @@ BINARY_SENSORS: Final[
             on_value="open",
         ),
         RivianBinarySensorEntityDescription(
-            key="closure_tailgate_closed",
-            field="closureTailgateClosed",
-            name="Tailgate",
-            device_class=BinarySensorDeviceClass.DOOR,
-            on_value="open",
-        ),
-        RivianBinarySensorEntityDescription(
             key="closure_tailgate_locked",
             field="closureTailgateLocked",
             name="Tailgate Lock",
@@ -975,7 +961,22 @@ BINARY_SENSORS: Final[
             on_value="unlocked",
         ),
     ),
+    # The R1S doesn't report tailgate open/closed and has no Gear Guard cable
     ("R1T",): (
+        RivianBinarySensorEntityDescription(
+            key="closure_tailgate_closed",
+            field="closureTailgateClosed",
+            name="Tailgate",
+            device_class=BinarySensorDeviceClass.DOOR,
+            on_value="open",
+        ),
+        RivianBinarySensorEntityDescription(
+            key="gear_guard_locked",
+            field="gearGuardLocked",
+            name="Gear Guard",
+            device_class=BinarySensorDeviceClass.LOCK,
+            on_value="unlocked",
+        ),
         RivianBinarySensorEntityDescription(
             key="closure_side_bin_left_closed",
             field="closureSideBinLeftClosed",
@@ -1010,6 +1011,7 @@ BINARY_SENSORS: Final[
             name="Tonneau",
             device_class=BinarySensorDeviceClass.DOOR,
             on_value="open",
+            supported_feature="TONNEAU_CMD",
         ),
         RivianBinarySensorEntityDescription(
             key="closure_tonneau_locked",
@@ -1017,6 +1019,7 @@ BINARY_SENSORS: Final[
             name="Tonneau Lock",
             device_class=BinarySensorDeviceClass.LOCK,
             on_value="unlocked",
+            supported_feature="TONNEAU_CMD",
         ),
     ),
     ("R1S", "R2"): (
@@ -1065,6 +1068,20 @@ BTM_FAILURE_STATUS_FIELDS: Final[frozenset[str]] = frozenset(
     }
 )
 
+WINDOW_CALIBRATION_FIELDS: Final[frozenset[str]] = frozenset(
+    {
+        "windowFrontLeftCalibrated",
+        "windowFrontRightCalibrated",
+        "windowRearLeftCalibrated",
+        "windowRearRightCalibrated",
+    }
+)
+
+# Vehicle state values assumed until the vehicle reports otherwise
+DEFAULT_VEHICLE_STATE: Final[dict[str, Any]] = dict.fromkeys(
+    WINDOW_CALIBRATION_FIELDS, "Calibrated"
+)
+
 # ota.deployment.state only has an available version while an update is in
 # flight; GraphQL's values for no available update
 OTA_AVAILABLE_VERSION_IDLE: Final[dict[str, Any]] = {
@@ -1079,6 +1096,7 @@ OTA_AVAILABLE_VERSION_IDLE: Final[dict[str, Any]] = {
 # state, as GraphQL reports it
 PARALLAX_NONE_VALUES: Final[dict[str, str]] = {
     **dict.fromkeys(BTM_FAILURE_STATUS_FIELDS, "dtc_not_set"),
+    **DEFAULT_VEHICLE_STATE,
     "alarmSoundStatus": "false",
     "cabinPreconditioningType": "NONE",
     "gearGuardVideoMode": "none",

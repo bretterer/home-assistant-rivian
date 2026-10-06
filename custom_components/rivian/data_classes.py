@@ -36,6 +36,8 @@ class RivianBinarySensorEntityDescription(BinarySensorEntityDescription):
     # Value to consider binary sensor to be "on"
     on_value: bool | float | int | str | list[str] = True
     negate: bool = False
+    # Only create for vehicles reporting this supported feature
+    supported_feature: str | None = None
 
 
 @dataclass(kw_only=True)

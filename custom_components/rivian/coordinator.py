@@ -31,6 +31,7 @@ from .const import (
     ATTR_VEHICLE,
     CHARGING_STATE_KEYS,
     DEFAULT_CHARGING_SCHEDULE,
+    DEFAULT_VEHICLE_STATE,
     DOMAIN,
     INVALID_SENSOR_STATES,
     PARALLAX_NONE_VALUES,
@@ -477,7 +478,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
                 vehicle_updates[k]["timeStamp"] = timestamp.isoformat()
         if vehicle_updates:
             self._process_state_changes(vehicle_updates)
-            self.async_set_updated_data((self.data or {}) | vehicle_updates)
+            self.async_set_updated_data(self._current_data() | vehicle_updates)
             _LOGGER.debug(
                 "Vehicle state updated from Parallax (%s): %s", px.get("rvm"), clean
             )
@@ -496,6 +497,15 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         self.async_set_updated_data(vehicle_info)
         self._error_count = 0
         self._initial.set()
+
+    def _current_data(self) -> dict[str, Any]:
+        """Return the current data, or the default vehicle state before any."""
+        if self.data:
+            return self.data
+        return {
+            k: {"value": v, "history": _history(v)}
+            for k, v in DEFAULT_VEHICLE_STATE.items()
+        }
 
     def _process_state_changes(self, items: dict[str, Any]) -> None:
         """Act on power and charger state changes in a batch of new items."""
@@ -531,8 +541,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
 
         self._process_state_changes(items)
 
-        if not (prev_items := (self.data or {})):
-            return items
+        prev_items = self._current_data()
         if not items or prev_items == items:
             return prev_items
 
