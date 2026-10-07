@@ -90,6 +90,8 @@ class RivianSensorEntityDescription(SensorEntityDescription):
     field: str
     value_fn: Callable[[VehicleCoordinator], Any] | None = None
     value_lambda: Callable[[Any], Any] | None = None
+    # Keep the last known value (across restarts) while the field is unreported
+    restore: bool = False
 
 
 @dataclass(kw_only=True)

@@ -24,6 +24,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from .const import (
     ATTR_COORDINATOR,
@@ -34,6 +35,7 @@ from .const import (
     DEFAULT_VEHICLE_STATE,
     DOMAIN,
     INVALID_SENSOR_STATES,
+    PARALLAX_IGNORED_RVMS,
     PARALLAX_NONE_CLEARS,
     PARALLAX_NONE_VALUES,
     PARALLAX_RVM_DEFAULTS,
@@ -51,6 +53,11 @@ T = TypeVar("T", bound=dict[str, Any] | list[dict[str, Any]])
 INITIAL_UPDATE_TIMEOUT = 60
 CHARGING_SCHEDULE_COOL_OFF = 10
 CHARGING_SCHEDULE_REFRESH_INTERVAL = 900
+# Max age of a navigation location fix to use (trip_progress resends its last
+# fix long after navigation ends)
+NAVIGATION_FIX_MAX_AGE = timedelta(minutes=5)
+# Fields set from the newest position fix (GNSS or navigation)
+GNSS_FIX_FIELDS = ("gnssLocation", "gnssSpeed", "gnssBearing")
 
 
 def _history(value: Any) -> set[Any]:
@@ -438,7 +445,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         if not (payload := data.get("payload")) or not (pdata := payload.get("data")):
             return
         px = pdata.get("parallaxMessages")
-        if not px:
+        if not px or px.get("rvm") in PARALLAX_IGNORED_RVMS:
             return
         decoded = decode_parallax_message(**px)
         if not decoded:
@@ -448,6 +455,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         if not clean:
             return
         clean = PARALLAX_RVM_DEFAULTS.get(px.get("rvm"), {}) | clean
+        self._use_newest_location(clean)
 
         # Route charging fields to ChargingCoordinator
         if charging_keys := clean.keys() & CHARGING_STATE_KEYS:
@@ -462,10 +470,11 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             - {"timestamp"}
         )
         timestamp = clean.get("timestamp")
+        current = self._current_data()
         vehicle_updates: dict[str, Any] = {}
         cleared = {
             k for k in vehicle_keys & PARALLAX_NONE_CLEARS if clean[k] is None
-        } & self._current_data().keys()
+        } & current.keys()
         for k in vehicle_keys:
             if (value := clean[k]) is None:
                 value = PARALLAX_NONE_VALUES.get(k)
@@ -475,14 +484,18 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             ):
                 continue
             if k == "gnssLocation":
-                vehicle_updates[k] = value
+                if current.get(k) != value:
+                    vehicle_updates[k] = value
+                continue
+            # Skip unchanged values, e.g. the snapshot resent on every reconnect
+            if k in current and current[k].get("value") == value:
                 continue
             vehicle_updates[k] = {"value": value, "history": _history(value)}
             if timestamp:
                 vehicle_updates[k]["timeStamp"] = timestamp.isoformat()
         if vehicle_updates or cleared:
             self._process_state_changes(vehicle_updates)
-            kept = {k: v for k, v in self._current_data().items() if k not in cleared}
+            kept = {k: v for k, v in current.items() if k not in cleared}
             self.async_set_updated_data(kept | vehicle_updates)
             _LOGGER.debug(
                 "Vehicle state updated from Parallax (%s): %s", px.get("rvm"), clean
@@ -502,6 +515,42 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         self.async_set_updated_data(vehicle_info)
         self._error_count = 0
         self._initial.set()
+
+    def _use_newest_location(self, clean: dict[str, Any]) -> None:
+        """Set gnssLocation, gnssSpeed and gnssBearing from the newest fix.
+
+        dynamics.vehicle.gnss sends a fix about once a minute; while navigating,
+        trip_progress's location fix comes every ~5 seconds. trip_progress keeps
+        resending its last fix after navigation ends, so it's only used while
+        recent, and only a newer fix wins.
+        """
+        fix = {k: clean.pop(k) for k in GNSS_FIX_FIELDS if k in clean}
+        lat, lon = clean.get("latitude"), clean.get("longitude")
+        if (
+            (fix_time := clean.get("locationTime"))
+            and dt_util.utcnow() - fix_time <= NAVIGATION_FIX_MAX_AGE
+            and lat is not None
+            and lon is not None
+        ):
+            fix = {
+                "gnssLocation": {
+                    "latitude": round(lat, 6),
+                    "longitude": round(lon, 6),
+                    "timeStamp": fix_time,
+                },
+                "gnssSpeed": round(clean.get("speed") or 0, 2),
+                "gnssBearing": round(clean.get("bearing") or 0, 1),
+            }
+        if not (location := fix.get("gnssLocation")):
+            return
+        current = self._current_data().get("gnssLocation") or {}
+        if (
+            (current_time := current.get("timeStamp"))
+            and (new_time := location.get("timeStamp"))
+            and new_time <= current_time
+        ):
+            return
+        clean.update(fix)
 
     def _current_data(self) -> dict[str, Any]:
         """Return the current data, or the default vehicle state before any."""

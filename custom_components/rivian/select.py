@@ -19,8 +19,8 @@ from .entity import RivianVehicleControlEntity
 
 _LOGGER = logging.getLogger(__name__)
 
-LEVEL_MAP = {"Off": "0", "On": "1", "Level_1": "2", "Level_2": "3", "Level_3": "4"}
-LEVELS = ["Off", "Level_1", "Level_2", "Level_3"]
+LEVEL_MAP = {"off": "0", "on": "1", "level_1": "2", "level_2": "3", "level_3": "4"}
+LEVELS = ["off", "level_1", "level_2", "level_3"]
 
 
 SELECTS: Final[tuple[RivianSelectEntityDescription, ...]] = (

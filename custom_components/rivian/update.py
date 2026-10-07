@@ -117,7 +117,11 @@ class RivianUpdateEntity(RivianVehicleEntity, UpdateEntity):
     @property
     def supported_features(self) -> Feature:
         """Flag supported features."""
-        if self.can_install and self._get_value("otaStatus") in READY_FOR_INSTALL:
+        if (
+            self.can_install
+            and self._get_value("otaStatus") in READY_FOR_INSTALL
+            and self._get_value("gearStatus") == "park"
+        ):
             return self._attr_supported_features | Feature.INSTALL
         return self._attr_supported_features
 
@@ -131,6 +135,8 @@ class RivianUpdateEntity(RivianVehicleEntity, UpdateEntity):
             raise RivianBadRequestError(
                 f"Software update is {status}, please try again later"
             )
+        if self._get_value("gearStatus") != "park":
+            raise RivianBadRequestError("Vehicle must be in park to install updates")
         await self.coordinator.send_vehicle_command(
             VehicleCommand.OTA_INSTALL_NOW_ACKNOWLEDGE
         )
