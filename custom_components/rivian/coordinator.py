@@ -34,6 +34,7 @@ from .const import (
     DEFAULT_VEHICLE_STATE,
     DOMAIN,
     INVALID_SENSOR_STATES,
+    PARALLAX_NONE_CLEARS,
     PARALLAX_NONE_VALUES,
     PARALLAX_RVM_DEFAULTS,
     PARALLAX_UNDEFINED_IS_VALID,
@@ -462,6 +463,9 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         )
         timestamp = clean.get("timestamp")
         vehicle_updates: dict[str, Any] = {}
+        cleared = {
+            k for k in vehicle_keys & PARALLAX_NONE_CLEARS if clean[k] is None
+        } & self._current_data().keys()
         for k in vehicle_keys:
             if (value := clean[k]) is None:
                 value = PARALLAX_NONE_VALUES.get(k)
@@ -476,9 +480,10 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             vehicle_updates[k] = {"value": value, "history": _history(value)}
             if timestamp:
                 vehicle_updates[k]["timeStamp"] = timestamp.isoformat()
-        if vehicle_updates:
+        if vehicle_updates or cleared:
             self._process_state_changes(vehicle_updates)
-            self.async_set_updated_data(self._current_data() | vehicle_updates)
+            kept = {k: v for k, v in self._current_data().items() if k not in cleared}
+            self.async_set_updated_data(kept | vehicle_updates)
             _LOGGER.debug(
                 "Vehicle state updated from Parallax (%s): %s", px.get("rvm"), clean
             )

@@ -52,6 +52,7 @@ async def async_setup_entry(
 class RivianUpdateEntity(RivianVehicleEntity, UpdateEntity):
     """Rivian Update Entity."""
 
+    _attr_auto_update = True
     _attr_supported_features = Feature.PROGRESS | Feature.RELEASE_NOTES
 
     _rivian_software_url: str

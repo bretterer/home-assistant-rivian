@@ -392,12 +392,11 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
         ),
         RivianSensorEntityDescription(
             key="ota_install_time",
-            field="otaInstallTime",
+            field="otaScheduledInstallTime",
             name="Software OTA - Install Time",
             icon="mdi:clock",
-            device_class=SensorDeviceClass.DURATION,
+            device_class=SensorDeviceClass.TIMESTAMP,
             entity_category=EntityCategory.DIAGNOSTIC,
-            native_unit_of_measurement=UnitOfTime.MINUTES,
         ),
         RivianSensorEntityDescription(
             key="ota_install_type",
@@ -1111,6 +1110,10 @@ PARALLAX_UNDEFINED_IS_VALID: Final[frozenset[str]] = frozenset(
     {"cabinPreconditioningStatus"}
 )
 
+# Parallax fields whose None value means "not set", so it clears the field
+# rather than being skipped as unsent
+PARALLAX_NONE_CLEARS: Final[frozenset[str]] = frozenset({"otaScheduledInstallTime"})
+
 # Values for fields an RVM topic leaves out when they don't apply, so stale
 # values are cleared
 PARALLAX_RVM_DEFAULTS: Final[dict[str, dict[str, Any]]] = {
@@ -1122,7 +1125,6 @@ PARALLAX_RVM_DEFAULTS: Final[dict[str, dict[str, Any]]] = {
 # which sends a snapshot of every topic on subscribe.
 VEHICLE_STATE_API_FIELDS: Final[set[str]] = {
     "activeDriverName",
-    "otaInstallTime",
     "otaInstallType",
 }
 
