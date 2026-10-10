@@ -1,0 +1,32 @@
+backfill_drive_history:
+  name: Backfill drive history
+  description: Reconstruct past drive efficiency and MPGe from Home Assistant recorder history without modifying the SQLite database.
+  fields:
+    vin:
+      name: Vehicle VIN
+      description: Specific vehicle VIN to backfill (leave blank for all configured vehicles).
+      example: "7FCTG..."
+      selector:
+        text:
+    days:
+      name: Days
+      description: Number of past days of history to backfill (defaults to 365 days).
+      example: 365
+      default: 365
+      selector:
+        number:
+          min: 1
+          max: 365
+          mode: box
+    dry_run:
+      name: Dry run
+      description: If true, analyzes and logs detected drives in Home Assistant logs without saving to storage.
+      default: true
+      selector:
+        boolean:
+    tracks:
+      name: Rebuild GPS routes
+      description: Also rebuild GPS routes for stored drives from the recorder's location history (only the recorder retention window, ~10 days by default).
+      default: true
+      selector:
+        boolean:

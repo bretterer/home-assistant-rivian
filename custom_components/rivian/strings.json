@@ -27,7 +27,16 @@
         "data": {
           "vehicle_image_style": "Vehicle image style",
           "vehicle_control": "Enable vehicle control (experimental and at your own risk)",
-          "zone": "Limit vehicle control to the following zones"
+          "zone": "Limit vehicle control to the following zones",
+          "analytics_retention_days": "Analytics history retention (days, 0 = keep forever)",
+          "track_capture": "Store GPS routes for drives",
+          "track_retention_days": "Keep GPS routes for (days, 0 = as long as the drive)",
+          "track_full_detail_days": "Thin routes older than (days, 0 = never)"
+        },
+        "data_description": {
+          "track_capture": "When off, drives are still recorded but no GPS route is stored for them, so the route view is unavailable.",
+          "track_retention_days": "How long a drive's full GPS route is kept before it's deleted (the drive summary itself follows the analytics history retention setting above). A typical daily-driving route history runs roughly 12 MB/year at full detail.",
+          "track_full_detail_days": "Routes older than this are simplified to about 10% of their original size (same overall shape, fewer points) to save storage, without being deleted."
         }
       }
     },
@@ -75,6 +84,34 @@
           "plugged_in": "Plugged in",
           "charging": "Charging"
         }
+      },
+      "last_drive_efficiency": {
+        "name": "Last drive efficiency"
+      },
+      "efficiency_30d": {
+        "name": "Efficiency (30 days)"
+      },
+      "efficiency_all_time": {
+        "name": "Efficiency (all-time)"
+      },
+      "last_drive_distance": {
+        "name": "Last drive distance"
+      },
+      "last_drive_mpge": {
+        "name": "Last drive MPGe"
+      },
+      "mpge_30d": {
+        "name": "MPGe (30 days)"
+      },
+      "mpge_all_time": {
+        "name": "MPGe (all-time)"
+      },
+      "drive_status": {
+        "name": "Drive status",
+        "state": {
+          "parked": "Parked",
+          "driving": "Driving"
+        }
       }
     },
     "switch": {
@@ -91,10 +128,42 @@
       }
     }
   },
+  "services": {
+    "backfill_drive_history": {
+      "name": "Backfill drive history",
+      "description": "Reconstruct past drive efficiency and MPGe from Home Assistant recorder history without modifying the SQLite database.",
+      "fields": {
+        "vin": {
+          "name": "Vehicle VIN",
+          "description": "Specific vehicle VIN to backfill (leave blank for all configured vehicles)."
+        },
+        "days": {
+          "name": "Days",
+          "description": "Number of past days of history to backfill (defaults to 365 days)."
+        },
+        "dry_run": {
+          "name": "Dry run",
+          "description": "If true, analyzes and logs detected drives in Home Assistant logs without saving to storage."
+        },
+        "tracks": {
+          "name": "Rebuild GPS routes",
+          "description": "Also rebuild GPS routes for stored drives from the recorder's location history (only the recorder retention window, ~10 days by default)."
+        }
+      }
+    }
+  },
   "issues": {
     "2fa_missing": {
       "title": "Two-factor authentication (2FA) required for vehicle control",
       "description": "Please enable 2FA in your Rivian account and then reload the integration or re-configure the integration and remove any devices selected for vehicle control."
+    },
+    "analytics_db_repaired": {
+      "title": "Rivian analytics database was corrupt and has been rebuilt",
+      "description": "The SQLite analytics database at `.storage/rivian_analytics.db` failed an integrity check and was quarantined. A fresh database was created and the original legacy JSON drive history is still on disk as a recovery source, but recent analytics may need to be re-imported (for example via the `rivian.backfill_drive_history` service)."
+    },
+    "analytics_db_read_only": {
+      "title": "Rivian analytics database is read-only after a downgrade",
+      "description": "The analytics database schema version is newer than this version of the integration supports, which usually means the integration was downgraded. To avoid corrupting data, analytics writes are paused until you update the integration to a version that supports this schema."
     }
   }
 }

@@ -851,3 +851,38 @@ def mock_config_entry() -> MagicMock:
     entry.add_update_listener = MagicMock()
     entry.async_on_unload = MagicMock()
     return entry
+
+
+@pytest.fixture
+def analytics_db_path(tmp_path: Any) -> str:
+    """Provide a per-test SQLite analytics database file path under tmp_path.
+
+    A real file path (not ``:memory:``) is required for tests that construct
+    multiple DriveStore/AnalyticsDatabase instances against the same
+    underlying database (persistence tests) or that need to inspect the file
+    on disk (migration/idempotency tests).
+    """
+    return str(tmp_path / "rivian_analytics_test.db")
+
+
+def make_analytics_db(hass: Any, db_path: str) -> Any:
+    """Construct and synchronously set up an AnalyticsDatabase for tests.
+
+    ``setup()`` is executor-bound in production, but is safe to call directly
+    here because the mock hass's ``loop_thread_id`` sentinel (-1) never
+    matches the test thread's real id, so the executor-thread guard does not
+    fire.
+    """
+    from custom_components.rivian.analytics_db import AnalyticsDatabase
+
+    db = AnalyticsDatabase(hass, db_path=db_path)
+    db.setup()
+    return db
+
+
+@pytest.fixture
+def analytics_db(mock_hass: Any, analytics_db_path: str) -> Any:
+    """Provide a ready (schema-initialized) AnalyticsDatabase for tests."""
+    db = make_analytics_db(mock_hass, analytics_db_path)
+    yield db
+    db.close()
