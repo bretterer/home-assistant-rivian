@@ -5,7 +5,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 import asyncio
 from collections.abc import Awaitable, Callable
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 import logging
 import time
 from typing import Any, Generic, TypeVar
@@ -204,7 +204,7 @@ class ChargingCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         if not clean:
             return
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         new_data = dict(self.data or {})
 
         # If a verified startTime arrives from graph data that differs from existing,
@@ -423,7 +423,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
 
             try:
                 await asyncio.wait_for(self._initial.wait(), INITIAL_UPDATE_TIMEOUT)
-            except asyncio.TimeoutError as err:
+            except TimeoutError as err:
                 raise UpdateFailed(
                     "Timed out waiting for initial vehicle data after "
                     f"{INITIAL_UPDATE_TIMEOUT}s"
@@ -630,7 +630,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             await self.send_vehicle_command(VehicleCommand.WAKE_VEHICLE)
             try:
                 await asyncio.wait_for(self._awake.wait(), 30)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass  # didn't wake-up in time, but we'll try command anyway
 
         entry_data = self.hass.data[DOMAIN][self.config_entry.entry_id]
@@ -675,7 +675,7 @@ class VehicleImageCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         data = await self.api.get_vehicle_images(
             resolution="@3x", vehicle_version=self.version
         )
-        self._last_updated = datetime.now(timezone.utc)
+        self._last_updated = datetime.now(UTC)
         return data
 
 

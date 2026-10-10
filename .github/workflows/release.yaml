@@ -4,32 +4,33 @@ on:
   release:
     types: [published]
 
+permissions:
+  contents: write
+
 jobs:
   release_zip_file:
     name: Prepare release asset
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
-        uses: actions/checkout@v1
+        uses: actions/checkout@v7
 
-      - name: Get Version
+      - name: Get version
         id: get_version
-        run: echo ::set-output name=VERSION::${GITHUB_REF/refs\/tags\//}
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
 
-      - name: "Set version numbmer"
+      - name: Set version number
         run: |
-          sed -i '/VERSION = /c\VERSION = "${{ steps.get_version.outputs.VERSION }}"' ${{ github.workspace }}/custom_components/rivian/const.py
-          sed -i '/version/c\  \"version\": \"${{ steps.get_version.outputs.VERSION }}\"' ${{ github.workspace }}/custom_components/rivian/manifest.json
-      # Pack the rivian dir as a zip and upload to the release
-      - name: ZIP MnP Dir
+          sed -i '/^VERSION = /c\VERSION = "${{ steps.get_version.outputs.VERSION }}"' custom_components/rivian/const.py
+          sed -i 's/"version": "[^"]*"/"version": "${{ steps.get_version.outputs.VERSION }}"/' custom_components/rivian/manifest.json
+
+      # Pack the integration (without bytecode caches) as rivian.zip for HACS.
+      - name: Zip the integration
         run: |
-          cd ${{ github.workspace }}/custom_components/rivian
-          zip rivian.zip -r ./
-      - name: Upload zip to release
-        uses: svenstaro/upload-release-action@v1-release
+          cd custom_components/rivian
+          zip -r rivian.zip ./ -x '*/__pycache__/*' '__pycache__/*' '*.pyc'
+
+      - name: Upload zip to the release
+        uses: softprops/action-gh-release@v3
         with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: ${{ github.workspace }}/custom_components/rivian/rivian.zip
-          asset_name: rivian.zip
-          tag: ${{ github.ref }}
-          overwrite: true
+          files: custom_components/rivian/rivian.zip
