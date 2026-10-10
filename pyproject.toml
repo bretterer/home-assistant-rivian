@@ -1,9 +1,14 @@
 [tool.ruff]
 required-version = ">=0.16.2"
+# Lint and format for Python 3.13 syntax: the floor is 3.14 (Home Assistant
+# 2026.3), but pinning keeps sources parseable by 3.13 tooling and makes
+# ruff releases with a newer default target agree.
+target-version = "py313"
 
 [tool.ruff.lint]
 ignore = [
     "RUF012", # Mutable class attributes should be annotated with typing.ClassVar
+    "UP046", # PEP 695 generics: the existing coordinator classes keep Generic[T]
 ]
 
 [tool.ruff.lint.isort]
@@ -22,3 +27,9 @@ disable = [
     # Handled by ruff
     "broad-except", # BLE001
 ]
+
+[tool.pytest.ini_options]
+# Plain `pytest` (as CI runs it) must import `custom_components` from the repo
+# root, the same as `python -m pytest` does.
+pythonpath = ["."]
+testpaths = ["tests"]
