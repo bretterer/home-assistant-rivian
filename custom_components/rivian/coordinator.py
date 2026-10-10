@@ -510,6 +510,12 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             if not self._initial.is_set() or self._error_count > 5:
                 task = self._unsubscribe()
                 self.config_entry.async_create_task(self.hass, task, eager_start=True)
+                # Lets the next refresh resubscribe; it checks last_update_success
+                self.async_set_update_error(
+                    UpdateFailed(
+                        f"Vehicle {self.vehicle_id} subscription stopped after errors"
+                    )
+                )
             return
         vehicle_info = self._build_vehicle_info_dict(pdata.get(self.key, {}))
         self.async_set_updated_data(vehicle_info)
@@ -606,13 +612,16 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
 
     async def _unsubscribe(self, close_monitor: bool = False):
         """Unsubscribe."""
-        if unsub := self._unsub_parallax:
-            await unsub()
-            self._unsub_parallax = None
-        if unsub := self._unsub_handler:
-            await unsub()
-            self._unsub_handler = None
+        # Take the handles before awaiting, so overlapping calls unsubscribe once
+        # and don't clear handles set by a newer subscription
+        unsub_parallax, self._unsub_parallax = self._unsub_parallax, None
+        unsub_handler, self._unsub_handler = self._unsub_handler, None
+        if unsub_handler:
             self._initial.clear()
+        if unsub_parallax:
+            await unsub_parallax()
+        if unsub_handler:
+            await unsub_handler()
         if close_monitor and (monitor := self.api._ws_monitor):
             await monitor.close()
 
