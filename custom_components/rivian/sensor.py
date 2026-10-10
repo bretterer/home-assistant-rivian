@@ -8,6 +8,7 @@ import logging
 from typing import Any, Final
 
 from homeassistant.components.sensor import (
+    RestoreSensor,
     SensorDeviceClass,
     SensorEntity,
     SensorStateClass,
@@ -57,6 +58,15 @@ WEEKDAYS_ONLY: Final[frozenset[str]] = frozenset(WEEK_DAYS_ORDERED[:5])
 RIVIAN_TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%S.%f%z"
 
 
+def _parse_timestamp(val: datetime | str | None) -> datetime | None:
+    """Parse a Rivian timestamp, which may already be a datetime (Parallax)."""
+    if not val:
+        return None
+    if isinstance(val, str):
+        return datetime.strptime(val, RIVIAN_TIMESTAMP_FORMAT).astimezone(UTC)
+    return val.astimezone(UTC)
+
+
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
@@ -72,8 +82,8 @@ async def async_setup_entry(
             vehicle_coordinators[vehicle_id], entry, description, vehicle
         )
         for vehicle_id, vehicle in vehicles.items()
-        for model, descriptions in SENSORS.items()
-        if model in vehicle["model"]
+        for models, descriptions in SENSORS.items()
+        if any(model in vehicle["model"] for model in models)
         for description in descriptions
     ]
 
@@ -151,10 +161,30 @@ class RivianChargingScheduleDaysEntity(RivianVehicleEntity, SensorEntity):
         return ", ".join(ordered)
 
 
-class RivianSensorEntity(RivianVehicleEntity, SensorEntity):
+class RivianSensorEntity(RivianVehicleEntity, RestoreSensor):
     """Representation of a Rivian sensor entity."""
 
     entity_description: RivianSensorEntityDescription
+    _last_value: Any = None
+
+    async def async_added_to_hass(self) -> None:
+        """Restore the last value of a sensor that keeps it while unreported."""
+        await super().async_added_to_hass()
+        if self.entity_description.restore and (
+            last := await self.async_get_last_sensor_data()
+        ):
+            value = last.native_value
+            if (options := self.options) and value not in options:
+                # Saved before the enum values were lowercased, or since removed
+                value = value.lower() if str(value).lower() in options else None
+            self._last_value = value
+
+    @property
+    def available(self) -> bool:
+        """Return the availability of the entity."""
+        if self._last_value is not None and self._available:
+            return True
+        return super().available
 
     @property
     def native_value(self) -> str | None:
@@ -163,9 +193,13 @@ class RivianSensorEntity(RivianVehicleEntity, SensorEntity):
             return _fn(self.coordinator)
 
         if (val := self._get_value(self.entity_description.field)) is None:
+            if self._last_value is not None:
+                return self._last_value
             return STATE_UNAVAILABLE if not self.native_unit_of_measurement else None
 
         rval = _fn(val) if (_fn := self.entity_description.value_lambda) else val
+        if self.entity_description.restore:
+            self._last_value = rval
         if self.device_class == SensorDeviceClass.ENUM and rval not in self.options:
             _LOGGER.error(
                 "Sensor %s provides state value '%s', which is not in the list of known options. Please consider opening an issue at https://github.com/bretterer/home-assistant-rivian/issues with the following info: 'field: \"%s\" / value: \"%s\"'",
@@ -270,19 +304,18 @@ CHARGING_SENSORS: Final[tuple[RivianSensorEntityDescription, ...]] = (
         field="startTime",
         name="Charging Start Time",
         device_class=SensorDeviceClass.TIMESTAMP,
-        value_lambda=lambda val: (
-            datetime.strptime(val, RIVIAN_TIMESTAMP_FORMAT).astimezone(UTC)
-            if val
-            else val
-        ),
+        value_lambda=_parse_timestamp,
     ),
     RivianSensorEntityDescription(
         key="charging_time_elapsed",
-        field="timeElapsed",
+        # Minutes spent charging, as shown in the Rivian app (pauses while
+        # stopped/scheduled, unlike timeElapsed)
+        field="activeChargingTime",
         name="Charging Time Elapsed",
         device_class=SensorDeviceClass.DURATION,
         native_unit_of_measurement=UnitOfTime.SECONDS,
         state_class=SensorStateClass.TOTAL_INCREASING,
+        value_lambda=lambda val: val * 60 if val is not None else None,
     ),
 )
 

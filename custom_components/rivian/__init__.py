@@ -149,12 +149,19 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
         coordinator = UserCoordinator(
             hass=hass, config_entry=entry, client=client, include_phones=True
         )
-        await coordinator.async_config_entry_first_refresh()
-
-        if enrolled_data := coordinator.get_enrolled_phone_data(public_key=public_key):
-            for identity_id in enrolled_data[1].values():
-                await client.disenroll_phone(identity_id=identity_id)
-        await client.close()
+        try:
+            # The entry is no longer in setup, so first_refresh isn't allowed here
+            await coordinator.async_refresh()
+            if not coordinator.last_update_success:
+                _LOGGER.warning("Unable to disenroll phone: could not fetch user data")
+                return
+            if enrolled_data := coordinator.get_enrolled_phone_data(public_key):
+                for identity_id in enrolled_data[1].values():
+                    await client.disenroll_phone(identity_id=identity_id)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Unable to disenroll phone: %s", err)
+        finally:
+            await client.close()
 
 
 async def update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:

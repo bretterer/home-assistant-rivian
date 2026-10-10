@@ -75,6 +75,351 @@
           "plugged_in": "Plugged in",
           "charging": "Charging"
         }
+      },
+      "battery_thermal_runaway_propagation": {
+        "name": "Battery thermal runaway propagation",
+        "state": {
+          "nominal": "Nominal",
+          "detected": "Detected"
+        }
+      },
+      "battery_thermal_status": {
+        "name": "Battery thermal status",
+        "state": {
+          "nominal": "Nominal",
+          "detected": "Detected"
+        }
+      },
+      "bluetooth_front_fascia_hardware_failure_status": {
+        "name": "Bluetooth module failure status fascia front",
+        "state": {
+          "dtc_not_set": "No fault",
+          "set": "Fault"
+        }
+      },
+      "bluetooth_instrument_controls_hardware_failure_status": {
+        "name": "Bluetooth module failure status instrument controls",
+        "state": {
+          "dtc_not_set": "No fault",
+          "set": "Fault"
+        }
+      },
+      "bluetooth_left_front_door_hardware_failure_status": {
+        "name": "Bluetooth module failure status door front left",
+        "state": {
+          "dtc_not_set": "No fault",
+          "set": "Fault"
+        }
+      },
+      "bluetooth_rear_fascia_hardware_failure_status": {
+        "name": "Bluetooth module failure status fascia rear",
+        "state": {
+          "dtc_not_set": "No fault",
+          "set": "Fault"
+        }
+      },
+      "bluetooth_right_front_door_hardware_failure_status": {
+        "name": "Bluetooth module failure status door front right",
+        "state": {
+          "dtc_not_set": "No fault",
+          "set": "Fault"
+        }
+      },
+      "brake_fluid_low": {
+        "name": "Brake fluid level",
+        "state": {
+          "inactive": "Normal",
+          "active": "Low"
+        }
+      },
+      "cabin_preconditioning_type": {
+        "name": "Cabin climate preconditioning type",
+        "state": {
+          "none": "None",
+          "user_selected": "User selected",
+          "screen_protection": "Screen protection",
+          "scheduled": "Scheduled",
+          "auto_cabin_ventilation": "Auto cabin ventilation"
+        }
+      },
+      "charger_derate_status": {
+        "name": "Charger derate status",
+        "state": {
+          "none": "None",
+          "warm_adapter": "Warm adapter",
+          "dc_warm_plug": "DC plug warm",
+          "ac_warm_plug": "AC plug warm",
+          "evse_derating": "Charger limiting power",
+          "nearing_toc": "Nearing top of charge",
+          "near_toc_lfp_batt_calibrating": "Nearing top of charge (LFP calibration)",
+          "hvac_prioritized": "Climate prioritized",
+          "battery_heating": "Battery heating",
+          "battery_cooling": "Battery cooling",
+          "cell_thermal_lim_cold_no_current": "Battery too cold to charge",
+          "cell_thermal_lim_hot_no_current": "Battery too hot to charge",
+          "cell_thermal_lim_cold": "Limited by cold battery",
+          "cell_thermal_lim_hot": "Limited by hot battery",
+          "pack_hardware_thermal_lim": "Limited by battery pack temperature",
+          "high_soc_sigma": "Battery cell imbalance",
+          "hv_battery_fault": "Battery fault",
+          "dcac_export": "Exporting power"
+        }
+      },
+      "drive_mode": {
+        "name": "Drive mode",
+        "state": {
+          "init_mode": "Initializing",
+          "everyday": "All-purpose",
+          "off_road_snow_ice": "Snow and ice",
+          "off_road_sport_auto": "Rally",
+          "off_road_sport_drift": "Drift",
+          "sport_launch": "Launch",
+          "fault": "Fault",
+          "sport": "Sport",
+          "distance": "Conserve",
+          "towing": "Towing",
+          "off_road_auto": "All-terrain",
+          "off_road_sand": "Soft sand",
+          "off_road_rocks": "Rock crawl",
+          "off_road_mud": "Mud",
+          "winter": "Snow"
+        }
+      },
+      "gear_guard_video_mode": {
+        "name": "Gear Guard video mode",
+        "state": {
+          "none": "None",
+          "everywhere": "Everywhere",
+          "away_from_home": "Away from home"
+        }
+      },
+      "gear_guard_video_status": {
+        "name": "Gear Guard video status",
+        "state": {
+          "disabled": "Disabled",
+          "enabled": "Enabled",
+          "active": "Active",
+          "faulted": "Faulted"
+        }
+      },
+      "gear_guard_video_terms_accepted": {
+        "name": "Gear Guard video terms accepted",
+        "state": {
+          "not_accepted": "Not accepted",
+          "accepted": "Accepted"
+        }
+      },
+      "gear_status": {
+        "name": "Gear selector",
+        "state": {
+          "not_defined": "Not defined",
+          "park": "Park",
+          "reverse": "Reverse",
+          "neutral": "Neutral",
+          "drive": "Drive"
+        }
+      },
+      "liftgate_next_action": {
+        "name": "Liftgate next action",
+        "state": {
+          "sna": "Not available",
+          "open_allowed": "Open allowed",
+          "close_allowed": "Close allowed",
+          "opening": "Opening",
+          "closing": "Closing",
+          "open_not_available": "Open not available",
+          "close_not_available": "Close not available",
+          "open_not_allowed_faulted": "Open not allowed (fault)",
+          "close_not_allowed_faulted": "Close not allowed (fault)",
+          "open_allowed_no_power_operation": "Open allowed (manual)",
+          "close_not_allowed_no_power_operation": "Close not allowed (manual)",
+          "obstructed_opening_close_allowed": "Obstructed while opening",
+          "obstructed_closing_close_allowed": "Obstructed while closing",
+          "lower_gate_open_close_not_allowed": "Close not allowed (lower gate open)",
+          "opening_pause_not_allowed": "Opening (can't pause)",
+          "closing_pause_not_allowed": "Closing (can't pause)",
+          "open_allowed_obstacle_detected": "Open allowed (obstacle detected)",
+          "open_allowed_trailer_detected": "Open allowed (trailer detected)",
+          "close_allowed_obstacle_detected": "Close allowed (obstacle detected)",
+          "close_allowed_trailer_detected": "Close allowed (trailer detected)",
+          "processing": "Processing"
+        }
+      },
+      "ota_current_status": {
+        "name": "Software OTA - Last install result",
+        "state": {
+          "install_success": "Install successful",
+          "install_failed": "Install failed",
+          "install_unable_to_start": "Install unable to start"
+        }
+      },
+      "ota_install_ready": {
+        "name": "Software OTA - Install ready",
+        "state": {
+          "ota_available": "Available",
+          "ota_not_available": "Not available"
+        }
+      },
+      "ota_status": {
+        "name": "Software OTA - Status",
+        "state": {
+          "idle": "Idle",
+          "ready_to_download": "Ready to download",
+          "fault": "Fault",
+          "connection_lost": "Connection lost",
+          "install_countdown": "Install countdown",
+          "preparing": "Preparing",
+          "downloading": "Downloading",
+          "ready_to_install": "Ready to install",
+          "scheduled_to_install": "Scheduled to install",
+          "awaiting_install": "Awaiting install",
+          "installing": "Installing",
+          "install_success": "Install successful",
+          "download_failed": "Download failed",
+          "install_failed": "Install failed"
+        }
+      },
+      "pet_mode_temperature_status": {
+        "name": "Pet mode temperature status",
+        "state": {
+          "default": "Default",
+          "cold": "Cold",
+          "hot": "Hot",
+          "faulty": "Faulty"
+        }
+      },
+      "power_state": {
+        "name": "Power state",
+        "state": {
+          "sleep": "Sleep",
+          "standby": "Standby",
+          "ready": "Ready",
+          "go": "Go",
+          "vehicle_reset": "Vehicle reset",
+          "ota_update": "Software update",
+          "shutdown": "Shutdown"
+        }
+      },
+      "range_threshold": {
+        "name": "Range threshold",
+        "state": {
+          "normal": "Normal",
+          "low": "Low",
+          "red": "Red",
+          "critically_low": "Critically low"
+        }
+      },
+      "remote_charging_available": {
+        "name": "Remote charging available",
+        "state": {
+          "true": "Available",
+          "false": "Not available"
+        }
+      },
+      "service_mode": {
+        "name": "Service mode",
+        "state": {
+          "off": "[%key:common::state::off%]",
+          "on": "[%key:common::state::on%]"
+        }
+      },
+      "tire_pressure_status_front_left": {
+        "name": "Tire pressure front left status",
+        "state": {
+          "ok": "OK",
+          "warning_hard": "Hard warning",
+          "warning_soft": "Soft warning",
+          "warning_puncture": "Puncture warning"
+        }
+      },
+      "tire_pressure_status_front_right": {
+        "name": "Tire pressure front right status",
+        "state": {
+          "ok": "OK",
+          "warning_hard": "Hard warning",
+          "warning_soft": "Soft warning",
+          "warning_puncture": "Puncture warning"
+        }
+      },
+      "tire_pressure_status_rear_left": {
+        "name": "Tire pressure rear left status",
+        "state": {
+          "ok": "OK",
+          "warning_hard": "Hard warning",
+          "warning_soft": "Soft warning",
+          "warning_puncture": "Puncture warning"
+        }
+      },
+      "tire_pressure_status_rear_right": {
+        "name": "Tire pressure rear right status",
+        "state": {
+          "ok": "OK",
+          "warning_hard": "Hard warning",
+          "warning_soft": "Soft warning",
+          "warning_puncture": "Puncture warning"
+        }
+      },
+      "trailer_status": {
+        "name": "Trailer status",
+        "state": {
+          "trailer_not_present": "Not present",
+          "trailer_present": "Present",
+          "trailer_present_with_brakes": "Present with brakes",
+          "trailer_invalid": "Invalid"
+        }
+      },
+      "twelve_volt_battery_health": {
+        "name": "12V battery health",
+        "state": {
+          "normal": "Normal",
+          "low": "Low"
+        }
+      },
+      "window_front_left_calibrated": {
+        "name": "Window calibration front left state",
+        "state": {
+          "calibrated": "Calibrated",
+          "not_calibrated": "Not calibrated"
+        }
+      },
+      "window_front_right_calibrated": {
+        "name": "Window calibration front right state",
+        "state": {
+          "calibrated": "Calibrated",
+          "not_calibrated": "Not calibrated"
+        }
+      },
+      "window_rear_left_calibrated": {
+        "name": "Window calibration rear left state",
+        "state": {
+          "calibrated": "Calibrated",
+          "not_calibrated": "Not calibrated"
+        }
+      },
+      "window_rear_right_calibrated": {
+        "name": "Window calibration rear right state",
+        "state": {
+          "calibrated": "Calibrated",
+          "not_calibrated": "Not calibrated"
+        }
+      },
+      "windows_next_action": {
+        "name": "Windows next action",
+        "state": {
+          "sna": "Not available",
+          "open_allowed": "Open allowed",
+          "close_allowed": "Close allowed",
+          "opening": "Opening",
+          "closing": "Closing",
+          "open_not_available": "Open not available",
+          "close_not_available": "Close not available",
+          "open_not_allowed_faulted": "Open not allowed (fault)",
+          "close_not_allowed_faulted": "Close not allowed (fault)",
+          "moving": "Moving",
+          "obstructed_while_closing_close_allowed": "Obstructed while closing",
+          "close_not_allowed_uncalibrated": "Close not allowed (uncalibrated)",
+          "open_not_allowed_uncalibrated": "Open not allowed (uncalibrated)"
+        }
       }
     },
     "switch": {

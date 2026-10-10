@@ -27,9 +27,11 @@ async def async_setup_entry(
     entities = [
         RivianBinarySensorEntity(coordinators[vehicle_id], entry, description, vehicle)
         for vehicle_id, vehicle in vehicles.items()
-        for model, descriptions in BINARY_SENSORS.items()
-        if model in vehicle["model"]
+        for models, descriptions in BINARY_SENSORS.items()
+        if any(model in vehicle["model"] for model in models)
         for description in descriptions
+        if description.supported_feature is None
+        or description.supported_feature in vehicle.get("supported_features", [])
     ]
 
     async_add_entities(entities)

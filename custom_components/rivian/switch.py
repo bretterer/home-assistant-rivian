@@ -36,7 +36,7 @@ SWITCHES: Final[tuple[RivianSwitchEntityDescription, ...]] = (
         icon="mdi:lightning-bolt",
         name="Charging Enabled",
         available=lambda coor: (
-            coor.get("remoteChargingAvailable") == 1
+            coor.get("remoteChargingAvailable") == "true"
             or coor.get("chargerState") == "charging_active"
         ),
         is_on=lambda coor: (
@@ -53,7 +53,7 @@ SWITCHES: Final[tuple[RivianSwitchEntityDescription, ...]] = (
         key="gear_guard_video",
         icon="mdi:cctv",
         name="Gear Guard Video",
-        is_on=lambda coor: coor.get("gearGuardVideoStatus") != "Disabled",
+        is_on=lambda coor: coor.get("gearGuardVideoStatus") != "disabled",
         turn_off=lambda coor: coor.send_vehicle_command(
             command=VehicleCommand.DISABLE_GEAR_GUARD_VIDEO
         ),
@@ -65,7 +65,7 @@ SWITCHES: Final[tuple[RivianSwitchEntityDescription, ...]] = (
         key="steering_wheel_heat",
         icon="mdi:steering",
         name="Steering Wheel Heat",
-        is_on=lambda coor: coor.get("steeringWheelHeat") != "Off",
+        is_on=lambda coor: coor.get("steeringWheelHeat") != "off",
         turn_off=lambda coor: coor.send_vehicle_command(
             command=VehicleCommand.CABIN_HVAC_STEERING_HEAT, params={"level": 0}
         ),
