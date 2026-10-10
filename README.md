@@ -107,6 +107,7 @@ Note: If you are having issues with pairing your vehicle, we recommend investing
 | Charging Time Remaining                             | Sensor         |                                        |
 | Closure State                                       | Binary Sensor  | Open/closed status of all closures     |
 | Defrost/Defog                                       | Binary Sensor  | Running/not running status             |
+| Departure Schedules                                 | Sensor         | Number of schedules, list in attributes |
 | Door Front Left                                     | Binary Sensor  | Open/closed status                     |
 | Door Front Left Lock                                | Binary Sensor  | Locked/unlocked status                 |
 | Door Front Right                                    | Binary Sensor  | Open/closed status                     |
@@ -214,6 +215,7 @@ Note: If you are having issues with pairing your vehicle, we recommend investing
 | Charging Schedule End          | Time    | Set charging schedule end time                                                                                                                            |
 | Charging Schedule Start        | Time    | Set charging schedule start time                                                                                                                          |
 | Closures                       | Lock    | Lock/unlock all closures                                                                                                                                  |
+| Departure Schedule <name>      | Switch  | Enable/disable a departure schedule, one per schedule                                                                                                     |
 | Drop Tailgate                  | Button  | Drop tailgate                                                                                                                                             |
 | Front Trunk                    | Cover   | Open/close front trunk                                                                                                                                    |
 | Gear Guard Video               | Switch  | Enable/disable gear guard video                                                                                                                           |
@@ -221,6 +223,9 @@ Note: If you are having issues with pairing your vehicle, we recommend investing
 | Open Gear Tunnel Left          | Button  | Open left gear tunnel                                                                                                                                     |
 | Open Gear Tunnel Right         | Button  | Open right gear tunnel                                                                                                                                    |
 | Pair                           | Button  | Inititate Bluetooth pairing from Home Assistant. When pairing is identified as completed, this entity will no longer be created and can safely be deleted |
+| Precondition Cabin             | Button  | Start cabin preconditioning now, without a paired phone (vehicles without one only)                                                                       |
+| Precondition Lead Time         | Number  | Minutes ahead the precondition button departs, roughly how long it runs                                                                                   |
+| Precondition Temperature       | Number  | Target cabin temperature for the precondition button, shown in your unit system (converted to °C for Rivian)                                               |
 | Seat Front Left Heat           | Select  | Set front left seat heat level                                                                                                                            |
 | Seat Front Left Vent           | Select  | Set front right seat vent level                                                                                                                           |
 | Seat Front Right Heat          | Select  | Set front right seat heat level                                                                                                                           |
@@ -232,6 +237,43 @@ Note: If you are having issues with pairing your vehicle, we recommend investing
 | Tonneau                        | Cover   | Open/close powered tonneau, R1T only                                                                                                                      |
 | Wake                           | Button  | Wake vehicle                                                                                                                                              |
 | Windows                        | Cover   | Vent/close all windows                                                                                                                                    |
+
+### Departure Schedules
+
+Departure schedules precondition the cabin ahead of a departure time. They do not need vehicle control to be enabled or a paired phone, so they also work for Gen 2 vehicles.
+
+Each schedule gets its own switch to enable or disable it. The Departure Schedules sensor lists every schedule with its `schedule_id` in the `schedules` attribute. The remaining settings, including the departure time and days, are changed with the update action (Home Assistant has no multi-day selector entity, and a per-schedule time entity crowds the controls card). Schedules are created, changed and removed with actions:
+
+| Action                             | Description                                                                |
+| ---------------------------------- | -------------------------------------------------------------------------- |
+| `rivian.create_departure_schedule` | Create a schedule                                                          |
+| `rivian.update_departure_schedule` | Change a schedule, fields that are left out keep their current value       |
+| `rivian.delete_departure_schedule` | Delete a schedule, this does not stop preconditioning that already started |
+
+```yaml
+action: rivian.create_departure_schedule
+data:
+  device_id: <your vehicle>
+  name: Weekdays
+  time: "07:30:00"
+  days: [Monday, Tuesday, Wednesday, Thursday, Friday]
+  temperature: 21
+  front_defrost: Defrost
+  front_left_seat: Heat2
+  steering_wheel: Heat1
+```
+
+The departure time is local to the vehicle and the temperature is in °C. Seats take `Off`, `Heat1`, `Heat2` or `Heat3`, the front seats also take `Vent1`, `Vent2` or `Vent3`, and the steering wheel takes `Off` or `Heat1`. Front defrost takes `Off`, `Defrost` or `Defog`. Schedule names are limited to 24 characters.
+
+### Precondition Cabin (keyless)
+
+On vehicles without a paired phone, the **Precondition Cabin** button starts cabin preconditioning now by creating a short-lived departure schedule, which the vehicle preconditions for right away. It is created only for those vehicles, since paired vehicles already have the full Cabin Climate entity.
+
+Set **Precondition Lead Time** and **Precondition Temperature** first, then press the button. The lead time (default 15 minutes) is how far out the schedule departs and roughly how long preconditioning runs; a very short lead may not trigger the vehicle's adaptive preconditioning. The temporary schedule is deleted automatically after it runs.
+
+There is no keyless way to stop a session early — deleting the schedule does not stop preconditioning that has already started, so it runs until the departure time. Stop it from the Rivian app if needed.
+
+The departure time is computed in Home Assistant's timezone and interpreted by Rivian in the vehicle's local timezone, which the API does not expose. This assumes the two match (the vehicle is near home); if they differ, the button may precondition at the wrong time. The temporary schedule is tracked by its id and only ever cleaned up by Home Assistant — a departure schedule you create yourself is never removed by this feature, even if it shares the name.
 
 ## Special Thanks
 

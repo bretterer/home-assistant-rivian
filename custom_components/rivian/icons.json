@@ -3,6 +3,12 @@
         "number": {
             "charging_schedule_amperage": {
                 "default": "mdi:current-ac"
+            },
+            "precondition_lead_time": {
+                "default": "mdi:timer-outline"
+            },
+            "precondition_temperature": {
+                "default": "mdi:thermometer"
             }
         },
         "sensor": {
@@ -11,11 +17,17 @@
             },
             "charging_schedule_days": {
                 "default": "mdi:calendar-range"
+            },
+            "departure_schedules": {
+                "default": "mdi:car-clock"
             }
         },
         "switch": {
             "charging_schedule_enabled": {
                 "default": "mdi:calendar-clock"
+            },
+            "departure_schedule": {
+                "default": "mdi:car-clock"
             }
         },
         "time": {
@@ -25,6 +37,22 @@
             "charging_schedule_end": {
                 "default": "mdi:clock-end"
             }
+        },
+        "button": {
+            "precondition_cabin": {
+                "default": "mdi:car-seat-heater"
+            }
+        }
+    },
+    "services": {
+        "create_departure_schedule": {
+            "service": "mdi:calendar-plus"
+        },
+        "update_departure_schedule": {
+            "service": "mdi:calendar-edit"
+        },
+        "delete_departure_schedule": {
+            "service": "mdi:calendar-remove"
         }
     }
 }

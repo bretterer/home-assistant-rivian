@@ -1,0 +1,178 @@
+create_departure_schedule:
+  fields:
+    device_id: &device_id
+      required: true
+      selector:
+        device:
+          integration: rivian
+    name:
+      required: true
+      example: Weekdays
+      selector:
+        text:
+    time:
+      required: true
+      example: "07:30:00"
+      selector:
+        time:
+    days:
+      required: true
+      selector: &days_selector
+        select:
+          multiple: true
+          options:
+            - Monday
+            - Tuesday
+            - Wednesday
+            - Thursday
+            - Friday
+            - Saturday
+            - Sunday
+    enabled:
+      default: true
+      selector:
+        boolean:
+    temperature:
+      default: 21
+      selector:
+        number:
+          min: 16
+          max: 29
+          step: 0.5
+          unit_of_measurement: °C
+    front_defrost:
+      default: "Off"
+      selector:
+        select:
+          options:
+            - "Off"
+            - Defrost
+            - Defog
+    front_left_seat: &heat_level
+      default: "Off"
+      selector:
+        select:
+          options:
+            - label: "Off"
+              value: "Off"
+            - label: Heat low
+              value: Heat1
+            - label: Heat medium
+              value: Heat2
+            - label: Heat high
+              value: Heat3
+            - label: Vent low
+              value: Vent1
+            - label: Vent medium
+              value: Vent2
+            - label: Vent high
+              value: Vent3
+    front_right_seat: *heat_level
+    rear_left_seat: &heat_only_level
+      default: "Off"
+      selector:
+        select:
+          options:
+            - label: "Off"
+              value: "Off"
+            - label: Heat low
+              value: Heat1
+            - label: Heat medium
+              value: Heat2
+            - label: Heat high
+              value: Heat3
+    rear_right_seat: *heat_only_level
+    steering_wheel:
+      default: "Off"
+      selector:
+        select:
+          options:
+            - label: "Off"
+              value: "Off"
+            - label: "On"
+              value: Heat1
+    override_charge_schedule:
+      default: false
+      selector:
+        boolean:
+
+update_departure_schedule:
+  fields:
+    device_id: *device_id
+    schedule_id: &schedule_id
+      required: true
+      selector:
+        text:
+    name:
+      selector:
+        text:
+    time:
+      selector:
+        time:
+    days:
+      selector: *days_selector
+    enabled:
+      selector:
+        boolean:
+    temperature:
+      selector:
+        number:
+          min: 16
+          max: 29
+          step: 0.5
+          unit_of_measurement: °C
+    front_defrost:
+      selector:
+        select:
+          options:
+            - "Off"
+            - Defrost
+            - Defog
+    front_left_seat: &optional_heat_level
+      selector:
+        select:
+          options:
+            - label: "Off"
+              value: "Off"
+            - label: Heat low
+              value: Heat1
+            - label: Heat medium
+              value: Heat2
+            - label: Heat high
+              value: Heat3
+            - label: Vent low
+              value: Vent1
+            - label: Vent medium
+              value: Vent2
+            - label: Vent high
+              value: Vent3
+    front_right_seat: *optional_heat_level
+    rear_left_seat: &optional_heat_only_level
+      selector:
+        select:
+          options:
+            - label: "Off"
+              value: "Off"
+            - label: Heat low
+              value: Heat1
+            - label: Heat medium
+              value: Heat2
+            - label: Heat high
+              value: Heat3
+    rear_right_seat: *optional_heat_only_level
+    steering_wheel:
+      selector:
+        select:
+          options:
+            - label: "Off"
+              value: "Off"
+            - label: "On"
+              value: Heat1
+    override_charge_schedule:
+      selector:
+        boolean:
+
+delete_departure_schedule:
+  fields:
+    device_id: *device_id
+    schedule_id: *schedule_id

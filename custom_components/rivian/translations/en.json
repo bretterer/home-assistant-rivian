@@ -53,6 +53,12 @@
     "number": {
       "charging_schedule_amperage": {
         "name": "Charging schedule amperage"
+      },
+      "precondition_lead_time": {
+        "name": "Precondition lead time"
+      },
+      "precondition_temperature": {
+        "name": "Precondition temperature"
       }
     },
     "sensor": {
@@ -74,6 +80,9 @@
           "plugged_in": "Plugged in",
           "charging": "Charging"
         }
+      },
+      "departure_schedules": {
+        "name": "Departure schedules"
       }
     },
     "switch": {
@@ -88,12 +97,153 @@
       "charging_schedule_end": {
         "name": "Charging schedule end"
       }
+    },
+    "button": {
+      "precondition_cabin": {
+        "name": "Precondition cabin"
+      }
     }
   },
   "issues": {
     "2fa_missing": {
       "title": "Two-factor authentication (2FA) required for vehicle control",
       "description": "Please enable 2FA in your Rivian account and then reload the integration or re-configure the integration and remove any devices selected for vehicle control."
+    }
+  },
+  "services": {
+    "create_departure_schedule": {
+      "name": "Create departure schedule",
+      "description": "Creates a departure schedule that preconditions the cabin ahead of each departure.",
+      "fields": {
+        "device_id": {
+          "name": "Vehicle",
+          "description": "The Rivian vehicle."
+        },
+        "name": {
+          "name": "Name",
+          "description": "The name of the schedule."
+        },
+        "time": {
+          "name": "Departure time",
+          "description": "The departure time, local to the vehicle."
+        },
+        "days": {
+          "name": "Days",
+          "description": "The days the schedule repeats on."
+        },
+        "enabled": {
+          "name": "Enabled",
+          "description": "Whether the schedule is enabled."
+        },
+        "temperature": {
+          "name": "Cabin temperature",
+          "description": "The cabin temperature to reach by the departure time."
+        },
+        "front_defrost": {
+          "name": "Front defrost",
+          "description": "Whether to defrost or defog the windshield."
+        },
+        "front_left_seat": {
+          "name": "Front left seat heat or vent",
+          "description": "The heat or vent level of the front left seat."
+        },
+        "front_right_seat": {
+          "name": "Front right seat heat or vent",
+          "description": "The heat or vent level of the front right seat."
+        },
+        "rear_left_seat": {
+          "name": "Rear left seat heat",
+          "description": "The heat level of the rear left seat."
+        },
+        "rear_right_seat": {
+          "name": "Rear right seat heat",
+          "description": "The heat level of the rear right seat."
+        },
+        "steering_wheel": {
+          "name": "Steering wheel heat",
+          "description": "The heat level of the steering wheel."
+        },
+        "override_charge_schedule": {
+          "name": "Override charging schedule",
+          "description": "Whether preconditioning may charge outside of the charging schedule."
+        }
+      }
+    },
+    "update_departure_schedule": {
+      "name": "Update departure schedule",
+      "description": "Updates a departure schedule. Fields that are left out keep their current value.",
+      "fields": {
+        "device_id": {
+          "name": "Vehicle",
+          "description": "The Rivian vehicle."
+        },
+        "schedule_id": {
+          "name": "Schedule ID",
+          "description": "The schedule to update, from the departure schedules sensor or the schedule's switch."
+        },
+        "name": {
+          "name": "Name",
+          "description": "The name of the schedule."
+        },
+        "time": {
+          "name": "Departure time",
+          "description": "The departure time, local to the vehicle."
+        },
+        "days": {
+          "name": "Days",
+          "description": "The days the schedule repeats on."
+        },
+        "enabled": {
+          "name": "Enabled",
+          "description": "Whether the schedule is enabled."
+        },
+        "temperature": {
+          "name": "Cabin temperature",
+          "description": "The cabin temperature to reach by the departure time."
+        },
+        "front_defrost": {
+          "name": "Front defrost",
+          "description": "Whether to defrost or defog the windshield."
+        },
+        "front_left_seat": {
+          "name": "Front left seat heat or vent",
+          "description": "The heat or vent level of the front left seat."
+        },
+        "front_right_seat": {
+          "name": "Front right seat heat or vent",
+          "description": "The heat or vent level of the front right seat."
+        },
+        "rear_left_seat": {
+          "name": "Rear left seat heat",
+          "description": "The heat level of the rear left seat."
+        },
+        "rear_right_seat": {
+          "name": "Rear right seat heat",
+          "description": "The heat level of the rear right seat."
+        },
+        "steering_wheel": {
+          "name": "Steering wheel heat",
+          "description": "The heat level of the steering wheel."
+        },
+        "override_charge_schedule": {
+          "name": "Override charging schedule",
+          "description": "Whether preconditioning may charge outside of the charging schedule."
+        }
+      }
+    },
+    "delete_departure_schedule": {
+      "name": "Delete departure schedule",
+      "description": "Deletes a departure schedule.",
+      "fields": {
+        "device_id": {
+          "name": "Vehicle",
+          "description": "The Rivian vehicle."
+        },
+        "schedule_id": {
+          "name": "Schedule ID",
+          "description": "The schedule to delete, from the departure schedules sensor or the schedule's switch."
+        }
+      }
     }
   }
 }
