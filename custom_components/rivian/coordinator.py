@@ -22,7 +22,7 @@ from rivian.parallax import decode_parallax_message
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
@@ -118,10 +118,16 @@ class RivianDataUpdateCoordinator(DataUpdateCoordinator[T], ABC, Generic[T]):
                     self.__class__.__name__.replace("Coordinator", ""),
                     redact(data),
                 )
+                # The client returns, rather than raises, errors that come with
+                # partial data, which can leave this key null
+                if (result := (data.get("data") or {}).get(self.key)) is None:
+                    raise RivianApiException(
+                        f"No {self.key} in response: {data.get('errors')}"
+                    )
                 if self._error_count:
                     self._error_count = 0
                     self._set_update_interval()
-                return data["data"][self.key]
+                return result
             resp.raise_for_status()
 
         except RivianExpiredTokenError:
@@ -160,9 +166,6 @@ class ChargingCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
     deprecated getLiveSessionData REST endpoint.
     """
 
-    key = "getLiveSessionData"
-    _unplugged_interval = 15 * 60  # 15 minutes
-    _plugged_interval = 30  # 30 seconds
     _update_interval_seconds = 0  # disabled - data is pushed via Parallax
 
     def __init__(
@@ -175,22 +178,16 @@ class ChargingCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         """Initialize the coordinator."""
         super().__init__(hass=hass, config_entry=config_entry, client=client)
         self.vehicle_id = vehicle_id
-        self._is_charging: bool = False
-        self._session_start_time: datetime | None = None
+        # Whether startTime was estimated from power, before the graph sent one
+        self._estimated_start = False
 
     async def _async_update_data(self) -> dict[str, Any]:
-        """Return current data without polling.
-
-        Charging data is pushed via Parallax messages, so we don't need
-        to poll the (now broken) getLiveSessionData endpoint. This method
-        simply returns any data already received from Parallax, or an
-        empty dict on first load.
-        """
+        """Return the data received from Parallax, or an empty dict before any."""
         return self.data or {}
 
     async def _fetch_data(self) -> ClientResponse:
-        """Fetch the data."""
-        raise NotImplementedError("Polling live session data no longer allowed")
+        """Charging data is pushed via Parallax, never fetched."""
+        raise NotImplementedError
 
     @callback
     def update_from_parallax(self, decoded: dict[str, Any]) -> None:
@@ -204,31 +201,29 @@ class ChargingCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         if not clean:
             return
 
-        now = datetime.now(UTC)
         new_data = dict(self.data or {})
 
         # If a verified startTime arrives from graph data that differs from existing,
-        # it indicates a brand new charging session.
+        # it indicates a brand new charging session. An estimated startTime is
+        # replaced without clearing, as it's the same session.
         if "startTime" in clean:
             old_start = new_data.get("startTime")
-            if old_start and old_start != clean["startTime"]:
+            if (
+                old_start
+                and old_start != clean["startTime"]
+                and not self._estimated_start
+            ):
                 # New session started - clear old session metrics
                 new_data.clear()
-            new_data["startTime"] = clean["startTime"]
+            self._estimated_start = False
         elif not new_data.get("startTime") and clean.get("power", 0) > 0:
-            new_data["startTime"] = now.strftime("%Y-%m-%dT%H:%M:%S.%f%z")
+            new_data["startTime"] = datetime.now(UTC)
+            self._estimated_start = True
 
         new_data.update(clean)
 
         self.async_set_updated_data(new_data)
-        _LOGGER.debug("Charging data updated from Parallax: %s", clean)
-
-    def adjust_update_interval(self, is_plugged_in: bool) -> None:
-        """Adjust update interval based on plugged in status.
-
-        With Parallax push, polling is disabled. This method is kept for
-        backward compatibility with VehicleCoordinator's connectionState handler.
-        """
+        _LOGGER.debug("Charging data updated from Parallax: %s", redact(clean))
 
 
 class DriverKeyCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
@@ -348,13 +343,27 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         self._unsub_handler: Callable[[], Awaitable[None]] | None = None
         self._unsub_parallax: Callable[[], Awaitable[None]] | None = None
         self._awake = asyncio.Event()
-        self._charging_schedule: dict[str, Any] | None = None
+        # All of the vehicle's charging schedules (entities manage the first);
+        # None until fetched successfully
+        self._charging_schedules: list[dict[str, Any]] | None = None
         self._last_schedule_fetch: float = 0.0
 
     @property
     def charging_schedule(self) -> dict[str, Any]:
-        """Return the charging schedule or empty dict."""
-        return self._charging_schedule or {}
+        """Return the first charging schedule, or the default if there's none."""
+        if self._charging_schedules:
+            return self._charging_schedules[0]
+        return DEFAULT_CHARGING_SCHEDULE
+
+    async def _fetch_charging_schedules(self) -> list[dict[str, Any]]:
+        """Fetch all of the vehicle's charging schedules."""
+        response = await self.api.get_charging_schedules(self.vehicle_id)
+        res_json = await response.json()
+        if not (vehicle := (res_json.get("data") or {}).get("getVehicle")):
+            raise RivianApiException(
+                f"No charging schedules in response: {res_json.get('errors')}"
+            )
+        return vehicle.get("chargingSchedules") or []
 
     async def get_charging_schedule_data(
         self, force_refresh: bool = False
@@ -366,42 +375,59 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             if force_refresh
             else CHARGING_SCHEDULE_REFRESH_INTERVAL
         )
-        if self._charging_schedule is None or (
+        if self._charging_schedules is None or (
             now - self._last_schedule_fetch > cooldown
         ):
             self._last_schedule_fetch = now
             try:
-                response = await self.api.get_charging_schedules(self.vehicle_id)
-                res_json = await response.json()
-                if (
-                    res_json
-                    and "data" in res_json
-                    and res_json["data"].get("getVehicle")
-                ):
-                    schedules = res_json["data"]["getVehicle"].get(
-                        "chargingSchedules", []
-                    )
-                    if schedules:
-                        old_schedule = self._charging_schedule
-                        self._charging_schedule = schedules[0]
-                        if old_schedule != self._charging_schedule:
-                            self.async_update_listeners()
+                schedules = await self._fetch_charging_schedules()
             except Exception as err:  # noqa: BLE001
                 _LOGGER.error("Error fetching charging schedule: %s", err)
-
-            if self._charging_schedule is None:
-                self._charging_schedule = dict(DEFAULT_CHARGING_SCHEDULE)
-        return self._charging_schedule
+            else:
+                if schedules != self._charging_schedules:
+                    self._charging_schedules = schedules
+                    self.async_update_listeners()
+        return self.charging_schedule
 
     async def update_charging_schedule_data(self, schedule: dict[str, Any]) -> None:
-        """Update charging schedule via Rivian API mutation."""
-        current = dict(await self.get_charging_schedule_data(force_refresh=True))
-        current.update(schedule)
+        """Update the first charging schedule via Rivian API mutation.
+
+        The mutation replaces all of the vehicle's schedules, so the others are
+        sent back unchanged. Without any, a default schedule is created.
+        """
         try:
-            await self.api.set_charging_schedules(self.vehicle_id, [current])
-        except Exception as err:  # noqa: BLE001
-            _LOGGER.error("Error setting charging schedule: %s", err)
-        self._charging_schedule = current
+            schedules = await self._fetch_charging_schedules()
+        except Exception as err:
+            raise HomeAssistantError(
+                f"Unable to fetch the current charging schedules: {err}"
+            ) from err
+        if not schedules:
+            # A schedule applies at a location; use Home Assistant's home
+            schedules = [
+                DEFAULT_CHARGING_SCHEDULE
+                | {
+                    "location": {
+                        "latitude": self.hass.config.latitude,
+                        "longitude": self.hass.config.longitude,
+                    }
+                }
+            ]
+        schedules = [schedules[0] | schedule, *schedules[1:]]
+        try:
+            response = await self.api.set_charging_schedules(self.vehicle_id, schedules)
+            res_json = await response.json()
+        except Exception as err:
+            raise HomeAssistantError(
+                f"Unable to update the charging schedule: {err}"
+            ) from err
+        if not ((res_json.get("data") or {}).get("setChargingSchedules") or {}).get(
+            "success"
+        ):
+            raise HomeAssistantError(
+                f"Unable to update the charging schedule: {res_json.get('errors')}"
+            )
+        self._charging_schedules = schedules
+        self._last_schedule_fetch = time.time()
         self.async_update_listeners()
 
     async def _async_update_data(self) -> dict[str, Any]:
@@ -420,6 +446,13 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
                 vehicle_id=self.vehicle_id,
                 callback=self._process_parallax_data,
             )
+
+            # The client returns None, rather than raising, when subscribing fails
+            if not self._unsub_handler or not self._unsub_parallax:
+                await self._unsubscribe()
+                raise UpdateFailed(
+                    f"Unable to subscribe to vehicle {self.vehicle_id} updates"
+                )
 
             try:
                 await asyncio.wait_for(self._initial.wait(), INITIAL_UPDATE_TIMEOUT)
@@ -443,7 +476,9 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
     def _process_parallax_data(self, data: dict[str, Any]) -> None:
         """Process incoming Parallax subscription messages."""
         if not (payload := data.get("payload")) or not (pdata := payload.get("data")):
+            self._handle_subscription_error("Parallax", data)
             return
+        self._error_count = 0
         px = pdata.get("parallaxMessages")
         if not px or px.get("rvm") in PARALLAX_IGNORED_RVMS:
             return
@@ -459,7 +494,9 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
 
         # Route charging fields to ChargingCoordinator
         if charging_keys := clean.keys() & CHARGING_STATE_KEYS:
-            self.charging_coordinator.update_from_parallax(clean)
+            self.charging_coordinator.update_from_parallax(
+                {k: clean[k] for k in charging_keys}
+            )
 
         # Route vehicle state fields to VehicleCoordinator, skipping fields that
         # GraphQL owns and unsent (None) or invalid values
@@ -498,29 +535,36 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             kept = {k: v for k, v in current.items() if k not in cleared}
             self.async_set_updated_data(kept | vehicle_updates)
             _LOGGER.debug(
-                "Vehicle state updated from Parallax (%s): %s", px.get("rvm"), clean
+                "Vehicle state updated from Parallax (%s): %s",
+                px.get("rvm"),
+                redact(clean),
             )
 
     @callback
     def _process_new_data(self, data: dict[str, Any]) -> None:
         """Process new data."""
         if not (payload := data.get("payload")) or not (pdata := payload.get("data")):
-            _LOGGER.error("Received an unknown subscription update: %s", data)
-            self._error_count += 1
-            if not self._initial.is_set() or self._error_count > 5:
-                task = self._unsubscribe()
-                self.config_entry.async_create_task(self.hass, task, eager_start=True)
-                # Lets the next refresh resubscribe; it checks last_update_success
-                self.async_set_update_error(
-                    UpdateFailed(
-                        f"Vehicle {self.vehicle_id} subscription stopped after errors"
-                    )
-                )
+            self._handle_subscription_error("vehicle state", data)
             return
         vehicle_info = self._build_vehicle_info_dict(pdata.get(self.key, {}))
         self.async_set_updated_data(vehicle_info)
         self._error_count = 0
         self._initial.set()
+
+    @callback
+    def _handle_subscription_error(self, source: str, data: dict[str, Any]) -> None:
+        """Count a subscription error, unsubscribing both if they persist."""
+        _LOGGER.error("Received an unknown %s subscription update: %s", source, data)
+        self._error_count += 1
+        if not self._initial.is_set() or self._error_count > 5:
+            task = self._unsubscribe()
+            self.config_entry.async_create_task(self.hass, task, eager_start=True)
+            # Lets the next refresh resubscribe; it checks last_update_success
+            self.async_set_update_error(
+                UpdateFailed(
+                    f"Vehicle {self.vehicle_id} subscription stopped after errors"
+                )
+            )
 
     def _use_newest_location(self, clean: dict[str, Any]) -> None:
         """Set gnssLocation, gnssSpeed and gnssBearing from the newest fix.
@@ -574,10 +618,6 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
                 self._awake.clear()
             else:
                 self._awake.set()
-        if connection := items.get("connectionState"):
-            self.charging_coordinator.adjust_update_interval(
-                is_plugged_in=connection.get("value") != "disconnected"
-            )
         if (charger_state := items.get("chargerState")) and charger_state.get(
             "value"
         ) != "charging_active":

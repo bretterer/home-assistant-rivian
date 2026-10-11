@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -92,6 +92,16 @@ class RivianSensorEntityDescription(SensorEntityDescription):
     value_lambda: Callable[[Any], Any] | None = None
     # Keep the last known value (across restarts) while the field is unreported
     restore: bool = False
+
+
+@dataclass(kw_only=True)
+class RivianNavigationSensorEntityDescription(SensorEntityDescription):
+    """Rivian navigation sensor entity description."""
+
+    value_fn: Callable[[VehicleCoordinator], Any]
+    attributes_fn: Callable[[VehicleCoordinator], Mapping[str, Any] | None] = lambda _: (
+        None
+    )
 
 
 @dataclass(kw_only=True)

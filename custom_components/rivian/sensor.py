@@ -8,6 +8,7 @@ import logging
 from typing import Any, Final
 
 from homeassistant.components.sensor import (
+    DOMAIN as SENSOR_DOMAIN,
     RestoreSensor,
     SensorDeviceClass,
     SensorEntity,
@@ -40,6 +41,7 @@ from .const import (
 )
 from .coordinator import DriverKeyCoordinator, VehicleCoordinator, WallboxCoordinator
 from .data_classes import (
+    RivianNavigationSensorEntityDescription,
     RivianSensorEntityDescription,
     RivianWallboxSensorEntityDescription,
 )
@@ -49,6 +51,7 @@ from .entity import (
     RivianVehicleEntity,
     RivianWallboxEntity,
 )
+from .helpers import async_remove_stale_entities
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -124,7 +127,22 @@ async def async_setup_entry(
                 coord, entry, CHARGING_SCHEDULE_DAYS_SENSOR, vehicle
             )
         )
+        entities.extend(
+            RivianNavigationSensorEntity(coord, entry, description, vehicle)
+            for description in NAVIGATION_SENSORS
+        )
 
+    async_remove_stale_entities(
+        hass,
+        SENSOR_DOMAIN,
+        (
+            f"{vehicle['vin']}-{description.key}"
+            for vehicle in vehicles.values()
+            for descriptions in SENSORS.values()
+            for description in descriptions
+        ),
+        (entity.unique_id for entity in entities),
+    )
     async_add_entities(entities)
 
 
@@ -159,6 +177,134 @@ class RivianChargingScheduleDaysEntity(RivianVehicleEntity, SensorEntity):
 
         ordered = [d for d in WEEK_DAYS_ORDERED if d in days]
         return ", ".join(ordered)
+
+
+def _waypoints(coordinator: VehicleCoordinator) -> list[dict[str, Any]]:
+    """Return the trip's waypoints, or an empty list when not navigating."""
+    return coordinator.get("waypoints") or []
+
+
+def _next_stop(coordinator: VehicleCoordinator) -> dict[str, Any] | None:
+    """Return the trip's next stop."""
+    waypoints = _waypoints(coordinator)
+    return next(
+        (waypoint for waypoint in waypoints if waypoint.get("status") == "next_stop"),
+        None,
+    ) or next(
+        (waypoint for waypoint in waypoints if waypoint.get("status") != "arrived"),
+        None,
+    )
+
+
+def _destination(coordinator: VehicleCoordinator) -> dict[str, Any] | None:
+    """Return the trip's final stop."""
+    return waypoints[-1] if (waypoints := _waypoints(coordinator)) else None
+
+
+def _waypoint_name(waypoint: dict[str, Any] | None) -> str | None:
+    """Return a stop's name, or a charging stop's label (its address)."""
+    if not waypoint:
+        return None
+    return waypoint.get("name") or waypoint.get("label")
+
+
+def _live_arrival(coordinator: VehicleCoordinator, field: str) -> datetime | None:
+    """Return trip_progress's live arrival time, if sent since the trip was planned.
+
+    trip_progress keeps resending the last trip's values after navigation ends,
+    so they're only used when newer than the trip's waypoints.
+    """
+    data = coordinator.data or {}
+    progress = data.get(field) or {}
+    trip = data.get("waypoints") or {}
+    if (
+        (arrival := progress.get("value"))
+        and (progress_time := progress.get("timeStamp"))
+        and (trip_time := trip.get("timeStamp"))
+        and datetime.fromisoformat(progress_time) >= datetime.fromisoformat(trip_time)
+    ):
+        return arrival
+    return None
+
+
+def _arrival(
+    waypoint: dict[str, Any] | None, coordinator: VehicleCoordinator, live_field: str
+) -> datetime | None:
+    """Return a stop's live arrival time, or its planned one."""
+    if not waypoint:
+        return None
+    return _live_arrival(coordinator, live_field) or waypoint.get("arrivalTime")
+
+
+def _waypoint_attributes(waypoint: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Return a stop's location and charge details."""
+    if not waypoint:
+        return None
+    attributes = {
+        "type": waypoint.get("type"),
+        "latitude": waypoint.get("latitude"),
+        "longitude": waypoint.get("longitude"),
+    }
+    if waypoint.get("type") == "chargingStop":
+        attributes["arrival_state_of_charge"] = waypoint.get("arrivalStateOfCharge")
+        attributes["departure_state_of_charge"] = waypoint.get("departureStateOfCharge")
+        attributes["charge_duration"] = waypoint.get("chargeDuration")
+    else:
+        attributes["arrival_state_of_charge"] = waypoint.get("stateOfCharge")
+    return attributes
+
+
+NAVIGATION_SENSORS: Final[tuple[RivianNavigationSensorEntityDescription, ...]] = (
+    RivianNavigationSensorEntityDescription(
+        key="next_stop",
+        translation_key="next_stop",
+        value_fn=lambda coor: _waypoint_name(_next_stop(coor)),
+        attributes_fn=lambda coor: _waypoint_attributes(_next_stop(coor)),
+    ),
+    RivianNavigationSensorEntityDescription(
+        key="next_stop_eta",
+        translation_key="next_stop_eta",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        value_fn=lambda coor: _arrival(
+            _next_stop(coor), coor, "nextWaypointArrivalTime"
+        ),
+    ),
+    RivianNavigationSensorEntityDescription(
+        key="destination",
+        translation_key="destination",
+        value_fn=lambda coor: _waypoint_name(_destination(coor)),
+        attributes_fn=lambda coor: _waypoint_attributes(_destination(coor)),
+    ),
+    RivianNavigationSensorEntityDescription(
+        key="destination_eta",
+        translation_key="destination_eta",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        value_fn=lambda coor: _arrival(
+            _destination(coor), coor, "finalDestinationArrivalTime"
+        ),
+    ),
+)
+
+
+class RivianNavigationSensorEntity(RivianVehicleEntity, SensorEntity):
+    """Rivian navigation sensor entity, unknown while not navigating."""
+
+    entity_description: RivianNavigationSensorEntityDescription
+
+    @property
+    def available(self) -> bool:
+        """Return availability."""
+        return self._available
+
+    @property
+    def native_value(self) -> StateType | datetime:
+        """Return the state."""
+        return self.entity_description.value_fn(self.coordinator)
+
+    @property
+    def extra_state_attributes(self) -> Mapping[str, Any] | None:
+        """Return the stop's details."""
+        return self.entity_description.attributes_fn(self.coordinator)
 
 
 class RivianSensorEntity(RivianVehicleEntity, RestoreSensor):

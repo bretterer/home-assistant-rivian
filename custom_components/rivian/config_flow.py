@@ -194,6 +194,8 @@ class RivianFlowHandler(ConfigFlow, domain=DOMAIN):
     """Config flow for Rivian"""
 
     VERSION = 1
+    # 2: enum sensor states are lowercase API values (see async_migrate_entry)
+    MINOR_VERSION = 2
 
     def __init__(self):
         """Initialize."""

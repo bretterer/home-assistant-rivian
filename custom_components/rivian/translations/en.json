@@ -419,6 +419,18 @@
           "close_not_allowed_uncalibrated": "Close not allowed (uncalibrated)",
           "open_not_allowed_uncalibrated": "Open not allowed (uncalibrated)"
         }
+      },
+      "next_stop": {
+        "name": "Next stop"
+      },
+      "next_stop_eta": {
+        "name": "Next stop ETA"
+      },
+      "destination": {
+        "name": "Destination"
+      },
+      "destination_eta": {
+        "name": "Destination ETA"
       }
     },
     "switch": {
@@ -439,6 +451,17 @@
     "2fa_missing": {
       "title": "Two-factor authentication (2FA) required for vehicle control",
       "description": "Please enable 2FA in your Rivian account and then reload the integration or re-configure the integration and remove any devices selected for vehicle control."
+    },
+    "state_values_changed": {
+      "title": "Rivian sensor states have changed",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Rivian sensor states have changed",
+            "description": "This version of the Rivian integration reports sensor states as the values the vehicle sends, instead of formatted text. The dashboard still shows friendly labels, but automations, scripts and templates that compare these states need updating. For example:\n\n- Gear selector: `Park` is now `park`, and `Drive` is now `drive`\n- Drive mode: `All-Purpose` is now `everyday`, `Conserve` is `distance`, `Snow` is `winter`, `All-Terrain` is `off_road_auto`, `Soft Sand` is `off_road_sand`, `Rock Crawl` is `off_road_rocks`, `Rally` is `off_road_sport_auto` and `Drift` is `off_road_sport_drift`\n- Power state: `Vehicle Reset` is now `vehicle_reset`\n- Software OTA - Status: `Ready To Install` is now `ready_to_install`\n- Gear Guard video status: `Engaged` is now `active`\n- Remote charging available: `1` and `0` are now `true` and `false`\n\nOther states are lowercase with underscores in the same way. To see a sensor's new values, open **Developer tools > States** and look at its `options` attribute.\n\nAlso:\n\n- **Charging Time Elapsed** now counts only time spent actively charging.\n- **Software OTA - Install Time** is now the scheduled install time, not a duration.\n- Entities for features your vehicle doesn't report have been removed.\n\nHistory recorded before this update keeps the old values."
+          }
+        }
+      }
     }
   }
 }

@@ -11,6 +11,18 @@
             },
             "charging_schedule_days": {
                 "default": "mdi:calendar-range"
+            },
+            "next_stop": {
+                "default": "mdi:map-marker-right"
+            },
+            "next_stop_eta": {
+                "default": "mdi:clock-outline"
+            },
+            "destination": {
+                "default": "mdi:flag-checkered"
+            },
+            "destination_eta": {
+                "default": "mdi:clock-end"
             }
         },
         "switch": {

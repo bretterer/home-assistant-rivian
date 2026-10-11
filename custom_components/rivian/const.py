@@ -27,6 +27,7 @@ NAME = "Rivian (Unofficial)"
 DOMAIN = "rivian"
 VERSION = "0.0.0"
 ISSUE_URL = "https://github.com/bretterer/home-assistant-rivian/issues"
+ISSUE_STATE_VALUES_CHANGED = "state_values_changed"
 
 # Attributes
 ATTR_API = "api"
@@ -1290,9 +1291,37 @@ PARALLAX_UNDEFINED_IS_VALID: Final[frozenset[str]] = frozenset(
     {"cabinPreconditioningStatus"}
 )
 
+# navigation_service.trip_info fields. Once navigation ends, trip_info is sent
+# empty, so they're cleared rather than kept from the last trip.
+TRIP_INFO_FIELDS: Final[frozenset[str]] = frozenset(
+    {
+        "batteryEmptyLatitude",
+        "batteryEmptyLongitude",
+        "batteryEmptyToDestinationDistance",
+        "distance",
+        "duration",
+        "fasterRouteTimeSaved",
+        "finalRangeRemaining",
+        "finalStateOfCharge",
+        "legs",
+        "nextWaypointDepartureTime",
+        "originBearing",
+        "originLatitude",
+        "originLongitude",
+        "originStateOfCharge",
+        "originTime",
+        "overviewPolyline",
+        "socIsBelowLimit",
+        "tripId",
+        "waypoints",
+    }
+)
+
 # Parallax fields whose None value means "not set", so it clears the field
 # rather than being skipped as unsent
-PARALLAX_NONE_CLEARS: Final[frozenset[str]] = frozenset({"otaScheduledInstallTime"})
+PARALLAX_NONE_CLEARS: Final[frozenset[str]] = frozenset(
+    {"otaScheduledInstallTime", *TRIP_INFO_FIELDS}
+)
 
 # Parallax topics that send one message per device/schedule, which can't be
 # stored as flat vehicle state (and no entity uses)
@@ -1304,6 +1333,7 @@ PARALLAX_IGNORED_RVMS: Final[frozenset[str]] = frozenset(
 # values are cleared
 PARALLAX_RVM_DEFAULTS: Final[dict[str, dict[str, Any]]] = {
     "ota.deployment.state": OTA_AVAILABLE_VERSION_IDLE,
+    "navigation.navigation_service.trip_info": dict.fromkeys(TRIP_INFO_FIELDS),
 }
 
 # Vehicle state fields Parallax doesn't provide, so they're requested from the
@@ -1346,8 +1376,8 @@ CHARGING_SCHEDULE_AMPERAGE_MINIMUM: Final[int] = 8
 CHARGING_SCHEDULE_AMPERAGE_MAXIMUM: Final[int] = 48
 CHARGING_SCHEDULE_AMPERAGE_STEP: Final[int] = 2
 
-DEFAULT_CHARGING_SCHEDULE_START: Final[int] = 1320  # 10:00 PM
-DEFAULT_CHARGING_SCHEDULE_DURATION: Final[int] = 480  # 8 hours
+DEFAULT_CHARGING_SCHEDULE_START: Final[int] = 0  # midnight
+DEFAULT_CHARGING_SCHEDULE_DURATION: Final[int] = MINUTES_PER_DAY  # all day
 DEFAULT_CHARGING_SCHEDULE_AMPERAGE: Final[int] = 48
 DEFAULT_CHARGING_SCHEDULE: Final[dict[str, Any]] = {
     "startTime": DEFAULT_CHARGING_SCHEDULE_START,

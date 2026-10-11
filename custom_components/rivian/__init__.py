@@ -25,6 +25,7 @@ from .const import (
     ATTR_WALLBOX,
     CONF_VEHICLE_CONTROL,
     DOMAIN,
+    ISSUE_STATE_VALUES_CHANGED,
     ISSUE_URL,
     VERSION,
 )
@@ -125,6 +126,29 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     entry.async_on_unload(entry.add_update_listener(update_listener))
+
+    return True
+
+
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Migrate an old config entry."""
+    if entry.version > 1:
+        # Downgraded from a future version
+        return False
+
+    if entry.minor_version < 2:
+        # Sensor states changed from formatted text to lowercase API values,
+        # which automations and templates comparing them need updating for
+        async_create_issue(
+            hass,
+            DOMAIN,
+            ISSUE_STATE_VALUES_CHANGED,
+            is_fixable=True,
+            is_persistent=True,
+            severity=IssueSeverity.WARNING,
+            translation_key=ISSUE_STATE_VALUES_CHANGED,
+        )
+        hass.config_entries.async_update_entry(entry, minor_version=2)
 
     return True
 
