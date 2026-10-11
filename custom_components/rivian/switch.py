@@ -7,15 +7,17 @@ from typing import Any, Final
 
 from rivian import VehicleCommand
 
-from homeassistant.components.switch import SwitchEntity
+from homeassistant.components.switch import SwitchEntity, SwitchEntityDescription
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.const import Platform
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import ATTR_COORDINATOR, ATTR_VEHICLE, DOMAIN
 from .coordinator import VehicleCoordinator
 from .data_classes import RivianSwitchEntityDescription
 from .entity import RivianVehicleControlEntity, RivianVehicleEntity
+from .helpers import departure_schedule_summary, track_departure_schedule_entities
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -83,6 +85,8 @@ CHARGING_SCHEDULE_ENABLED_SWITCH = RivianSwitchEntityDescription(
     turn_on=lambda c: c.update_charging_schedule_data({"enabled": True}),
 )
 
+DEPARTURE_SCHEDULE_KEY: Final = "departure_schedule"
+
 
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
@@ -106,6 +110,87 @@ async def async_setup_entry(
             )
         )
     async_add_entities(entities)
+
+    for vehicle_id, vehicle in vehicles.items():
+        coordinator = coordinators[vehicle_id]
+        track_departure_schedule_entities(
+            hass,
+            entry,
+            coordinator,
+            vehicle["vin"],
+            Platform.SWITCH,
+            DEPARTURE_SCHEDULE_KEY,
+            lambda sid, c=coordinator, v=vehicle: RivianDepartureScheduleSwitchEntity(
+                c, entry, v, sid
+            ),
+            async_add_entities,
+        )
+
+
+class RivianDepartureScheduleSwitchEntity(RivianVehicleEntity, SwitchEntity):
+    """Departure Schedule Enabled Entity."""
+
+    def __init__(
+        self,
+        coordinator: VehicleCoordinator,
+        config_entry: ConfigEntry,
+        vehicle: dict[str, Any],
+        schedule_id: str,
+    ) -> None:
+        """Construct a departure schedule switch entity."""
+        description = SwitchEntityDescription(
+            key=f"{DEPARTURE_SCHEDULE_KEY}_{schedule_id}",
+            translation_key=DEPARTURE_SCHEDULE_KEY,
+        )
+        super().__init__(coordinator, config_entry, description, vehicle)
+        self._schedule_id = schedule_id
+        self._attr_name = self._get_name()
+
+    @property
+    def _schedule(self) -> dict[str, Any]:
+        """Return the departure schedule or empty dict."""
+        return self.coordinator.get_departure_schedule(self._schedule_id) or {}
+
+    def _get_name(self) -> str:
+        """Return the name of the entity."""
+        return f"Departure schedule {self._schedule.get('name', '')}".strip()
+
+    @property
+    def available(self) -> bool:
+        """Return availability."""
+        return self._available and bool(self._schedule)
+
+    @property
+    def is_on(self) -> bool:
+        """Return True if entity is on."""
+        return bool(self._schedule.get("isEnabled"))
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Return the departure schedule."""
+        if not (schedule := self._schedule):
+            return None
+        return departure_schedule_summary(schedule)
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated data from the coordinator."""
+        if self._schedule:
+            # the name is cached, setting it again picks up a renamed schedule
+            self._attr_name = self._get_name()
+        super()._handle_coordinator_update()
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Turn the entity on."""
+        await self.coordinator.update_departure_schedule(
+            self._schedule_id, {"isEnabled": True}
+        )
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Turn the entity off."""
+        await self.coordinator.update_departure_schedule(
+            self._schedule_id, {"isEnabled": False}
+        )
 
 
 class RivianChargingScheduleEnabledEntity(RivianVehicleEntity, SwitchEntity):

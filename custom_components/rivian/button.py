@@ -23,7 +23,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import ATTR_COORDINATOR, ATTR_USER, ATTR_VEHICLE, DOMAIN
 from .coordinator import UserCoordinator, VehicleCoordinator
 from .data_classes import RivianButtonEntityDescription
-from .entity import RivianVehicleControlEntity
+from .entity import RivianVehicleControlEntity, RivianVehicleEntity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -71,6 +71,15 @@ BUTTONS: Final[dict[str | None, tuple[RivianButtonEntityDescription, ...]]] = {
 }
 
 
+PRECONDITION_BUTTON: Final[RivianButtonEntityDescription] = (
+    RivianButtonEntityDescription(
+        key="precondition_cabin",
+        translation_key="precondition_cabin",
+        press_fn=lambda coordinator: coordinator.precondition_now(),
+    )
+)
+
+
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
@@ -102,6 +111,17 @@ async def async_setup_entry(
         )
         and not device["isPaired"]
     )
+    async_add_entities(
+        RivianPreconditionButtonEntity(
+            coordinators[vehicle_id],
+            entry,
+            PRECONDITION_BUTTON,
+            vehicle,
+        )
+        for vehicle_id, vehicle in vehicles.items()
+        if not vehicle.get("phone_identity_id")
+    )
+
     async_add_entities(entities)
 
 
@@ -212,3 +232,23 @@ class RivianPairPhoneButtonEntity(RivianVehicleControlEntity, ButtonEntity):
     def _handle_driver_update(self) -> None:
         """Handle driver update."""
         # This is purposefully blank to keep from disabling the entity pending BLE pairing
+
+
+class RivianPreconditionButtonEntity(RivianVehicleEntity, ButtonEntity):
+    """Keyless cabin preconditioning button.
+
+    Unlike the other vehicle controls this does not need a paired phone, so it is
+    created for vehicles without one. It starts preconditioning through a temporary
+    departure schedule; see ``VehicleCoordinator.precondition_now``.
+    """
+
+    entity_description: RivianButtonEntityDescription
+
+    @property
+    def available(self) -> bool:
+        """Return availability."""
+        return self._available and self.coordinator.departure_schedules is not None
+
+    async def async_press(self) -> None:
+        """Press the button."""
+        await self.entity_description.press_fn(self.coordinator)

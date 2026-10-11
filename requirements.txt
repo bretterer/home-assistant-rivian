@@ -2,7 +2,7 @@
 homeassistant>=2026.3.0
 
 # Integration
-rivian-python-client[ble]==2.0.0
+rivian-python-client[ble] @ git+https://github.com/magic7s/rivian-python-client@17c893180ff87757a813d1b0cd5d5126bc5bde69
 
 # Development
 colorlog
