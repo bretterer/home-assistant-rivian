@@ -162,8 +162,7 @@ class ChargingCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
     """Charging data update coordinator for Rivian.
 
     This coordinator receives live charging data from Parallax protobuf
-    messages decoded by the VehicleCoordinator. It no longer polls the
-    deprecated getLiveSessionData REST endpoint.
+    messages decoded by the VehicleCoordinator; it never polls.
     """
 
     _update_interval_seconds = 0  # disabled - data is pushed via Parallax
