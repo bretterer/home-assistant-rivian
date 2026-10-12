@@ -159,6 +159,7 @@ async def async_setup_entry(
 CHARGING_SCHEDULE_DAYS_SENSOR = RivianSensorEntityDescription(
     key="charging_schedule_days",
     translation_key="charging_schedule_days",
+    entity_category=EntityCategory.DIAGNOSTIC,
     field="charging_schedule_days",
 )
 
@@ -560,6 +561,7 @@ DRIVER_SENSORS: Final[tuple[RivianSensorEntityDescription, ...]] = (
     RivianSensorEntityDescription(
         key="drivers",
         translation_key="drivers",
+        entity_category=EntityCategory.DIAGNOSTIC,
         field="invitedUsers",
         value_lambda=lambda data: len(
             [user for user in (data or []) if user["__typename"] == "ProvisionedUser"]
@@ -568,6 +570,7 @@ DRIVER_SENSORS: Final[tuple[RivianSensorEntityDescription, ...]] = (
     RivianSensorEntityDescription(
         key="keys",
         translation_key="keys",
+        entity_category=EntityCategory.DIAGNOSTIC,
         field="invitedUsers",
         value_lambda=lambda data: len(
             [

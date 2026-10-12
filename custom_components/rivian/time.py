@@ -8,6 +8,7 @@ from typing import Any, Final
 
 from homeassistant.components.time import TimeEntity
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -77,12 +78,14 @@ TIME_ENTITIES: Final[tuple[RivianTimeEntityDescription, ...]] = (
     RivianTimeEntityDescription(
         key="charging_schedule_start",
         translation_key="charging_schedule_start",
+        entity_category=EntityCategory.CONFIG,
         value_fn=lambda c: _get_schedule_time(c, is_end_time=False),
         set_fn=lambda c, v: _async_set_schedule_time(c, v, is_end_time=False),
     ),
     RivianTimeEntityDescription(
         key="charging_schedule_end",
         translation_key="charging_schedule_end",
+        entity_category=EntityCategory.CONFIG,
         value_fn=lambda c: _get_schedule_time(c, is_end_time=True),
         set_fn=lambda c, v: _async_set_schedule_time(c, v, is_end_time=True),
     ),

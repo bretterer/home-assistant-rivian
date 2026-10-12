@@ -117,6 +117,7 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
         RivianSensorEntityDescription(
             key="battery_thermal_status",
             translation_key="battery_thermal_status",
+            entity_category=EntityCategory.DIAGNOSTIC,
             field="batteryHvThermalEvent",
             device_class=SensorDeviceClass.ENUM,
             options=[
@@ -127,6 +128,7 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
         RivianSensorEntityDescription(
             key="battery_thermal_runaway_propagation",
             translation_key="battery_thermal_runaway_propagation",
+            entity_category=EntityCategory.DIAGNOSTIC,
             field="batteryHvThermalEventPropagation",
             device_class=SensorDeviceClass.ENUM,
             options=[
@@ -153,6 +155,7 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
             key="battery_capacity",
             field="batteryCapacity",
             translation_key="battery_capacity",
+            entity_category=EntityCategory.DIAGNOSTIC,
             device_class=SensorDeviceClass.ENERGY_STORAGE,
             native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
             state_class=SensorStateClass.MEASUREMENT,
@@ -168,6 +171,7 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
         RivianSensorEntityDescription(
             key="brake_fluid_low",
             translation_key="brake_fluid_low",
+            entity_category=EntityCategory.DIAGNOSTIC,
             field="brakeFluidLow",
             device_class=SensorDeviceClass.ENUM,
             options=["inactive", "active"],
@@ -192,6 +196,7 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
         RivianSensorEntityDescription(
             key="cabin_preconditioning_type",
             translation_key="cabin_preconditioning_type",
+            entity_category=EntityCategory.DIAGNOSTIC,
             field="cabinPreconditioningType",
             device_class=SensorDeviceClass.ENUM,
             options=[
@@ -205,6 +210,7 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
         RivianSensorEntityDescription(
             key="charger_derate_status",
             translation_key="charger_derate_status",
+            entity_category=EntityCategory.DIAGNOSTIC,
             field="chargerDerateStatus",
             device_class=SensorDeviceClass.ENUM,
             options=[
@@ -288,6 +294,7 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
         RivianSensorEntityDescription(
             key="gear_guard_video_mode",
             translation_key="gear_guard_video_mode",
+            entity_category=EntityCategory.DIAGNOSTIC,
             field="gearGuardVideoMode",
             device_class=SensorDeviceClass.ENUM,
             options=[
@@ -498,6 +505,7 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
         RivianSensorEntityDescription(
             key="range_threshold",
             translation_key="range_threshold",
+            entity_category=EntityCategory.DIAGNOSTIC,
             field="rangeThreshold",
             device_class=SensorDeviceClass.ENUM,
             options=[
@@ -510,6 +518,7 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
         RivianSensorEntityDescription(
             key="remote_charging_available",
             translation_key="remote_charging_available",
+            entity_category=EntityCategory.DIAGNOSTIC,
             field="remoteChargingAvailable",
             device_class=SensorDeviceClass.ENUM,
             options=[
@@ -520,6 +529,7 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
         RivianSensorEntityDescription(
             key="service_mode",
             translation_key="service_mode",
+            entity_category=EntityCategory.DIAGNOSTIC,
             field="serviceMode",
             device_class=SensorDeviceClass.ENUM,
             options=[
@@ -583,6 +593,7 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
         RivianSensorEntityDescription(
             key="tire_pressure_status_front_left",
             translation_key="tire_pressure_status_front_left",
+            entity_category=EntityCategory.DIAGNOSTIC,
             field="tirePressureStatusFrontLeft",
             restore=True,
             device_class=SensorDeviceClass.ENUM,
@@ -591,6 +602,7 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
         RivianSensorEntityDescription(
             key="tire_pressure_status_front_right",
             translation_key="tire_pressure_status_front_right",
+            entity_category=EntityCategory.DIAGNOSTIC,
             field="tirePressureStatusFrontRight",
             restore=True,
             device_class=SensorDeviceClass.ENUM,
@@ -599,6 +611,7 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
         RivianSensorEntityDescription(
             key="tire_pressure_status_rear_left",
             translation_key="tire_pressure_status_rear_left",
+            entity_category=EntityCategory.DIAGNOSTIC,
             field="tirePressureStatusRearLeft",
             restore=True,
             device_class=SensorDeviceClass.ENUM,
@@ -607,6 +620,7 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
         RivianSensorEntityDescription(
             key="tire_pressure_status_rear_right",
             translation_key="tire_pressure_status_rear_right",
+            entity_category=EntityCategory.DIAGNOSTIC,
             field="tirePressureStatusRearRight",
             restore=True,
             device_class=SensorDeviceClass.ENUM,
@@ -781,6 +795,7 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
         RivianSensorEntityDescription(
             key="cold_range_notification",
             translation_key="cold_range_notification",
+            entity_category=EntityCategory.DIAGNOSTIC,
             field="coldRangeNotification",
             device_class=SensorDeviceClass.ENUM,
             options=[
@@ -1120,6 +1135,7 @@ BINARY_SENSORS: Final[
             key="tire_pressure_status_valid_front_left",
             field="tirePressureStatusValidFrontLeft",
             translation_key="tire_pressure_status_valid_front_left",
+            entity_category=EntityCategory.DIAGNOSTIC,
             device_class=BinarySensorDeviceClass.PROBLEM,
             on_value="invalid",
         ),
@@ -1127,6 +1143,7 @@ BINARY_SENSORS: Final[
             key="tire_pressure_status_valid_front_right",
             field="tirePressureStatusValidFrontRight",
             translation_key="tire_pressure_status_valid_front_right",
+            entity_category=EntityCategory.DIAGNOSTIC,
             device_class=BinarySensorDeviceClass.PROBLEM,
             on_value="invalid",
         ),
@@ -1134,6 +1151,7 @@ BINARY_SENSORS: Final[
             key="tire_pressure_status_valid_rear_left",
             field="tirePressureStatusValidRearLeft",
             translation_key="tire_pressure_status_valid_rear_left",
+            entity_category=EntityCategory.DIAGNOSTIC,
             device_class=BinarySensorDeviceClass.PROBLEM,
             on_value="invalid",
         ),
@@ -1141,6 +1159,7 @@ BINARY_SENSORS: Final[
             key="tire_pressure_status_valid_rear_right",
             field="tirePressureStatusValidRearRight",
             translation_key="tire_pressure_status_valid_rear_right",
+            entity_category=EntityCategory.DIAGNOSTIC,
             device_class=BinarySensorDeviceClass.PROBLEM,
             on_value="invalid",
         ),
@@ -1176,6 +1195,7 @@ BINARY_SENSORS: Final[
             key="wiper_fluid_state",
             field="wiperFluidState",
             translation_key="wiper_fluid_state",
+            entity_category=EntityCategory.DIAGNOSTIC,
             device_class=BinarySensorDeviceClass.PROBLEM,
             on_value="normal",
             negate=True,
@@ -1212,6 +1232,7 @@ BINARY_SENSORS: Final[
             key="car_wash_mode",
             field="carWashMode",
             translation_key="car_wash_mode",
+            entity_category=EntityCategory.DIAGNOSTIC,
             on_value="on",
         ),
     ),

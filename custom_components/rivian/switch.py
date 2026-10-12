@@ -9,6 +9,7 @@ from rivian import VehicleCommand
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -50,6 +51,7 @@ SWITCHES: Final[tuple[RivianSwitchEntityDescription, ...]] = (
     RivianSwitchEntityDescription(
         key="gear_guard_video",
         translation_key="gear_guard_video",
+        entity_category=EntityCategory.CONFIG,
         is_on=lambda coor: coor.get("gearGuardVideoStatus") != "disabled",
         turn_off=lambda coor: coor.send_vehicle_command(
             command=VehicleCommand.DISABLE_GEAR_GUARD_VIDEO
@@ -74,6 +76,7 @@ SWITCHES: Final[tuple[RivianSwitchEntityDescription, ...]] = (
 CHARGING_SCHEDULE_ENABLED_SWITCH = RivianSwitchEntityDescription(
     key="charging_schedule_enabled",
     translation_key="charging_schedule_enabled",
+    entity_category=EntityCategory.CONFIG,
     is_on=lambda c: c.charging_schedule.get("enabled", True),
     turn_off=lambda c: c.update_charging_schedule_data({"enabled": False}),
     turn_on=lambda c: c.update_charging_schedule_data({"enabled": True}),
