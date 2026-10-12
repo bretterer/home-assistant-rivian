@@ -549,13 +549,14 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             self._handle_subscription_error("vehicle state", data)
             return
         vijson = pdata.get(self.key) or {}
-        vehicle_info = self._build_vehicle_info_dict(vijson)
-        self.async_set_updated_data(vehicle_info)
-        self._error_count = 0
+        # Before notifying listeners, which include the freshness entities
         self._last_message = dt_util.utcnow()
         for item in vijson.values():
             if isinstance(item, dict) and isinstance(ts := item.get("timeStamp"), str):
                 self._note_report(dt_util.parse_datetime(ts))
+        vehicle_info = self._build_vehicle_info_dict(vijson)
+        self.async_set_updated_data(vehicle_info)
+        self._error_count = 0
         self._initial.set()
 
     @callback
@@ -666,7 +667,12 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
 
     def _note_report(self, reported: datetime | None) -> None:
         """Keep the newest time the vehicle reported data."""
-        if reported and (self._last_report is None or reported > self._last_report):
+        # Skip times without a timezone, which can't be compared with the others
+        if (
+            reported
+            and reported.tzinfo
+            and (self._last_report is None or reported > self._last_report)
+        ):
             self._last_report = reported
 
     @property

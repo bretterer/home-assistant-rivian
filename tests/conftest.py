@@ -810,6 +810,12 @@ def _setup_mock_environment() -> None:
         rivian_mod.utils = utils_submod  # type: ignore[attr-defined]
         sys.modules["rivian.utils"] = utils_submod
 
+        # coordinator.py imports the Parallax decoder; tests patch it as needed
+        parallax_submod = DynamicModule("rivian.parallax", is_package=False)
+        parallax_submod.decode_parallax_message = MagicMock(return_value=None)  # type: ignore[attr-defined]
+        rivian_mod.parallax = parallax_submod  # type: ignore[attr-defined]
+        sys.modules["rivian.parallax"] = parallax_submod
+
 
 _setup_mock_environment()
 
