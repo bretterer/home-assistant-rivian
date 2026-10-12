@@ -250,3 +250,13 @@ Note: If you are having issues with pairing your vehicle, we recommend investing
 [add-integration]: https://my.home-assistant.io/redirect/config_flow_start?domain=rivian
 [add-integration-badge]: https://my.home-assistant.io/badges/config_flow_start.svg
 [rivian-discord]: https://discord.gg/jEc5RUPd
+
+## Trademark Legal Notices
+
+All product names, trademarks and registered trademarks in the images in this
+repository, are property of their respective owners. All images in this
+repository are used by the Home Assistant project for identification purposes
+only.
+
+The use of these names, trademarks and brands appearing in these image files,
+do not imply endorsement.
