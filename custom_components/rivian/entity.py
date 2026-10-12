@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 import logging
 from typing import Any, TypeVar
 
@@ -10,6 +11,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_ZONE
 from homeassistant.core import callback
 from homeassistant.helpers.entity import DeviceInfo, EntityDescription
+from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import ATTR_COORDINATOR, ATTR_USER, DOMAIN
@@ -72,6 +74,31 @@ class RivianVehicleEntity(RivianEntity[VehicleCoordinator]):
     def _get_value(self, key: str) -> Any | None:
         """Get a data value from the coordinator."""
         return self.coordinator.get(key)
+
+
+class RivianVehicleFreshnessEntity(RivianVehicleEntity):
+    """Base class for entities reporting whether vehicle updates are current.
+
+    Their state changes with time rather than data, so they re-check every
+    minute, and stay available so a stalled connection still shows.
+    """
+
+    async def async_added_to_hass(self) -> None:
+        """Re-check periodically, since a stalled connection sends nothing."""
+        await super().async_added_to_hass()
+
+        @callback
+        def _async_check(_now: datetime) -> None:
+            self.async_write_ha_state()
+
+        self.async_on_remove(
+            async_track_time_interval(self.hass, _async_check, timedelta(minutes=1))
+        )
+
+    @property
+    def available(self) -> bool:
+        """Stay available, so a stalled connection still shows."""
+        return True
 
 
 class RivianVehicleControlEntity(RivianVehicleEntity):

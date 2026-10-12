@@ -12,6 +12,7 @@ from homeassistant.components.sensor import (
     RestoreSensor,
     SensorDeviceClass,
     SensorEntity,
+    SensorEntityDescription,
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
@@ -49,6 +50,7 @@ from .entity import (
     RivianChargingEntity,
     RivianEntity,
     RivianVehicleEntity,
+    RivianVehicleFreshnessEntity,
     RivianWallboxEntity,
 )
 from .helpers import async_remove_stale_entities
@@ -132,6 +134,9 @@ async def async_setup_entry(
         entities.extend(
             RivianNavigationSensorEntity(coord, entry, description, vehicle)
             for description in NAVIGATION_SENSORS
+        )
+        entities.append(
+            RivianNoUpdatesSinceEntity(coord, entry, NO_UPDATES_SINCE_SENSOR, vehicle)
         )
 
     async_remove_stale_entities(
@@ -291,6 +296,23 @@ NAVIGATION_SENSORS: Final[tuple[RivianNavigationSensorEntityDescription, ...]] =
 )
 
 
+NO_UPDATES_SINCE_SENSOR = SensorEntityDescription(
+    key="no_updates_since",
+    translation_key="no_updates_since",
+    device_class=SensorDeviceClass.TIMESTAMP,
+    entity_category=EntityCategory.DIAGNOSTIC,
+)
+
+
+class RivianNoUpdatesSinceEntity(RivianVehicleFreshnessEntity, SensorEntity):
+    """When the vehicle last reported data, shown only once that's a while ago."""
+
+    @property
+    def native_value(self) -> datetime | None:
+        """Return the last report time while updates are stale, else None."""
+        return self.coordinator.stale_since
+
+
 class RivianNavigationSensorEntity(RivianVehicleEntity, SensorEntity):
     """Rivian navigation sensor entity, unknown while not navigating."""
 
@@ -361,25 +383,6 @@ class RivianSensorEntity(RivianVehicleEntity, RestoreSensor):
             )
             self.options.append(rval)
         return rval
-
-    @property
-    def extra_state_attributes(self) -> Mapping[str, Any] | None:
-        """Return the state attributes of the device."""
-        try:
-            entity = self.coordinator.data[self.entity_description.field]
-            if entity is None:
-                return None
-            if self.entity_description.value_lambda is None:
-                return {
-                    "last_update": entity["timeStamp"],
-                }
-            return {
-                "native_value": entity["value"],
-                "last_update": entity["timeStamp"],
-                "history": str(entity["history"]),
-            }
-        except KeyError:
-            return None
 
 
 class RivianChargingSensorEntity(RivianChargingEntity, SensorEntity):

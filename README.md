@@ -170,6 +170,7 @@ Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
 | Locked state                                        | Binary sensor  | Locked/unlocked status of all closures                                                   |
 | Next stop                                           | Sensor         | Next stop of the active navigation trip, including charging stops                        |
 | Next stop ETA                                       | Sensor         | Estimated arrival at the next stop                                                       |
+| No updates since                                    | Sensor         | When the vehicle last reported data; empty unless that was over 10 minutes ago           |
 | Odometer                                            | Sensor         |                                                                                          |
 | Pet mode                                            | Binary sensor  | Running/not running status                                                               |
 | Pet mode temperature status                         | Sensor         |                                                                                          |
@@ -219,6 +220,7 @@ Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
 | Tonneau lock                                        | Binary sensor  | Locked/unlocked status, R1T with a powered tonneau only                                  |
 | Trailer status                                      | Sensor         |                                                                                          |
 | _Vehicle name_                                      | Device tracker | Vehicle location, named after the vehicle itself                                         |
+| Vehicle updates                                     | Binary sensor  | OK/problem status: a problem when nothing has arrived from Rivian for 10 minutes         |
 | Vented seat front left                              | Binary sensor  | Running/not running status                                                               |
 | Vented seat front right                             | Binary sensor  | Running/not running status                                                               |
 | Voltage                                             | Sensor         | Wallbox voltage                                                                          |

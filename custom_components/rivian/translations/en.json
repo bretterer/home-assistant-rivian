@@ -198,6 +198,9 @@
       },
       "seat_third_row_right_heat": {
         "name": "Heated seat 3rd row right"
+      },
+      "vehicle_updates": {
+        "name": "Vehicle updates"
       }
     },
     "button": {
@@ -953,6 +956,9 @@
           "smart_charging_paused": "Smart charging paused",
           "smart_charging_active": "Smart charging active"
         }
+      },
+      "no_updates_since": {
+        "name": "No updates since"
       }
     },
     "switch": {
