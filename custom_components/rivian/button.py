@@ -17,6 +17,7 @@ from homeassistant.components import bluetooth
 from homeassistant.components.bluetooth import BluetoothScanningMode
 from homeassistant.components.button import ButtonEntity, ButtonEntityDescription
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -90,7 +91,11 @@ async def async_setup_entry(
         RivianPairPhoneButtonEntity(
             coordinators[vehicle_id],
             entry,
-            ButtonEntityDescription(key="pair", translation_key="pair"),
+            ButtonEntityDescription(
+                key="pair",
+                translation_key="pair",
+                entity_category=EntityCategory.CONFIG,
+            ),
             vehicle,
         )
         for vehicle_id, vehicle in vehicles.items()

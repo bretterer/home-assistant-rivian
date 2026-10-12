@@ -30,7 +30,6 @@ UPDATE_DESCRIPTION = UpdateEntityDescription(
     key="software_ota",
     translation_key="software_ota",
     device_class=UpdateDeviceClass.FIRMWARE,
-    entity_category=EntityCategory.DIAGNOSTIC,
 )
 
 
@@ -67,6 +66,10 @@ class RivianUpdateEntity(RivianVehicleEntity, UpdateEntity):
         """Construct a Rivian vehicle update entity."""
         super().__init__(coordinator, config_entry, description, vehicle)
         self.can_install = vehicle.get("phone_identity_id") is not None
+        # A setting while it can install updates, otherwise read-only information
+        self._attr_entity_category = (
+            EntityCategory.CONFIG if self.can_install else EntityCategory.DIAGNOSTIC
+        )
         self._update_version_info()
 
     def _update_version_info(self) -> None:
