@@ -837,6 +837,26 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
                 "smart_charging_active",
             ],
         ),
+        RivianSensorEntityDescription(
+            key="charging_fault",
+            translation_key="charging_fault",
+            field="chargingFaultChime",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            device_class=SensorDeviceClass.ENUM,
+            options=[
+                "none",
+                "charging_disabled_all",
+                "charging_disabled_dc",
+                "charging_disabled_pin_temp_dc",
+                "charging_disabled_pin_temp_gradient_dc",
+                "charging_degraded_dc",
+                "charging_disabled_ac",
+                "charging_disabled_pin_temp_ac",
+                "charging_degraded_ac",
+                "charging_disabled_partial_connection",
+                "charging_disabled_not_parked",
+            ],
+        ),
     ),
     # The R2 has a manual charge port door and doesn't get GraphQL vehicle state
     # updates for the install type

@@ -378,6 +378,12 @@
             },
             "no_updates_since": {
                 "default": "mdi:clock-alert-outline"
+            },
+            "charging_fault": {
+                "default": "mdi:power-plug-off-outline",
+                "state": {
+                    "none": "mdi:power-plug-outline"
+                }
             }
         },
         "switch": {

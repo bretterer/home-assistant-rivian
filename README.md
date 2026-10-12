@@ -111,6 +111,7 @@ Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
 | Charger state                                       | Sensor         | Detailed charging state: charging, scheduled, complete, waiting on charger, errors, etc. |
 | Charging cost                                       | Sensor         | Cost of the current or last charging session                                             |
 | Charging energy delivered                           | Sensor         | Energy delivered in the current or last charging session                                 |
+| Charging fault                                      | Sensor         | Why charging is disabled or reduced, if it is                                            |
 | Charging range added                                | Sensor         | Range added in the current or last charging session                                      |
 | Charging rate                                       | Sensor         | Range added per hour while charging                                                      |
 | Charging schedule days                              | Sensor         |                                                                                          |
