@@ -37,6 +37,7 @@ from .const import (
     ATTR_VEHICLE,
     ATTR_WALLBOX,
     DOMAIN,
+    REMOVED_SENSOR_KEYS,
     SENSORS,
     WEEK_DAYS_ORDERED,
 )
@@ -150,6 +151,17 @@ async def async_setup_entry(
             # Keep feature-gated entities if the features didn't load
             if description.supported_feature is None
             or vehicle.get("supported_features")
+        ),
+        (entity.unique_id for entity in entities),
+    )
+    # TODO: Delete after 2027-04-01, with REMOVED_SENSOR_KEYS (see const.py)
+    async_remove_stale_entities(
+        hass,
+        SENSOR_DOMAIN,
+        (
+            f"{vehicle['vin']}-{key}"
+            for vehicle in vehicles.values()
+            for key in REMOVED_SENSOR_KEYS
         ),
         (entity.unique_id for entity in entities),
     )

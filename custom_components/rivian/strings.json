@@ -714,44 +714,11 @@
       "distance_to_empty": {
         "name": "Estimated vehicle range"
       },
-      "ota_available_version": {
-        "name": "Software OTA - Available version"
-      },
-      "ota_available_version_git_hash": {
-        "name": "Software OTA - Available version git hash"
-      },
-      "ota_available_version_number": {
-        "name": "Software OTA - Available version number"
-      },
-      "ota_available_version_week": {
-        "name": "Software OTA - Available version week"
-      },
-      "ota_available_version_year": {
-        "name": "Software OTA - Available version year"
-      },
-      "ota_current_version": {
-        "name": "Software OTA - Current version"
-      },
-      "ota_current_version_git_hash": {
-        "name": "Software OTA - Current version git hash"
-      },
-      "ota_current_version_number": {
-        "name": "Software OTA - Current version number"
-      },
-      "ota_current_version_week": {
-        "name": "Software OTA - Current version week"
-      },
-      "ota_current_version_year": {
-        "name": "Software OTA - Current version year"
-      },
       "ota_download_progress": {
         "name": "Software OTA - Download progress"
       },
       "ota_install_duration": {
         "name": "Software OTA - Install duration"
-      },
-      "ota_install_progress": {
-        "name": "Software OTA - Install progress"
       },
       "ota_install_time": {
         "name": "Software OTA - Install time"

@@ -328,41 +328,6 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
             ],
         ),
         RivianSensorEntityDescription(
-            key="ota_available_version",
-            field="otaAvailableVersion",
-            translation_key="ota_available_version",
-            entity_category=EntityCategory.DIAGNOSTIC,
-            entity_registry_enabled_default=False,
-        ),
-        RivianSensorEntityDescription(
-            key="ota_available_version_git_hash",
-            field="otaAvailableVersionGitHash",
-            translation_key="ota_available_version_git_hash",
-            entity_category=EntityCategory.DIAGNOSTIC,
-            entity_registry_enabled_default=False,
-        ),
-        RivianSensorEntityDescription(
-            key="ota_available_version_number",
-            field="otaAvailableVersionNumber",
-            translation_key="ota_available_version_number",
-            entity_category=EntityCategory.DIAGNOSTIC,
-            entity_registry_enabled_default=False,
-        ),
-        RivianSensorEntityDescription(
-            key="ota_available_version_week",
-            field="otaAvailableVersionWeek",
-            translation_key="ota_available_version_week",
-            entity_category=EntityCategory.DIAGNOSTIC,
-            entity_registry_enabled_default=False,
-        ),
-        RivianSensorEntityDescription(
-            key="ota_available_version_year",
-            field="otaAvailableVersionYear",
-            translation_key="ota_available_version_year",
-            entity_category=EntityCategory.DIAGNOSTIC,
-            entity_registry_enabled_default=False,
-        ),
-        RivianSensorEntityDescription(
             key="ota_current_status",
             translation_key="ota_current_status",
             field="otaCurrentStatus",
@@ -373,41 +338,6 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
                 "install_failed",
                 "install_unable_to_start",
             ],
-        ),
-        RivianSensorEntityDescription(
-            key="ota_current_version",
-            field="otaCurrentVersion",
-            translation_key="ota_current_version",
-            entity_category=EntityCategory.DIAGNOSTIC,
-            entity_registry_enabled_default=False,
-        ),
-        RivianSensorEntityDescription(
-            key="ota_current_version_git_hash",
-            field="otaCurrentVersionGitHash",
-            translation_key="ota_current_version_git_hash",
-            entity_category=EntityCategory.DIAGNOSTIC,
-            entity_registry_enabled_default=False,
-        ),
-        RivianSensorEntityDescription(
-            key="ota_current_version_number",
-            field="otaCurrentVersionNumber",
-            translation_key="ota_current_version_number",
-            entity_category=EntityCategory.DIAGNOSTIC,
-            entity_registry_enabled_default=False,
-        ),
-        RivianSensorEntityDescription(
-            key="ota_current_version_week",
-            field="otaCurrentVersionWeek",
-            translation_key="ota_current_version_week",
-            entity_category=EntityCategory.DIAGNOSTIC,
-            entity_registry_enabled_default=False,
-        ),
-        RivianSensorEntityDescription(
-            key="ota_current_version_year",
-            field="otaCurrentVersionYear",
-            translation_key="ota_current_version_year",
-            entity_category=EntityCategory.DIAGNOSTIC,
-            entity_registry_enabled_default=False,
         ),
         RivianSensorEntityDescription(
             key="ota_download_progress",
@@ -425,14 +355,6 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
             native_unit_of_measurement=UnitOfTime.MINUTES,
             # 0 when no update is pending
             value_lambda=lambda v: v or None,
-        ),
-        RivianSensorEntityDescription(
-            key="ota_install_progress",
-            field="otaInstallProgress",
-            translation_key="ota_install_progress",
-            entity_category=EntityCategory.DIAGNOSTIC,
-            entity_registry_enabled_default=False,
-            native_unit_of_measurement=PERCENTAGE,
         ),
         RivianSensorEntityDescription(
             key="ota_install_ready",
@@ -1384,6 +1306,27 @@ WINDOW_CALIBRATION_FIELDS: Final[frozenset[str]] = frozenset(
         "windowFrontRightCalibrated",
         "windowRearLeftCalibrated",
         "windowRearRightCalibrated",
+    }
+)
+
+# Sensors that were removed (the update entity shows their values), so their
+# registry entries are cleaned up.
+# TODO: Delete this, its use in sensor.py and tests/test_removed_sensors.py after
+# 2027-04-01; by then installs will have updated past 1.5.3 and had these
+# cleaned up.
+REMOVED_SENSOR_KEYS: Final[frozenset[str]] = frozenset(
+    {
+        "ota_available_version",
+        "ota_available_version_git_hash",
+        "ota_available_version_number",
+        "ota_available_version_week",
+        "ota_available_version_year",
+        "ota_current_version",
+        "ota_current_version_git_hash",
+        "ota_current_version_number",
+        "ota_current_version_week",
+        "ota_current_version_year",
+        "ota_install_progress",
     }
 )
 
