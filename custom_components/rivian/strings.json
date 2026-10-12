@@ -46,14 +46,267 @@
     }
   },
   "entity": {
+    "binary_sensor": {
+      "alarm_sound_status": {
+        "name": "Gear Guard alarm"
+      },
+      "cabin_preconditioning_status": {
+        "name": "Cabin climate preconditioning"
+      },
+      "charger_state": {
+        "name": "Charging status"
+      },
+      "charger_status": {
+        "name": "Charger connection"
+      },
+      "closure_frunk_closed": {
+        "name": "Front trunk"
+      },
+      "closure_frunk_locked": {
+        "name": "Front trunk lock"
+      },
+      "defrost_defog_status": {
+        "name": "Defrost/defog"
+      },
+      "door_front_left_closed": {
+        "name": "Door front left"
+      },
+      "door_front_left_locked": {
+        "name": "Door front left lock"
+      },
+      "door_front_right_closed": {
+        "name": "Door front right"
+      },
+      "door_front_right_locked": {
+        "name": "Door front right lock"
+      },
+      "door_rear_left_closed": {
+        "name": "Door rear left"
+      },
+      "door_rear_left_locked": {
+        "name": "Door rear left lock"
+      },
+      "door_rear_right_closed": {
+        "name": "Door rear right"
+      },
+      "door_rear_right_locked": {
+        "name": "Door rear right lock"
+      },
+      "pet_mode_status": {
+        "name": "Pet mode"
+      },
+      "seat_front_left_heat": {
+        "name": "Heated seat front left"
+      },
+      "seat_front_left_vent": {
+        "name": "Vented seat front left"
+      },
+      "seat_front_right_heat": {
+        "name": "Heated seat front right"
+      },
+      "seat_front_right_vent": {
+        "name": "Vented seat front right"
+      },
+      "seat_rear_left_heat": {
+        "name": "Heated seat rear left"
+      },
+      "seat_rear_right_heat": {
+        "name": "Heated seat rear right"
+      },
+      "steering_wheel_heat": {
+        "name": "Heated steering wheel"
+      },
+      "tire_pressure_status_valid_front_left": {
+        "name": "Tire pressure front left validity"
+      },
+      "tire_pressure_status_valid_front_right": {
+        "name": "Tire pressure front right validity"
+      },
+      "tire_pressure_status_valid_rear_left": {
+        "name": "Tire pressure rear left validity"
+      },
+      "tire_pressure_status_valid_rear_right": {
+        "name": "Tire pressure rear right validity"
+      },
+      "window_front_left_closed": {
+        "name": "Window front left"
+      },
+      "window_front_right_closed": {
+        "name": "Window front right"
+      },
+      "window_rear_left_closed": {
+        "name": "Window rear left"
+      },
+      "window_rear_right_closed": {
+        "name": "Window rear right"
+      },
+      "wiper_fluid_state": {
+        "name": "Wiper fluid level"
+      },
+      "locked_state": {
+        "name": "Locked state"
+      },
+      "door_state": {
+        "name": "Door state"
+      },
+      "closure_state": {
+        "name": "Closure state"
+      },
+      "use_state": {
+        "name": "In use state"
+      },
+      "car_wash_mode": {
+        "name": "Car wash mode"
+      },
+      "charge_port": {
+        "name": "Charge port"
+      },
+      "closure_tailgate_locked": {
+        "name": "Tailgate lock"
+      },
+      "gear_guard_locked": {
+        "name": "Gear Guard"
+      },
+      "closure_tailgate_closed": {
+        "name": "Tailgate"
+      },
+      "closure_side_bin_left_closed": {
+        "name": "Gear tunnel left"
+      },
+      "closure_side_bin_left_locked": {
+        "name": "Gear tunnel left lock"
+      },
+      "closure_side_bin_right_closed": {
+        "name": "Gear tunnel right"
+      },
+      "closure_side_bin_right_locked": {
+        "name": "Gear tunnel right lock"
+      },
+      "closure_tonneau_closed": {
+        "name": "Tonneau"
+      },
+      "closure_tonneau_locked": {
+        "name": "Tonneau lock"
+      },
+      "closure_liftgate_closed": {
+        "name": "Liftgate"
+      },
+      "closure_liftgate_locked": {
+        "name": "Liftgate lock"
+      },
+      "seat_third_row_left_heat": {
+        "name": "Heated seat 3rd row left"
+      },
+      "seat_third_row_right_heat": {
+        "name": "Heated seat 3rd row right"
+      }
+    },
+    "button": {
+      "wake": {
+        "name": "Wake"
+      },
+      "open_gear_tunnel_left": {
+        "name": "Open gear tunnel left"
+      },
+      "open_gear_tunnel_right": {
+        "name": "Open gear tunnel right"
+      },
+      "drop_tailgate": {
+        "name": "Drop tailgate"
+      },
+      "pair": {
+        "name": "Pair"
+      }
+    },
+    "climate": {
+      "cabin_climate": {
+        "name": "Cabin climate"
+      }
+    },
     "cover": {
       "charge_port": {
         "name": "Charge port door"
+      },
+      "frunk": {
+        "name": "Front trunk"
+      },
+      "windows": {
+        "name": "Windows"
+      },
+      "liftgate": {
+        "name": "Liftgate"
+      },
+      "tonneau": {
+        "name": "Tonneau"
+      }
+    },
+    "lock": {
+      "closures": {
+        "name": "Closures"
       }
     },
     "number": {
       "charging_schedule_amperage": {
         "name": "Charging schedule amperage"
+      },
+      "charge_limit": {
+        "name": "Charge limit"
+      }
+    },
+    "select": {
+      "seat_front_left_heat": {
+        "name": "Seat front left heat",
+        "state": {
+          "off": "[%key:common::state::off%]",
+          "level_1": "[%key:common::state::low%]",
+          "level_2": "[%key:common::state::medium%]",
+          "level_3": "[%key:common::state::high%]"
+        }
+      },
+      "seat_front_left_vent": {
+        "name": "Seat front left vent",
+        "state": {
+          "off": "[%key:common::state::off%]",
+          "level_1": "[%key:common::state::low%]",
+          "level_2": "[%key:common::state::medium%]",
+          "level_3": "[%key:common::state::high%]"
+        }
+      },
+      "seat_front_right_heat": {
+        "name": "Seat front right heat",
+        "state": {
+          "off": "[%key:common::state::off%]",
+          "level_1": "[%key:common::state::low%]",
+          "level_2": "[%key:common::state::medium%]",
+          "level_3": "[%key:common::state::high%]"
+        }
+      },
+      "seat_front_right_vent": {
+        "name": "Seat front right vent",
+        "state": {
+          "off": "[%key:common::state::off%]",
+          "level_1": "[%key:common::state::low%]",
+          "level_2": "[%key:common::state::medium%]",
+          "level_3": "[%key:common::state::high%]"
+        }
+      },
+      "seat_rear_left_heat": {
+        "name": "Seat rear left heat",
+        "state": {
+          "off": "[%key:common::state::off%]",
+          "level_1": "[%key:common::state::low%]",
+          "level_2": "[%key:common::state::medium%]",
+          "level_3": "[%key:common::state::high%]"
+        }
+      },
+      "seat_rear_right_heat": {
+        "name": "Seat rear right heat",
+        "state": {
+          "off": "[%key:common::state::off%]",
+          "level_1": "[%key:common::state::low%]",
+          "level_2": "[%key:common::state::medium%]",
+          "level_3": "[%key:common::state::high%]"
+        }
       }
     },
     "sensor": {
@@ -68,6 +321,7 @@
         }
       },
       "charging_status": {
+        "name": "Charging status",
         "state": {
           "unavailable": "Unavailable",
           "available": "Available",
@@ -432,11 +686,167 @@
       },
       "destination_eta": {
         "name": "Destination ETA"
+      },
+      "altitude": {
+        "name": "Altitude"
+      },
+      "battery_level": {
+        "name": "Battery state of charge"
+      },
+      "battery_limit": {
+        "name": "Battery state of charge limit"
+      },
+      "battery_capacity": {
+        "name": "Battery capacity"
+      },
+      "bearing": {
+        "name": "Bearing"
+      },
+      "driver_temperature": {
+        "name": "Driver temperature"
+      },
+      "cabin_temperature": {
+        "name": "Cabin temperature"
+      },
+      "distance_to_empty": {
+        "name": "Estimated vehicle range"
+      },
+      "ota_available_version": {
+        "name": "Software OTA - Available version"
+      },
+      "ota_available_version_git_hash": {
+        "name": "Software OTA - Available version git hash"
+      },
+      "ota_available_version_number": {
+        "name": "Software OTA - Available version number"
+      },
+      "ota_available_version_week": {
+        "name": "Software OTA - Available version week"
+      },
+      "ota_available_version_year": {
+        "name": "Software OTA - Available version year"
+      },
+      "ota_current_version": {
+        "name": "Software OTA - Current version"
+      },
+      "ota_current_version_git_hash": {
+        "name": "Software OTA - Current version git hash"
+      },
+      "ota_current_version_number": {
+        "name": "Software OTA - Current version number"
+      },
+      "ota_current_version_week": {
+        "name": "Software OTA - Current version week"
+      },
+      "ota_current_version_year": {
+        "name": "Software OTA - Current version year"
+      },
+      "ota_download_progress": {
+        "name": "Software OTA - Download progress"
+      },
+      "ota_install_duration": {
+        "name": "Software OTA - Install duration"
+      },
+      "ota_install_progress": {
+        "name": "Software OTA - Install progress"
+      },
+      "ota_install_time": {
+        "name": "Software OTA - Install time"
+      },
+      "speed": {
+        "name": "Speed"
+      },
+      "time_to_end_of_charge": {
+        "name": "Charging time remaining"
+      },
+      "tire_pressure_front_left": {
+        "name": "Tire pressure front left"
+      },
+      "tire_pressure_front_right": {
+        "name": "Tire pressure front right"
+      },
+      "tire_pressure_rear_left": {
+        "name": "Tire pressure rear left"
+      },
+      "tire_pressure_rear_right": {
+        "name": "Tire pressure rear right"
+      },
+      "vehicle_mileage": {
+        "name": "Odometer"
+      },
+      "limited_acceleration_cold": {
+        "name": "Limited acceleration (cold)"
+      },
+      "limited_regen_braking_cold": {
+        "name": "Limited regenerative braking (cold)"
+      },
+      "ota_install_type": {
+        "name": "Software OTA - Install type",
+        "state": {
+          "convenience": "Convenience"
+        }
+      },
+      "charging_cost": {
+        "name": "Charging cost"
+      },
+      "charging_energy_delivered": {
+        "name": "Charging energy delivered"
+      },
+      "charging_range_added": {
+        "name": "Charging range added"
+      },
+      "charging_rate": {
+        "name": "Charging rate"
+      },
+      "charging_speed": {
+        "name": "Charging speed"
+      },
+      "charging_start_time": {
+        "name": "Charging start time"
+      },
+      "charging_time_elapsed": {
+        "name": "Charging time elapsed"
+      },
+      "amperage": {
+        "name": "Amperage"
+      },
+      "amperage_maximum": {
+        "name": "Amperage maximum"
+      },
+      "power": {
+        "name": "Power"
+      },
+      "power_maximum": {
+        "name": "Power maximum"
+      },
+      "voltage": {
+        "name": "Voltage"
+      },
+      "voltage_maximum": {
+        "name": "Voltage maximum"
+      },
+      "drivers": {
+        "name": "Drivers"
+      },
+      "keys": {
+        "name": "Keys"
       }
     },
     "switch": {
       "charging_schedule_enabled": {
         "name": "Charging schedule enabled"
+      },
+      "alarm": {
+        "name": "Alarm"
+      },
+      "charging_enabled": {
+        "name": "Charging enabled"
+      },
+      "gear_guard_video": {
+        "name": "Gear Guard video"
+      },
+      "steering_wheel_heat": {
+        "name": "Steering wheel heat"
       }
     },
     "time": {
@@ -445,6 +855,11 @@
       },
       "charging_schedule_end": {
         "name": "Charging schedule end"
+      }
+    },
+    "update": {
+      "software_ota": {
+        "name": "Software"
       }
     }
   },

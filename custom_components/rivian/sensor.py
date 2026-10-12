@@ -406,14 +406,14 @@ CHARGING_SENSORS: Final[tuple[RivianSensorEntityDescription, ...]] = (
     RivianSensorEntityDescription(
         key="charging_cost",
         field="currentPrice",
-        name="Charging Cost",
+        translation_key="charging_cost",
         device_class=SensorDeviceClass.MONETARY,
         state_class=SensorStateClass.TOTAL,
     ),
     RivianSensorEntityDescription(
         key="charging_energy_delivered",
         field="totalChargedEnergy",
-        name="Charging Energy Delivered",
+        translation_key="charging_energy_delivered",
         device_class=SensorDeviceClass.ENERGY,
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         state_class=SensorStateClass.TOTAL,
@@ -422,7 +422,7 @@ CHARGING_SENSORS: Final[tuple[RivianSensorEntityDescription, ...]] = (
     RivianSensorEntityDescription(
         key="charging_range_added",
         field="rangeAddedThisSession",
-        name="Charging Range Added",
+        translation_key="charging_range_added",
         device_class=SensorDeviceClass.DISTANCE,
         native_unit_of_measurement=UnitOfLength.KILOMETERS,
         state_class=SensorStateClass.TOTAL_INCREASING,
@@ -431,7 +431,7 @@ CHARGING_SENSORS: Final[tuple[RivianSensorEntityDescription, ...]] = (
     RivianSensorEntityDescription(
         key="charging_rate",
         field="kilometersChargedPerHour",
-        name="Charging Rate",
+        translation_key="charging_rate",
         device_class=SensorDeviceClass.SPEED,
         native_unit_of_measurement=UnitOfSpeed.KILOMETERS_PER_HOUR,
         state_class=SensorStateClass.MEASUREMENT,
@@ -440,7 +440,7 @@ CHARGING_SENSORS: Final[tuple[RivianSensorEntityDescription, ...]] = (
     RivianSensorEntityDescription(
         key="charging_speed",
         field="power",
-        name="Charging Speed",
+        translation_key="charging_speed",
         device_class=SensorDeviceClass.POWER,
         native_unit_of_measurement=UnitOfPower.KILO_WATT,
         state_class=SensorStateClass.MEASUREMENT,
@@ -448,7 +448,7 @@ CHARGING_SENSORS: Final[tuple[RivianSensorEntityDescription, ...]] = (
     RivianSensorEntityDescription(
         key="charging_start_time",
         field="startTime",
-        name="Charging Start Time",
+        translation_key="charging_start_time",
         device_class=SensorDeviceClass.TIMESTAMP,
         value_lambda=_parse_timestamp,
     ),
@@ -457,7 +457,7 @@ CHARGING_SENSORS: Final[tuple[RivianSensorEntityDescription, ...]] = (
         # Minutes spent charging, as shown in the Rivian app (pauses while
         # stopped/scheduled, unlike timeElapsed)
         field="activeChargingTime",
-        name="Charging Time Elapsed",
+        translation_key="charging_time_elapsed",
         device_class=SensorDeviceClass.DURATION,
         native_unit_of_measurement=UnitOfTime.SECONDS,
         state_class=SensorStateClass.TOTAL_INCREASING,
@@ -484,8 +484,6 @@ WALLBOX_SENSORS = (
     RivianWallboxSensorEntityDescription(
         key="charging_status",
         field="chargingStatus",
-        name="Charging status",
-        icon="mdi:ev-plug-type1",
         device_class=SensorDeviceClass.ENUM,
         options=["unavailable", "available", "disconnected", "plugged_in", "charging"],
         translation_key="charging_status",
@@ -493,7 +491,7 @@ WALLBOX_SENSORS = (
     RivianWallboxSensorEntityDescription(
         key="amperage",
         field="currentAmps",
-        name="Amperage",
+        translation_key="amperage",
         device_class=SensorDeviceClass.CURRENT,
         entity_category=EntityCategory.DIAGNOSTIC,
         native_unit_of_measurement=UnitOfElectricCurrent.AMPERE,
@@ -502,7 +500,7 @@ WALLBOX_SENSORS = (
     RivianWallboxSensorEntityDescription(
         key="amperage_maximum",
         field="maxAmps",
-        name="Amperage maximum",
+        translation_key="amperage_maximum",
         device_class=SensorDeviceClass.CURRENT,
         entity_category=EntityCategory.DIAGNOSTIC,
         native_unit_of_measurement=UnitOfElectricCurrent.AMPERE,
@@ -511,7 +509,7 @@ WALLBOX_SENSORS = (
     RivianWallboxSensorEntityDescription(
         key="power",
         field="power",
-        name="Power",
+        translation_key="power",
         device_class=SensorDeviceClass.POWER,
         entity_category=EntityCategory.DIAGNOSTIC,
         native_unit_of_measurement=UnitOfPower.WATT,
@@ -522,7 +520,7 @@ WALLBOX_SENSORS = (
     RivianWallboxSensorEntityDescription(
         key="power_maximum",
         field="maxPower",
-        name="Power maximum",
+        translation_key="power_maximum",
         device_class=SensorDeviceClass.POWER,
         entity_category=EntityCategory.DIAGNOSTIC,
         native_unit_of_measurement=UnitOfPower.WATT,
@@ -533,7 +531,7 @@ WALLBOX_SENSORS = (
     RivianWallboxSensorEntityDescription(
         key="voltage",
         field="currentVoltage",
-        name="Voltage",
+        translation_key="voltage",
         device_class=SensorDeviceClass.VOLTAGE,
         entity_category=EntityCategory.DIAGNOSTIC,
         native_unit_of_measurement=UnitOfElectricPotential.VOLT,
@@ -542,7 +540,7 @@ WALLBOX_SENSORS = (
     RivianWallboxSensorEntityDescription(
         key="voltage_maximum",
         field="maxVoltage",
-        name="Voltage maximum",
+        translation_key="voltage_maximum",
         device_class=SensorDeviceClass.VOLTAGE,
         entity_category=EntityCategory.DIAGNOSTIC,
         native_unit_of_measurement=UnitOfElectricPotential.VOLT,
@@ -553,8 +551,7 @@ WALLBOX_SENSORS = (
 DRIVER_SENSORS: Final[tuple[RivianSensorEntityDescription, ...]] = (
     RivianSensorEntityDescription(
         key="drivers",
-        icon="mdi:account-multiple",
-        name="Drivers",
+        translation_key="drivers",
         field="invitedUsers",
         value_lambda=lambda data: len(
             [user for user in (data or []) if user["__typename"] == "ProvisionedUser"]
@@ -562,8 +559,7 @@ DRIVER_SENSORS: Final[tuple[RivianSensorEntityDescription, ...]] = (
     ),
     RivianSensorEntityDescription(
         key="keys",
-        icon="mdi:car-key",
-        name="Keys",
+        translation_key="keys",
         field="invitedUsers",
         value_lambda=lambda data: len(
             [
