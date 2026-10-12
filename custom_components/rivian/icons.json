@@ -330,6 +330,45 @@
             },
             "keys": {
                 "default": "mdi:car-key"
+            },
+            "frunk_next_action": {
+                "default": "mdi:gesture-tap-button"
+            },
+            "charge_port_door_next_action": {
+                "default": "mdi:gesture-tap-button"
+            },
+            "gear_tunnel_left_next_action": {
+                "default": "mdi:gesture-tap-button"
+            },
+            "gear_tunnel_right_next_action": {
+                "default": "mdi:gesture-tap-button"
+            },
+            "tailgate_next_action": {
+                "default": "mdi:gesture-tap-button"
+            },
+            "rear_hitch_status": {
+                "default": "mdi:truck-trailer",
+                "state": {
+                    "not_present": "mdi:truck-outline"
+                }
+            },
+            "cold_range_notification": {
+                "default": "mdi:snowflake-thermometer",
+                "state": {
+                    "normal_range": "mdi:thermometer"
+                }
+            },
+            "charger_state": {
+                "default": "mdi:ev-station",
+                "state": {
+                    "charging_active": "mdi:battery-charging",
+                    "charging_complete": "mdi:battery-check",
+                    "charging_connecting": "mdi:battery-sync",
+                    "waiting_on_charger": "mdi:battery-sync",
+                    "charging_scheduled": "mdi:battery-clock",
+                    "smart_charging_paused": "mdi:battery-clock",
+                    "smart_charging_active": "mdi:battery-charging"
+                }
             }
         },
         "switch": {

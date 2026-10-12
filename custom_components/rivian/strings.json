@@ -830,6 +830,130 @@
       },
       "keys": {
         "name": "Keys"
+      },
+      "frunk_next_action": {
+        "name": "Front trunk next action",
+        "state": {
+          "sna": "Not available",
+          "open_allowed": "Open allowed",
+          "close_allowed": "Close allowed",
+          "opening": "Opening",
+          "closing": "Closing",
+          "open_not_available": "Open not available",
+          "close_not_available": "Close not available",
+          "open_not_allowed_faulted": "Open not allowed (fault)",
+          "close_not_allowed_faulted": "Close not allowed (fault)",
+          "open_allowed_no_power_operation": "Open allowed (manual)",
+          "close_not_allowed_no_power_operation": "Close not allowed (manual)",
+          "obstructed_opening_close_allowed": "Obstructed while opening",
+          "obstructed_closing_close_allowed": "Obstructed while closing"
+        }
+      },
+      "charge_port_door_next_action": {
+        "name": "Charge port door next action",
+        "state": {
+          "sna": "Not available",
+          "open_allowed": "Open allowed",
+          "open_not_available": "Open not available",
+          "open_not_allowed_faulted": "Open not allowed (fault)",
+          "opening": "Opening",
+          "close_allowed": "Close allowed",
+          "obstructed_while_opening_close_allowed": "Obstructed while opening (close allowed)",
+          "obstructed_while_opening_open_allowed": "Obstructed while opening (open allowed)",
+          "obstructed_while_closing_close_allowed": "Obstructed while closing",
+          "close_not_available": "Close not available",
+          "close_not_allowed_faulted": "Close not allowed (fault)",
+          "closing": "Closing"
+        }
+      },
+      "gear_tunnel_left_next_action": {
+        "name": "Gear tunnel left next action",
+        "state": {
+          "sna": "Not available",
+          "open_allowed": "Open allowed",
+          "opening": "Opening",
+          "open_not_available": "Open not available",
+          "open_not_allowed_faulted": "Open not allowed (fault)",
+          "stuck_ajar_while_opening_open_allowed": "Stuck ajar while opening",
+          "open_already_no_action_available": "Already open",
+          "open_allowed_confirm_vehicle_angle": "Open allowed (confirm vehicle angle)"
+        }
+      },
+      "gear_tunnel_right_next_action": {
+        "name": "Gear tunnel right next action",
+        "state": {
+          "sna": "Not available",
+          "open_allowed": "Open allowed",
+          "opening": "Opening",
+          "open_not_available": "Open not available",
+          "open_not_allowed_faulted": "Open not allowed (fault)",
+          "stuck_ajar_while_opening_open_allowed": "Stuck ajar while opening",
+          "open_already_no_action_available": "Already open",
+          "open_allowed_confirm_vehicle_angle": "Open allowed (confirm vehicle angle)"
+        }
+      },
+      "tailgate_next_action": {
+        "name": "Tailgate next action",
+        "state": {
+          "sna": "Not available",
+          "open_allowed": "Open allowed",
+          "opening": "Opening",
+          "open_not_available": "Open not available",
+          "open_not_allowed_faulted": "Open not allowed (fault)",
+          "stuck_ajar_while_opening_open_allowed": "Stuck ajar while opening",
+          "open_already_no_action_available": "Already open",
+          "open_allowed_confirm_vehicle_angle": "Open allowed (confirm vehicle angle)",
+          "open_allowed_obstacle_detected": "Open allowed (obstacle detected)",
+          "open_allowed_trailer_detected": "Open allowed (trailer detected)"
+        }
+      },
+      "rear_hitch_status": {
+        "name": "Rear hitch status",
+        "state": {
+          "not_present": "Not present",
+          "accessory": "Accessory",
+          "trailer1": "Trailer 1",
+          "trailer2": "Trailer 2",
+          "trailer3": "Trailer 3"
+        }
+      },
+      "cold_range_notification": {
+        "name": "Cold range notification",
+        "state": {
+          "normal_range": "Normal",
+          "cold_may_impact": "Cold may reduce range",
+          "cold_impact": "Cold is reducing range"
+        }
+      },
+      "charger_state": {
+        "name": "Charger state",
+        "state": {
+          "charging_ready": "Ready",
+          "charging_connecting": "Connecting",
+          "charging_active": "Charging",
+          "charging_complete": "Complete",
+          "charging_scheduled": "Scheduled",
+          "charging_vehicle_error": "Vehicle error",
+          "charging_station_error": "Station error",
+          "charging_stopped_by_user": "Stopped by user",
+          "charging_stopped_by_station": "Stopped by station",
+          "charging_payment_error": "Payment error",
+          "charging_cert_error": "Certificate error",
+          "charging_tls_error": "Secure connection error",
+          "charging_error_ac_adapter_used_on_dc": "AC adapter used on DC charger",
+          "charging_error_dc_adapter_used_on_ac": "DC adapter used on AC charger",
+          "charging_error_incompatible_charger": "Incompatible charger",
+          "charging_sd_compensation": "SD compensation",
+          "waiting_on_charger": "Waiting on charger",
+          "charging_error_not_ready_or_incompatible_charger": "Charger not ready or incompatible",
+          "charging_vehicle_stopped": "Stopped by vehicle",
+          "charging_payment_error_start_rivian_app": "Payment error (start in the Rivian app)",
+          "charging_tls_error_unknown_charger": "Secure connection error (unknown charger)",
+          "charging_tls_error_unexpected_fail": "Secure connection error (unexpected failure)",
+          "charging_tls_error_start_rivian_app": "Secure connection error (start in the Rivian app)",
+          "smart_charging_paused": "Smart charging paused",
+          "smart_charging_active": "Smart charging active"
+        }
       }
     },
     "switch": {

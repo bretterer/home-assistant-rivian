@@ -56,6 +56,10 @@ class RivianCoverEntityDescription(CoverEntityDescription):
     is_closed: Callable[[VehicleCoordinator], bool]
     close_cover: Callable[[VehicleCoordinator], Awaitable[None]]
     open_cover: Callable[[VehicleCoordinator], Awaitable[None]]
+    is_opening: Callable[[VehicleCoordinator], bool] | None = None
+    is_closing: Callable[[VehicleCoordinator], bool] | None = None
+    # Whether closing is currently possible, e.g. not with a cable plugged in
+    can_close: Callable[[VehicleCoordinator], bool] | None = None
 
 
 @dataclass(kw_only=True)
@@ -92,6 +96,8 @@ class RivianSensorEntityDescription(SensorEntityDescription):
     value_lambda: Callable[[Any], Any] | None = None
     # Keep the last known value (across restarts) while the field is unreported
     restore: bool = False
+    # Only create for vehicles reporting this supported feature
+    supported_feature: str | None = None
 
 
 @dataclass(kw_only=True)
