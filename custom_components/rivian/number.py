@@ -33,8 +33,7 @@ NUMBERS: Final[tuple[RivianNumberEntityDescription, ...]] = (
     RivianNumberEntityDescription(
         key="charge_limit",
         device_class=NumberDeviceClass.BATTERY,
-        icon="mdi:battery-charging-70",
-        name="Charge Limit",
+        translation_key="charge_limit",
         native_min_value=50,
         native_unit_of_measurement=PERCENTAGE,
         field="batteryLimit",

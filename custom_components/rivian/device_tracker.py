@@ -15,7 +15,8 @@ from .coordinator import VehicleCoordinator
 from .data_classes import RivianTrackerEntityDescription
 from .entity import RivianVehicleEntity
 
-LOCATION_DESCRIPTION = RivianTrackerEntityDescription(key="location", name="Location")
+# No name, so the entity is named after the vehicle
+LOCATION_DESCRIPTION = RivianTrackerEntityDescription(key="location", name=None)
 
 
 async def async_setup_entry(
