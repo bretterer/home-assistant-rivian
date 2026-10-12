@@ -66,6 +66,12 @@
                 "state": {
                     "off": "mdi:dog-side-off"
                 }
+            },
+            "vehicle_updates": {
+                "default": "mdi:cloud-check-outline",
+                "state": {
+                    "on": "mdi:cloud-alert-outline"
+                }
             }
         },
         "button": {
@@ -369,6 +375,9 @@
                     "smart_charging_paused": "mdi:battery-clock",
                     "smart_charging_active": "mdi:battery-charging"
                 }
+            },
+            "no_updates_since": {
+                "default": "mdi:clock-alert-outline"
             }
         },
         "switch": {

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import Any
 
 from homeassistant.components.device_tracker import SourceType, TrackerEntity
@@ -79,15 +78,6 @@ class RivianDeviceEntity(RivianVehicleEntity, TrackerEntity):
     def source_type(self) -> SourceType:
         """Return the source type, eg gps or router, of the device."""
         return SourceType.GPS
-
-    @property
-    def extra_state_attributes(self) -> Mapping[str, Any] | None:
-        """Return the state attributes of the device."""
-        if not self._tracker_data:
-            return None
-        return {
-            "last_update": self._tracker_data.get("timeStamp"),
-        }
 
     @callback
     def _handle_coordinator_update(self) -> None:

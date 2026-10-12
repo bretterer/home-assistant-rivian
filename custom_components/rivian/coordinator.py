@@ -58,14 +58,12 @@ CHARGING_SCHEDULE_REFRESH_INTERVAL = 900
 NAVIGATION_FIX_MAX_AGE = timedelta(minutes=5)
 # Fields set from the newest position fix (GNSS or navigation)
 GNSS_FIX_FIELDS = ("gnssLocation", "gnssSpeed", "gnssBearing")
-
-
-def _history(value: Any) -> set[Any]:
-    """Return a history set for value, skipping unhashable values (lists/dicts)."""
-    try:
-        return {value}
-    except TypeError:
-        return set()
+# Updates are stale after this long without either any message (the client
+# resubscribes after a minute without one, and the subscriptions resend their
+# snapshot, so a working connection never goes this long), or, while awake,
+# newly reported data (the vehicle sends a location fix about once a minute;
+# resent snapshots keep their original timestamps)
+UPDATES_STALE_AFTER = timedelta(minutes=10)
 
 
 class RivianDataUpdateCoordinator(DataUpdateCoordinator[T], ABC, Generic[T]):
@@ -342,6 +340,9 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         self._unsub_handler: Callable[[], Awaitable[None]] | None = None
         self._unsub_parallax: Callable[[], Awaitable[None]] | None = None
         self._awake = asyncio.Event()
+        # When any message last arrived, and the newest time the vehicle reported
+        self._last_message: datetime | None = None
+        self._last_report: datetime | None = None
         # All of the vehicle's charging schedules (entities manage the first);
         # None until fetched successfully
         self._charging_schedules: list[dict[str, Any]] | None = None
@@ -478,12 +479,14 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             self._handle_subscription_error("Parallax", data)
             return
         self._error_count = 0
+        self._last_message = dt_util.utcnow()
         px = pdata.get("parallaxMessages")
         if not px or px.get("rvm") in PARALLAX_IGNORED_RVMS:
             return
         decoded = decode_parallax_message(**px)
         if not decoded:
             return
+        self._note_report(decoded.get("timestamp"))
 
         clean = {k: v for k, v in decoded.items() if not k.startswith("_")}
         if not clean:
@@ -526,7 +529,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             # Skip unchanged values, e.g. the snapshot resent on every reconnect
             if k in current and current[k].get("value") == value:
                 continue
-            vehicle_updates[k] = {"value": value, "history": _history(value)}
+            vehicle_updates[k] = {"value": value}
             if timestamp:
                 vehicle_updates[k]["timeStamp"] = timestamp.isoformat()
         if vehicle_updates or cleared:
@@ -545,9 +548,14 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         if not (payload := data.get("payload")) or not (pdata := payload.get("data")):
             self._handle_subscription_error("vehicle state", data)
             return
-        vehicle_info = self._build_vehicle_info_dict(pdata.get(self.key, {}))
+        vijson = pdata.get(self.key) or {}
+        vehicle_info = self._build_vehicle_info_dict(vijson)
         self.async_set_updated_data(vehicle_info)
         self._error_count = 0
+        self._last_message = dt_util.utcnow()
+        for item in vijson.values():
+            if isinstance(item, dict) and isinstance(ts := item.get("timeStamp"), str):
+                self._note_report(dt_util.parse_datetime(ts))
         self._initial.set()
 
     @callback
@@ -605,10 +613,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         """Return the current data, or the default vehicle state before any."""
         if self.data:
             return self.data
-        return {
-            k: {"value": v, "history": _history(v)}
-            for k, v in DEFAULT_VEHICLE_STATE.items()
-        }
+        return {k: {"value": v} for k, v in DEFAULT_VEHICLE_STATE.items()}
 
     def _process_state_changes(self, items: dict[str, Any]) -> None:
         """Act on power and charger state changes in a batch of new items."""
@@ -621,15 +626,11 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             "value"
         ) != "charging_active":
             # Reset instantaneous charging metrics when not actively charging
-            items["timeToEndOfCharge"] = {"value": 0, "history": {0}}
+            items["timeToEndOfCharge"] = {"value": 0}
 
     def _build_vehicle_info_dict(self, vijson: dict[str, Any]) -> dict[str, Any]:
         """Take the json output of vehicle_info and build a dictionary."""
-        items = {
-            k: v | ({"history": _history(v["value"])} if "value" in v else {})
-            for k, v in vijson.items()
-            if v
-        }
+        items = {k: v for k, v in vijson.items() if v}
 
         if items:
             _LOGGER.debug("Vehicle %s updated: %s", self.vehicle_id, redact(items))
@@ -645,7 +646,6 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             value = items[key].get("value")
             if str(value).lower() in INVALID_SENSOR_STATES and key in prev_items:
                 new_data[key] = prev_items[key]
-            new_data[key]["history"] |= prev_items.get(key, {}).get("history", set())
 
         return new_data
 
@@ -663,6 +663,37 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             await unsub_handler()
         if close_monitor and (monitor := self.api._ws_monitor):
             await monitor.close()
+
+    def _note_report(self, reported: datetime | None) -> None:
+        """Keep the newest time the vehicle reported data."""
+        if reported and (self._last_report is None or reported > self._last_report):
+            self._last_report = reported
+
+    @property
+    def stale_since(self) -> datetime | None:
+        """Return when the vehicle last reported data, once that's a while ago.
+
+        None while updates are recent. Unlike updates_stale, this applies while
+        asleep too, so a long sleep shows how long it's been.
+        """
+        if self._last_report and (
+            dt_util.utcnow() - self._last_report > UPDATES_STALE_AFTER
+        ):
+            return self._last_report
+        return None
+
+    @property
+    def updates_stale(self) -> bool:
+        """Return True if updates have stopped arriving."""
+        now = dt_util.utcnow()
+        if self._last_message is None or now - self._last_message > UPDATES_STALE_AFTER:
+            return True
+        # Asleep, the vehicle reports nothing new, so only the connection counts
+        if not self.data or self.get("powerState") in (None, "sleep"):
+            return False
+        return (
+            self._last_report is None or now - self._last_report > UPDATES_STALE_AFTER
+        )
 
     def get(self, key: str) -> Any | None:
         """Get a data value by key."""
