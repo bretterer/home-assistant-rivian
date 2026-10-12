@@ -81,10 +81,10 @@ def async_remove_stale_entities(
     """Remove registry entries for entities that are no longer created.
 
     For entities gated by vehicle model or supported features, which earlier
-    versions created for vehicles that don't report them.
+    versions created for vehicles that don't report them, and removed entities.
     """
     registry = er.async_get(hass)
     for unique_id in set(possible_unique_ids) - set(created_unique_ids):
         if entity_id := registry.async_get_entity_id(platform, DOMAIN, unique_id):
-            _LOGGER.info("Removing %s, which this vehicle doesn't report", entity_id)
+            _LOGGER.info("Removing %s, which is no longer provided", entity_id)
             registry.async_remove(entity_id)

@@ -112,11 +112,16 @@ class RivianUpdateEntity(RivianVehicleEntity, UpdateEntity):
         }
 
     @property
-    def in_progress(self) -> bool | int:
-        """Update installation progress."""
-        if self._get_value("otaStatus") in INSTALLING_STATUS:
+    def in_progress(self) -> bool:
+        """Return True while an update is installing."""
+        return self._get_value("otaStatus") in INSTALLING_STATUS
+
+    @property
+    def update_percentage(self) -> int | None:
+        """Return the installation progress, if installing and reported."""
+        if self.in_progress:
             return self._get_value("otaInstallProgress")
-        return False
+        return None
 
     @property
     def supported_features(self) -> Feature:

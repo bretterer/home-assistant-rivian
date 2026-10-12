@@ -183,19 +183,8 @@ Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
 | Remote charging available                           | Sensor         |                                                                                          |
 | Service mode                                        | Sensor         |                                                                                          |
 | Software                                            | Update         |                                                                                          |
-| Software OTA - Available version\*                  | Sensor         |                                                                                          |
-| Software OTA - Available version git hash\*         | Sensor         |                                                                                          |
-| Software OTA - Available version number\*           | Sensor         |                                                                                          |
-| Software OTA - Available version week\*             | Sensor         |                                                                                          |
-| Software OTA - Available version year\*             | Sensor         |                                                                                          |
-| Software OTA - Current version\*                    | Sensor         |                                                                                          |
-| Software OTA - Current version git hash\*           | Sensor         |                                                                                          |
-| Software OTA - Current version number\*             | Sensor         |                                                                                          |
-| Software OTA - Current version week\*               | Sensor         |                                                                                          |
-| Software OTA - Current version year\*               | Sensor         |                                                                                          |
 | Software OTA - Download progress                    | Sensor         |                                                                                          |
 | Software OTA - Install duration                     | Sensor         |                                                                                          |
-| Software OTA - Install progress\*                   | Sensor         |                                                                                          |
 | Software OTA - Install ready                        | Sensor         |                                                                                          |
 | Software OTA - Install time                         | Sensor         |                                                                                          |
 | Software OTA - Install type                         | Sensor         | R1T and R1S only                                                                         |
