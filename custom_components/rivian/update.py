@@ -80,7 +80,8 @@ class RivianUpdateEntity(RivianVehicleEntity, UpdateEntity):
         current_hash = self._get_value("otaCurrentVersionGitHash") or ""
         if not (latest_hash := self._get_value("otaAvailableVersionGitHash")):
             latest_hash = current_hash
-        show_hash = (current_version, current_hash) != (latest_version, latest_hash)
+        # Only needed to tell builds of the same version apart
+        show_hash = current_version == latest_version and current_hash != latest_hash
 
         self._attr_installed_version = current_version + (
             f" ({current_hash})" if show_hash else ""

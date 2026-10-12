@@ -88,6 +88,8 @@ async def async_setup_entry(
         for models, descriptions in SENSORS.items()
         if any(model in vehicle["model"] for model in models)
         for description in descriptions
+        if description.supported_feature is None
+        or description.supported_feature in vehicle.get("supported_features", [])
     ]
 
     # Add charging entities
@@ -140,6 +142,9 @@ async def async_setup_entry(
             for vehicle in vehicles.values()
             for descriptions in SENSORS.values()
             for description in descriptions
+            # Keep feature-gated entities if the features didn't load
+            if description.supported_feature is None
+            or vehicle.get("supported_features")
         ),
         (entity.unique_id for entity in entities),
     )
