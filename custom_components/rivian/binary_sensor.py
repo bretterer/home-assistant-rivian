@@ -5,7 +5,10 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from homeassistant.components.binary_sensor import BinarySensorEntity
+from homeassistant.components.binary_sensor import (
+    DOMAIN as BINARY_SENSOR_DOMAIN,
+    BinarySensorEntity,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -14,6 +17,7 @@ from .const import ATTR_COORDINATOR, ATTR_VEHICLE, BINARY_SENSORS, DOMAIN
 from .coordinator import VehicleCoordinator
 from .data_classes import RivianBinarySensorEntityDescription
 from .entity import RivianVehicleEntity
+from .helpers import async_remove_stale_entities
 
 
 async def async_setup_entry(
@@ -27,11 +31,27 @@ async def async_setup_entry(
     entities = [
         RivianBinarySensorEntity(coordinators[vehicle_id], entry, description, vehicle)
         for vehicle_id, vehicle in vehicles.items()
-        for model, descriptions in BINARY_SENSORS.items()
-        if model in vehicle["model"]
+        for models, descriptions in BINARY_SENSORS.items()
+        if any(model in vehicle["model"] for model in models)
         for description in descriptions
+        if description.supported_feature is None
+        or description.supported_feature in vehicle.get("supported_features", [])
     ]
 
+    async_remove_stale_entities(
+        hass,
+        BINARY_SENSOR_DOMAIN,
+        (
+            f"{vehicle['vin']}-{description.key}"
+            for vehicle in vehicles.values()
+            for descriptions in BINARY_SENSORS.values()
+            for description in descriptions
+            # Keep feature-gated entities if the features didn't load
+            if description.supported_feature is None
+            or vehicle.get("supported_features")
+        ),
+        (entity.unique_id for entity in entities),
+    )
     async_add_entities(entities)
 
 

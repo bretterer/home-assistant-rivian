@@ -60,10 +60,14 @@ async def _async_set_schedule_time(
         await coordinator.update_charging_schedule_data({"duration": duration})
     else:
         old_dur = sched.get("duration", DEFAULT_CHARGING_SCHEDULE_DURATION)
-        old_end = (start_mins + old_dur) % MINUTES_PER_DAY
-        new_dur = old_end - target_mins
-        if new_dur <= 0:
-            new_dur += MINUTES_PER_DAY
+        if old_dur >= MINUTES_PER_DAY:
+            # An all-day schedule stays all day from its new start
+            new_dur = MINUTES_PER_DAY
+        else:
+            old_end = (start_mins + old_dur) % MINUTES_PER_DAY
+            new_dur = old_end - target_mins
+            if new_dur <= 0:
+                new_dur += MINUTES_PER_DAY
         await coordinator.update_charging_schedule_data(
             {"startTime": target_mins, "duration": new_dur}
         )

@@ -8,6 +8,8 @@ import logging
 from typing import Any, Final
 
 from homeassistant.components.sensor import (
+    DOMAIN as SENSOR_DOMAIN,
+    RestoreSensor,
     SensorDeviceClass,
     SensorEntity,
     SensorStateClass,
@@ -39,6 +41,7 @@ from .const import (
 )
 from .coordinator import DriverKeyCoordinator, VehicleCoordinator, WallboxCoordinator
 from .data_classes import (
+    RivianNavigationSensorEntityDescription,
     RivianSensorEntityDescription,
     RivianWallboxSensorEntityDescription,
 )
@@ -48,6 +51,7 @@ from .entity import (
     RivianVehicleEntity,
     RivianWallboxEntity,
 )
+from .helpers import async_remove_stale_entities
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -55,6 +59,15 @@ ALL_WEEK_DAYS: Final[frozenset[str]] = frozenset(WEEK_DAYS_ORDERED)
 WEEKDAYS_ONLY: Final[frozenset[str]] = frozenset(WEEK_DAYS_ORDERED[:5])
 
 RIVIAN_TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%S.%f%z"
+
+
+def _parse_timestamp(val: datetime | str | None) -> datetime | None:
+    """Parse a Rivian timestamp, which may already be a datetime (Parallax)."""
+    if not val:
+        return None
+    if isinstance(val, str):
+        return datetime.strptime(val, RIVIAN_TIMESTAMP_FORMAT).astimezone(UTC)
+    return val.astimezone(UTC)
 
 
 async def async_setup_entry(
@@ -72,8 +85,8 @@ async def async_setup_entry(
             vehicle_coordinators[vehicle_id], entry, description, vehicle
         )
         for vehicle_id, vehicle in vehicles.items()
-        for model, descriptions in SENSORS.items()
-        if model in vehicle["model"]
+        for models, descriptions in SENSORS.items()
+        if any(model in vehicle["model"] for model in models)
         for description in descriptions
     ]
 
@@ -114,7 +127,22 @@ async def async_setup_entry(
                 coord, entry, CHARGING_SCHEDULE_DAYS_SENSOR, vehicle
             )
         )
+        entities.extend(
+            RivianNavigationSensorEntity(coord, entry, description, vehicle)
+            for description in NAVIGATION_SENSORS
+        )
 
+    async_remove_stale_entities(
+        hass,
+        SENSOR_DOMAIN,
+        (
+            f"{vehicle['vin']}-{description.key}"
+            for vehicle in vehicles.values()
+            for descriptions in SENSORS.values()
+            for description in descriptions
+        ),
+        (entity.unique_id for entity in entities),
+    )
     async_add_entities(entities)
 
 
@@ -151,10 +179,158 @@ class RivianChargingScheduleDaysEntity(RivianVehicleEntity, SensorEntity):
         return ", ".join(ordered)
 
 
-class RivianSensorEntity(RivianVehicleEntity, SensorEntity):
+def _waypoints(coordinator: VehicleCoordinator) -> list[dict[str, Any]]:
+    """Return the trip's waypoints, or an empty list when not navigating."""
+    return coordinator.get("waypoints") or []
+
+
+def _next_stop(coordinator: VehicleCoordinator) -> dict[str, Any] | None:
+    """Return the trip's next stop."""
+    waypoints = _waypoints(coordinator)
+    return next(
+        (waypoint for waypoint in waypoints if waypoint.get("status") == "next_stop"),
+        None,
+    ) or next(
+        (waypoint for waypoint in waypoints if waypoint.get("status") != "arrived"),
+        None,
+    )
+
+
+def _destination(coordinator: VehicleCoordinator) -> dict[str, Any] | None:
+    """Return the trip's final stop."""
+    return waypoints[-1] if (waypoints := _waypoints(coordinator)) else None
+
+
+def _waypoint_name(waypoint: dict[str, Any] | None) -> str | None:
+    """Return a stop's name, or a charging stop's label (its address)."""
+    if not waypoint:
+        return None
+    return waypoint.get("name") or waypoint.get("label")
+
+
+def _live_arrival(coordinator: VehicleCoordinator, field: str) -> datetime | None:
+    """Return trip_progress's live arrival time, if sent since the trip was planned.
+
+    trip_progress keeps resending the last trip's values after navigation ends,
+    so they're only used when newer than the trip's waypoints.
+    """
+    data = coordinator.data or {}
+    progress = data.get(field) or {}
+    trip = data.get("waypoints") or {}
+    if (
+        (arrival := progress.get("value"))
+        and (progress_time := progress.get("timeStamp"))
+        and (trip_time := trip.get("timeStamp"))
+        and datetime.fromisoformat(progress_time) >= datetime.fromisoformat(trip_time)
+    ):
+        return arrival
+    return None
+
+
+def _arrival(
+    waypoint: dict[str, Any] | None, coordinator: VehicleCoordinator, live_field: str
+) -> datetime | None:
+    """Return a stop's live arrival time, or its planned one."""
+    if not waypoint:
+        return None
+    return _live_arrival(coordinator, live_field) or waypoint.get("arrivalTime")
+
+
+def _waypoint_attributes(waypoint: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Return a stop's location and charge details."""
+    if not waypoint:
+        return None
+    attributes = {
+        "type": waypoint.get("type"),
+        "latitude": waypoint.get("latitude"),
+        "longitude": waypoint.get("longitude"),
+    }
+    if waypoint.get("type") == "chargingStop":
+        attributes["arrival_state_of_charge"] = waypoint.get("arrivalStateOfCharge")
+        attributes["departure_state_of_charge"] = waypoint.get("departureStateOfCharge")
+        attributes["charge_duration"] = waypoint.get("chargeDuration")
+    else:
+        attributes["arrival_state_of_charge"] = waypoint.get("stateOfCharge")
+    return attributes
+
+
+NAVIGATION_SENSORS: Final[tuple[RivianNavigationSensorEntityDescription, ...]] = (
+    RivianNavigationSensorEntityDescription(
+        key="next_stop",
+        translation_key="next_stop",
+        value_fn=lambda coor: _waypoint_name(_next_stop(coor)),
+        attributes_fn=lambda coor: _waypoint_attributes(_next_stop(coor)),
+    ),
+    RivianNavigationSensorEntityDescription(
+        key="next_stop_eta",
+        translation_key="next_stop_eta",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        value_fn=lambda coor: _arrival(
+            _next_stop(coor), coor, "nextWaypointArrivalTime"
+        ),
+    ),
+    RivianNavigationSensorEntityDescription(
+        key="destination",
+        translation_key="destination",
+        value_fn=lambda coor: _waypoint_name(_destination(coor)),
+        attributes_fn=lambda coor: _waypoint_attributes(_destination(coor)),
+    ),
+    RivianNavigationSensorEntityDescription(
+        key="destination_eta",
+        translation_key="destination_eta",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        value_fn=lambda coor: _arrival(
+            _destination(coor), coor, "finalDestinationArrivalTime"
+        ),
+    ),
+)
+
+
+class RivianNavigationSensorEntity(RivianVehicleEntity, SensorEntity):
+    """Rivian navigation sensor entity, unknown while not navigating."""
+
+    entity_description: RivianNavigationSensorEntityDescription
+
+    @property
+    def available(self) -> bool:
+        """Return availability."""
+        return self._available
+
+    @property
+    def native_value(self) -> StateType | datetime:
+        """Return the state."""
+        return self.entity_description.value_fn(self.coordinator)
+
+    @property
+    def extra_state_attributes(self) -> Mapping[str, Any] | None:
+        """Return the stop's details."""
+        return self.entity_description.attributes_fn(self.coordinator)
+
+
+class RivianSensorEntity(RivianVehicleEntity, RestoreSensor):
     """Representation of a Rivian sensor entity."""
 
     entity_description: RivianSensorEntityDescription
+    _last_value: Any = None
+
+    async def async_added_to_hass(self) -> None:
+        """Restore the last value of a sensor that keeps it while unreported."""
+        await super().async_added_to_hass()
+        if self.entity_description.restore and (
+            last := await self.async_get_last_sensor_data()
+        ):
+            value = last.native_value
+            if (options := self.options) and value not in options:
+                # Saved before the enum values were lowercased, or since removed
+                value = value.lower() if str(value).lower() in options else None
+            self._last_value = value
+
+    @property
+    def available(self) -> bool:
+        """Return the availability of the entity."""
+        if self._last_value is not None and self._available:
+            return True
+        return super().available
 
     @property
     def native_value(self) -> str | None:
@@ -163,9 +339,13 @@ class RivianSensorEntity(RivianVehicleEntity, SensorEntity):
             return _fn(self.coordinator)
 
         if (val := self._get_value(self.entity_description.field)) is None:
+            if self._last_value is not None:
+                return self._last_value
             return STATE_UNAVAILABLE if not self.native_unit_of_measurement else None
 
         rval = _fn(val) if (_fn := self.entity_description.value_lambda) else val
+        if self.entity_description.restore:
+            self._last_value = rval
         if self.device_class == SensorDeviceClass.ENUM and rval not in self.options:
             _LOGGER.error(
                 "Sensor %s provides state value '%s', which is not in the list of known options. Please consider opening an issue at https://github.com/bretterer/home-assistant-rivian/issues with the following info: 'field: \"%s\" / value: \"%s\"'",
@@ -270,19 +450,18 @@ CHARGING_SENSORS: Final[tuple[RivianSensorEntityDescription, ...]] = (
         field="startTime",
         name="Charging Start Time",
         device_class=SensorDeviceClass.TIMESTAMP,
-        value_lambda=lambda val: (
-            datetime.strptime(val, RIVIAN_TIMESTAMP_FORMAT).astimezone(UTC)
-            if val
-            else val
-        ),
+        value_lambda=_parse_timestamp,
     ),
     RivianSensorEntityDescription(
         key="charging_time_elapsed",
-        field="timeElapsed",
+        # Minutes spent charging, as shown in the Rivian app (pauses while
+        # stopped/scheduled, unlike timeElapsed)
+        field="activeChargingTime",
         name="Charging Time Elapsed",
         device_class=SensorDeviceClass.DURATION,
         native_unit_of_measurement=UnitOfTime.SECONDS,
         state_class=SensorStateClass.TOTAL_INCREASING,
+        value_lambda=lambda val: val * 60 if val is not None else None,
     ),
 )
 

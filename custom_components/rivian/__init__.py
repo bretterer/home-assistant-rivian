@@ -25,6 +25,7 @@ from .const import (
     ATTR_WALLBOX,
     CONF_VEHICLE_CONTROL,
     DOMAIN,
+    ISSUE_STATE_VALUES_CHANGED,
     ISSUE_URL,
     VERSION,
 )
@@ -129,6 +130,29 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Migrate an old config entry."""
+    if entry.version > 1:
+        # Downgraded from a future version
+        return False
+
+    if entry.minor_version < 2:
+        # Sensor states changed from formatted text to lowercase API values,
+        # which automations and templates comparing them need updating for
+        async_create_issue(
+            hass,
+            DOMAIN,
+            ISSUE_STATE_VALUES_CHANGED,
+            is_fixable=True,
+            is_persistent=True,
+            severity=IssueSeverity.WARNING,
+            translation_key=ISSUE_STATE_VALUES_CHANGED,
+        )
+        hass.config_entries.async_update_entry(entry, minor_version=2)
+
+    return True
+
+
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
@@ -149,12 +173,19 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
         coordinator = UserCoordinator(
             hass=hass, config_entry=entry, client=client, include_phones=True
         )
-        await coordinator.async_config_entry_first_refresh()
-
-        if enrolled_data := coordinator.get_enrolled_phone_data(public_key=public_key):
-            for identity_id in enrolled_data[1].values():
-                await client.disenroll_phone(identity_id=identity_id)
-        await client.close()
+        try:
+            # The entry is no longer in setup, so first_refresh isn't allowed here
+            await coordinator.async_refresh()
+            if not coordinator.last_update_success:
+                _LOGGER.warning("Unable to disenroll phone: could not fetch user data")
+                return
+            if enrolled_data := coordinator.get_enrolled_phone_data(public_key):
+                for identity_id in enrolled_data[1].values():
+                    await client.disenroll_phone(identity_id=identity_id)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Unable to disenroll phone: %s", err)
+        finally:
+            await client.close()
 
 
 async def update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:

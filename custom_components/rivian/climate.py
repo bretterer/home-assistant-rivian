@@ -75,21 +75,21 @@ class RivianClimateEntity(RivianVehicleControlEntity, ClimateEntity):
     @property
     def target_temperature(self) -> float | None:
         """Return the temperature we try to reach."""
-        return self._get_value("cabinClimateDriverTemperature")
+        return self._get_value("hvacTargetTemperature")
 
     @property
     def hvac_mode(self) -> HVACMode | None:
         """Return hvac operation mode."""
         if self.preset_mode == DEFROST_DEFOG:
             return HVACMode.HEAT
-        if self._get_value("cabinPreconditioningType") != "NONE":
+        if self._get_value("cabinPreconditioningType") != "none":
             return HVACMode.HEAT_COOL
         return HVACMode.OFF
 
     @property
     def preset_mode(self) -> str | None:
         """Return the current preset mode."""
-        if self._get_value("defrostDefogStatus") != "Off":
+        if self._get_value("defrostDefogStatus") != "off":
             return DEFROST_DEFOG
         return {0: "LO", 63.5: "HI"}.get(self.target_temperature)
 
