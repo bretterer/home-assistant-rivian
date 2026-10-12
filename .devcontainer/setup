@@ -2,25 +2,42 @@
 
 set -e
 
+sudo apt-get update
+sudo apt-get install libturbojpeg0 libpcap0.8t64 ffmpeg -y
+
 cd "$(dirname "$0")/.."
 
-# Install system dependencies
-sudo apt-get update && sudo apt-get install -y libturbojpeg0
+# pip installs tools like pre-commit to ~/.local/bin, which may not be on PATH yet
+export PATH="$HOME/.local/bin:$PATH"
 
-# Install Python dependencies
-python3 -m pip install --upgrade pip
-python3 -m pip install --requirement requirements.txt
+if [ -f requirements.txt ]; then
+    python3 -m pip install --requirement requirements.txt --upgrade
+fi
 
-# Setup pre-commit hooks
-pre-commit install
+# Use the latest Home Assistant even if requirements.txt pins an older release
+python3 -m pip install --upgrade homeassistant isal zlib-ng
 
-# Create config directory and symlink custom_components
+# Install the go2rtc binary required by default_config, matching Home Assistant's recommended version
+GO2RTC_CONST=$(python3 -c "import importlib.util; print(importlib.util.find_spec('homeassistant').submodule_search_locations[0])")/components/go2rtc/const.py
+GO2RTC_VERSION=$(grep -oP 'RECOMMENDED_VERSION = "\K[^"]+' "$GO2RTC_CONST")
+GO2RTC_ARCH=$(dpkg --print-architecture)
+if ! command -v go2rtc >/dev/null || [ "$(go2rtc --version 2>&1 | grep -o '[0-9.]\+' | head -1)" != "$GO2RTC_VERSION" ]; then
+    sudo curl -fsSL "https://github.com/AlexxIT/go2rtc/releases/download/v${GO2RTC_VERSION}/go2rtc_linux_${GO2RTC_ARCH}" -o /usr/local/bin/go2rtc
+    sudo chmod +x /usr/local/bin/go2rtc
+fi
+
+if [ -f .pre-commit-config.yaml ] && command -v pre-commit >/dev/null; then
+    pre-commit install
+fi
+
+mkdir -p config
+
+# Repo-specific: symlink custom_components into the HA config directory and copy
+# the default configuration (carried over from this repo's previous setup script)
 mkdir -p config
 if [ ! -L config/custom_components ]; then
     ln -sf "$(pwd)/custom_components" config/custom_components
 fi
-
-# Copy default configuration if not exists
 if [ ! -f config/configuration.yaml ]; then
     cp .devcontainer/configuration.yaml config/configuration.yaml
 fi
