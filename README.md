@@ -166,8 +166,6 @@ Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
 | Liftgate                                            | Binary sensor  | Open/close status, R1S and R2 only                                                       |
 | Liftgate lock                                       | Binary sensor  | Locked/unlocked status, R1S and R2 only                                                  |
 | Liftgate next action                                | Sensor         | R1S and R2 only                                                                          |
-| Liftgate window                                     | Binary sensor  | Open/closed status, R2 only                                                              |
-| Liftgate window calibration state                   | Sensor         | R2 only                                                                                  |
 | Limited acceleration (cold)                         | Sensor         |                                                                                          |
 | Limited regenerative braking (cold)                 | Sensor         |                                                                                          |
 | Locked state                                        | Binary sensor  | Locked/unlocked status of all closures                                                   |
@@ -219,10 +217,12 @@ Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
 | Voltage maximum                                     | Sensor         | Wallbox maximum voltage                                                                  |
 | Window calibration front left state                 | Sensor         |                                                                                          |
 | Window calibration front right state                | Sensor         |                                                                                          |
+| Window calibration liftgate state                   | Sensor         | R2 only                                                                                  |
 | Window calibration rear left state                  | Sensor         |                                                                                          |
 | Window calibration rear right state                 | Sensor         |                                                                                          |
 | Window front left                                   | Binary sensor  | Open/close status                                                                        |
 | Window front right                                  | Binary sensor  | Open/close status                                                                        |
+| Window liftgate                                     | Binary sensor  | Open/closed status, R2 only                                                              |
 | Window rear left                                    | Binary sensor  | Open/close status                                                                        |
 | Window rear right                                   | Binary sensor  | Open/close status                                                                        |
 | Windows next action                                 | Sensor         |                                                                                          |

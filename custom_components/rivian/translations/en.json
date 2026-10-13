@@ -203,7 +203,7 @@
         "name": "Vehicle updates"
       },
       "window_rear_closed": {
-        "name": "Liftgate window"
+        "name": "Window liftgate"
       }
     },
     "button": {
@@ -947,7 +947,7 @@
         }
       },
       "window_rear_calibrated": {
-        "name": "Liftgate window calibration state",
+        "name": "Window calibration liftgate state",
         "state": {
           "calibrated": "Calibrated",
           "not_calibrated": "Not calibrated"
