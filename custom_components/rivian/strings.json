@@ -202,6 +202,9 @@
       },
       "vehicle_updates": {
         "name": "Vehicle updates"
+      },
+      "window_rear_closed": {
+        "name": "Liftgate window"
       }
     },
     "button": {
@@ -942,6 +945,13 @@
           "charging_degraded_ac": "AC charging reduced",
           "charging_disabled_partial_connection": "Charging disabled (partial connection)",
           "charging_disabled_not_parked": "Charging disabled (not in park)"
+        }
+      },
+      "window_rear_calibrated": {
+        "name": "Liftgate window calibration state",
+        "state": {
+          "calibrated": "Calibrated",
+          "not_calibrated": "Not calibrated"
         }
       }
     },

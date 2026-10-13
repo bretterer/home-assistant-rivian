@@ -902,6 +902,17 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
             ],
         ),
     ),
+    # The R2's rear glass, which drops into the liftgate
+    ("R2",): (
+        RivianSensorEntityDescription(
+            key="window_rear_calibrated",
+            translation_key="window_rear_calibrated",
+            field="windowRearCalibrated",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            device_class=SensorDeviceClass.ENUM,
+            options=WINDOW_CALIBRATION_OPTIONS,
+        ),
+    ),
 }
 BINARY_SENSORS: Final[
     dict[tuple[str, ...], tuple[RivianBinarySensorEntityDescription, ...]]
@@ -1288,6 +1299,16 @@ BINARY_SENSORS: Final[
             on_value=["level_1", "level_2", "level_3"],
         ),
     ),
+    # The R2's rear glass, which drops into the liftgate
+    ("R2",): (
+        RivianBinarySensorEntityDescription(
+            key="window_rear_closed",
+            field="windowRearClosed",
+            translation_key="window_rear_closed",
+            device_class=BinarySensorDeviceClass.WINDOW,
+            on_value="open",
+        ),
+    ),
 }
 
 BTM_FAILURE_STATUS_FIELDS: Final[frozenset[str]] = frozenset(
@@ -1304,6 +1325,7 @@ WINDOW_CALIBRATION_FIELDS: Final[frozenset[str]] = frozenset(
     {
         "windowFrontLeftCalibrated",
         "windowFrontRightCalibrated",
+        "windowRearCalibrated",
         "windowRearLeftCalibrated",
         "windowRearRightCalibrated",
     }

@@ -166,6 +166,8 @@ Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
 | Liftgate                                            | Binary sensor  | Open/close status, R1S and R2 only                                                       |
 | Liftgate lock                                       | Binary sensor  | Locked/unlocked status, R1S and R2 only                                                  |
 | Liftgate next action                                | Sensor         | R1S and R2 only                                                                          |
+| Liftgate window                                     | Binary sensor  | Open/closed status, R2 only                                                              |
+| Liftgate window calibration state                   | Sensor         | R2 only                                                                                  |
 | Limited acceleration (cold)                         | Sensor         |                                                                                          |
 | Limited regenerative braking (cold)                 | Sensor         |                                                                                          |
 | Locked state                                        | Binary sensor  | Locked/unlocked status of all closures                                                   |
