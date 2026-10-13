@@ -351,6 +351,9 @@
                 "state": {
                     "none": "mdi:power-plug-outline"
                 }
+            },
+            "window_rear_calibrated": {
+                "default": "mdi:window-closed"
             }
         },
         "switch": {
