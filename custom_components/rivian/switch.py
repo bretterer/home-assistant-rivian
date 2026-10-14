@@ -13,7 +13,7 @@ from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import ATTR_COORDINATOR, ATTR_VEHICLE, DOMAIN
+from .const import ACTIVE_CHARGING_STATES, ATTR_COORDINATOR, ATTR_VEHICLE, DOMAIN
 from .coordinator import VehicleCoordinator
 from .data_classes import RivianSwitchEntityDescription
 from .entity import RivianVehicleControlEntity, RivianVehicleEntity
@@ -34,13 +34,13 @@ SWITCHES: Final[tuple[RivianSwitchEntityDescription, ...]] = (
     RivianSwitchEntityDescription(
         key="charging_enabled",
         translation_key="charging_enabled",
+        # Startable remotely (charging is held, e.g. by a schedule), or charging,
+        # so it can be stopped
         available=lambda coor: (
             coor.get("remoteChargingAvailable") == "true"
-            or coor.get("chargerState") == "charging_active"
+            or coor.get("chargerState") in ACTIVE_CHARGING_STATES
         ),
-        is_on=lambda coor: (
-            coor.get("chargerState") in ("charging_active", "charging_connecting")
-        ),
+        is_on=lambda coor: coor.get("chargerState") in ACTIVE_CHARGING_STATES,
         turn_off=lambda coor: coor.send_vehicle_command(
             command=VehicleCommand.STOP_CHARGING
         ),
@@ -141,19 +141,12 @@ class RivianSwitchEntity(RivianVehicleControlEntity, SwitchEntity):
         """Return True if entity is on."""
         return self.entity_description.is_on(self.coordinator)
 
-    @property
-    def available(self) -> bool:
-        """Return the availability of the entity."""
-        return super().available and (
-            _fn(self.coordinator)
-            if (_fn := self.entity_description.available)
-            else True
-        )
-
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the entity off."""
         await self.entity_description.turn_off(self.coordinator)
+        self._settle_after_command()
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the entity on."""
         await self.entity_description.turn_on(self.coordinator)
+        self._settle_after_command()

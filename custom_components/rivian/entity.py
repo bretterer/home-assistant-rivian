@@ -11,8 +11,9 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_ZONE
 from homeassistant.core import callback
 from homeassistant.helpers.entity import DeviceInfo, EntityDescription
-from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.event import async_call_later, async_track_time_interval
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import dt as dt_util
 
 from .const import ATTR_COORDINATOR, ATTR_USER, DOMAIN
 from .coordinator import (
@@ -101,8 +102,15 @@ class RivianVehicleFreshnessEntity(RivianVehicleEntity):
         return True
 
 
+# How long an entity's own availability check is set aside after a command
+COMMAND_SETTLE_TIME = timedelta(seconds=30)
+
+
 class RivianVehicleControlEntity(RivianVehicleEntity):
     """Base class for Rivian vehicle control entities."""
+
+    _settle_until: datetime | None = None
+    _unsub_settle: Any = None
 
     @property
     def available(self) -> bool:
@@ -110,7 +118,7 @@ class RivianVehicleControlEntity(RivianVehicleEntity):
         if not (super().available and self._get_value("gearStatus") == "park"):
             return False
         _fn = getattr(self.entity_description, "available", None)
-        if _fn and not _fn(self.coordinator):
+        if _fn and not _fn(self.coordinator) and not self._settling:
             return False
         if zone_entity_ids := self._config_entry.options.get(CONF_ZONE, []):
             location = self.coordinator.data.get("gnssLocation", {})
@@ -120,6 +128,39 @@ class RivianVehicleControlEntity(RivianVehicleEntity):
                     return True
             return False
         return True
+
+    @property
+    def _settling(self) -> bool:
+        """Return True shortly after a command, while its effects are reported."""
+        return self._settle_until is not None and dt_util.utcnow() < self._settle_until
+
+    @callback
+    def _settle_after_command(self) -> None:
+        """Keep the entity available while the vehicle reports a command's effects.
+
+        The vehicle reports them in separate messages (e.g. that a remote start
+        is no longer offered, then that charging is connecting), so an
+        availability check based on them could otherwise briefly fail.
+        """
+        self._settle_until = dt_util.utcnow() + COMMAND_SETTLE_TIME
+        if self._unsub_settle:
+            self._unsub_settle()
+        self._unsub_settle = async_call_later(
+            self.hass, COMMAND_SETTLE_TIME, self._async_settled
+        )
+
+    @callback
+    def _async_settled(self, _now: datetime) -> None:
+        """Re-check availability once the settle time is over."""
+        self._unsub_settle = None
+        self.async_write_ha_state()
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Cancel a pending settle check."""
+        if self._unsub_settle:
+            self._unsub_settle()
+            self._unsub_settle = None
+        await super().async_will_remove_from_hass()
 
     def _handle_driver_update(self) -> None:
         """Handle driver update."""
