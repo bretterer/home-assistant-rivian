@@ -59,8 +59,9 @@ T = TypeVar("T", bound=dict[str, Any] | list[dict[str, Any]])
 # subscription is established, so this needs meaningful headroom.
 INITIAL_UPDATE_TIMEOUT = 60
 # How long to wait before subscribing again when subscribing fails without the
-# web socket backing off
+# web socket backing off, doubling for each such failure in a row up to the max
 SUBSCRIBE_RETRY_DELAY = 60
+SUBSCRIBE_RETRY_MAX_DELAY = 900
 # How long the web socket can stay rate limited before offering to log in again,
 # which starts a new session without the rate limit, and then before requiring it
 RATE_LIMIT_ISSUE_AFTER = timedelta(minutes=30)
@@ -361,8 +362,10 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         # When any message last arrived, and the newest time the vehicle reported
         self._last_message: datetime | None = None
         self._last_report: datetime | None = None
-        # When subscribing first failed for a rate limit, since it last worked
+        # When subscribing first failed for a rate limit, and how many times it
+        # failed without a backoff, since it last worked
         self._rate_limited_since: datetime | None = None
+        self._subscribe_failures = 0
         # All of the vehicle's charging schedules (entities manage the first);
         # None until fetched successfully
         self._charging_schedules: list[dict[str, Any]] | None = None
@@ -485,6 +488,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
                     return {}
                 raise UpdateFailed(message, retry_after=delay)
 
+            self._subscribe_failures = 0
             if self._rate_limited_since:
                 self._rate_limited_since = None
                 async_delete_issue(self.hass, DOMAIN, self._rate_limited_issue_id)
@@ -532,7 +536,13 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         # so wait that out
         if backoff := self.api.ws_backoff_remaining:
             return backoff + 1
-        return SUBSCRIBE_RETRY_DELAY
+        # Otherwise back off here, as each retry connects
+        delay = min(
+            SUBSCRIBE_RETRY_DELAY * 2**self._subscribe_failures,
+            SUBSCRIBE_RETRY_MAX_DELAY,
+        )
+        self._subscribe_failures += 1
+        return delay
 
     async def _retry_subscribe(self, _: datetime) -> None:
         """Subscribe again after subscribing failed during setup."""

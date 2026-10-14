@@ -374,9 +374,15 @@ def _setup_mock_environment() -> None:
         helpers_mod.update_coordinator.CoordinatorEntity = (  # type: ignore[attr-defined]
             MockCoordinatorEntity
         )
-        helpers_mod.update_coordinator.UpdateFailed = type(
-            "UpdateFailed", (Exception,), {}
-        )  # type: ignore[attr-defined]
+
+        class UpdateFailed(Exception):
+            """Mock UpdateFailed, with its retry_after."""
+
+            def __init__(self, *args: Any, retry_after: float | None = None) -> None:
+                super().__init__(*args)
+                self.retry_after = retry_after
+
+        helpers_mod.update_coordinator.UpdateFailed = UpdateFailed  # type: ignore[attr-defined]
 
         helpers_mod.aiohttp_client = DynamicModule(
             "homeassistant.helpers.aiohttp_client", is_package=False
@@ -592,6 +598,35 @@ def _setup_mock_environment() -> None:
         sys.modules["homeassistant.components.diagnostics"] = diag_mod
         sys.modules["homeassistant.components.diagnostics.util"] = diag_util_mod
         comp_mod.diagnostics = diag_mod
+
+        # repairs: a confirm flow like Home Assistant's, without the flow manager
+        repairs_mod = DynamicModule(
+            "homeassistant.components.repairs", is_package=False
+        )
+
+        class RepairsFlow:
+            """Mock RepairsFlow."""
+
+        class ConfirmRepairFlow(RepairsFlow):
+            """Mock ConfirmRepairFlow."""
+
+            async def async_step_init(
+                self, user_input: dict[str, str] | None = None
+            ) -> dict[str, Any]:
+                return await self.async_step_confirm()
+
+            async def async_step_confirm(
+                self, user_input: dict[str, str] | None = None
+            ) -> dict[str, Any]:
+                if user_input is not None:
+                    return {"type": "create_entry", "data": {}}
+                return {"type": "form", "step_id": "confirm"}
+
+        repairs_mod.RepairsFlow = RepairsFlow  # type: ignore[attr-defined]
+        repairs_mod.ConfirmRepairFlow = ConfirmRepairFlow  # type: ignore[attr-defined]
+        repairs_mod.RepairsFlowResult = dict  # type: ignore[attr-defined]
+        sys.modules["homeassistant.components.repairs"] = repairs_mod
+        comp_mod.repairs = repairs_mod
 
         # Entity descriptions for platforms
         @dataclass(kw_only=True)
