@@ -2,16 +2,10 @@
 
 from __future__ import annotations
 
-import sys
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
-# The conftest mocks the rivian client without its parallax submodule, which
-# the coordinator imports. Stub it only when the client is the mock (no __spec__).
-if "rivian" in sys.modules and sys.modules["rivian"].__spec__ is None:
-    sys.modules.setdefault("rivian.parallax", MagicMock())
 
 from custom_components.rivian import config_flow
 from custom_components.rivian.const import (
