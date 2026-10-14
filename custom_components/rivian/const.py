@@ -79,6 +79,13 @@ CLOSURE_STATE_ENTITIES = {
 
 INVALID_SENSOR_STATES = {"fault", "signal_not_available", "undefined"}
 
+# Charger states in which the vehicle is charging (or about to)
+ACTIVE_CHARGING_STATES: Final[tuple[str, ...]] = (
+    "charging_active",
+    "charging_connecting",
+    "smart_charging_active",
+)
+
 
 TIRE_PRESSURE_STATUS_OPTIONS: Final[list[str]] = [
     "ok",
@@ -937,7 +944,7 @@ BINARY_SENSORS: Final[
             field="chargerState",
             translation_key="charger_state",
             device_class=BinarySensorDeviceClass.BATTERY_CHARGING,
-            on_value=["charging_active", "charging_connecting"],
+            on_value=list(ACTIVE_CHARGING_STATES),
         ),
         RivianBinarySensorEntityDescription(
             key="charger_status",
