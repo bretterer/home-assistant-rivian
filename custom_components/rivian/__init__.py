@@ -11,11 +11,7 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers.device_registry import DeviceEntry
-from homeassistant.helpers.issue_registry import (
-    IssueSeverity,
-    async_create_issue,
-    async_delete_issue,
-)
+from homeassistant.helpers.issue_registry import IssueSeverity, async_create_issue
 
 from .const import (
     ATTR_API,
@@ -74,19 +70,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await coordinator.async_config_entry_first_refresh()
 
     vehicle_control = entry.options.get(CONF_VEHICLE_CONTROL)
-    if vehicle_control and not coordinator.data.get("registrationChannels"):
-        vehicle_control = []
-        async_create_issue(
-            hass,
-            DOMAIN,
-            entry.entry_id,
-            is_fixable=False,
-            is_persistent=False,
-            severity=IssueSeverity.WARNING,
-            translation_key="2fa_missing",
-        )
-    else:
-        async_delete_issue(hass, DOMAIN, entry.entry_id)
 
     vehicles = coordinator.get_vehicles()
     if vehicle_control and (
