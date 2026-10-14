@@ -23,6 +23,12 @@ from rivian.parallax import decode_parallax_message
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
+from homeassistant.helpers.event import async_call_later
+from homeassistant.helpers.issue_registry import (
+    IssueSeverity,
+    async_create_issue,
+    async_delete_issue,
+)
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
@@ -35,6 +41,7 @@ from .const import (
     DEFAULT_VEHICLE_STATE,
     DOMAIN,
     INVALID_SENSOR_STATES,
+    ISSUE_RATE_LIMITED,
     PARALLAX_IGNORED_RVMS,
     PARALLAX_NONE_CLEARS,
     PARALLAX_NONE_VALUES,
@@ -51,6 +58,17 @@ T = TypeVar("T", bound=dict[str, Any] | list[dict[str, Any]])
 # The first `_process_new_data` callback has been observed ~27s after the
 # subscription is established, so this needs meaningful headroom.
 INITIAL_UPDATE_TIMEOUT = 60
+# How long to wait before subscribing again when subscribing fails without the
+# web socket backing off
+SUBSCRIBE_RETRY_DELAY = 60
+# How long the web socket can stay rate limited before offering to log in again,
+# which starts a new session without the rate limit, and then before requiring it
+RATE_LIMIT_ISSUE_AFTER = timedelta(minutes=30)
+RATE_LIMIT_REAUTH_AFTER = timedelta(hours=6)
+RATE_LIMIT_ISSUE_PLACEHOLDERS = {
+    "issue_after": f"{RATE_LIMIT_ISSUE_AFTER / timedelta(minutes=1):g}",
+    "reauth_after": f"{RATE_LIMIT_REAUTH_AFTER / timedelta(hours=1):g}",
+}
 CHARGING_SCHEDULE_COOL_OFF = 10
 CHARGING_SCHEDULE_REFRESH_INTERVAL = 900
 # Max age of a navigation location fix to use (trip_progress resends its last
@@ -343,6 +361,8 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         # When any message last arrived, and the newest time the vehicle reported
         self._last_message: datetime | None = None
         self._last_report: datetime | None = None
+        # When subscribing first failed for a rate limit, since it last worked
+        self._rate_limited_since: datetime | None = None
         # All of the vehicle's charging schedules (entities manage the first);
         # None until fetched successfully
         self._charging_schedules: list[dict[str, Any]] | None = None
@@ -441,19 +461,33 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
                 callback=self._process_new_data,
             )
 
-            # Subscribe to Parallax messages for live vehicle and charging data
-            self._unsub_parallax = await self.api.subscribe_for_parallax_messages(
-                vehicle_id=self.vehicle_id,
-                callback=self._process_parallax_data,
-            )
+            # Subscribe to Parallax messages for live vehicle and charging data,
+            # unless the web socket already failed
+            if self._unsub_handler:
+                self._unsub_parallax = await self.api.subscribe_for_parallax_messages(
+                    vehicle_id=self.vehicle_id,
+                    callback=self._process_parallax_data,
+                )
 
             # The client returns None, rather than raising, when subscribing fails
             if not self._unsub_handler or not self._unsub_parallax:
                 await self._unsubscribe()
-                raise UpdateFailed(
-                    f"Unable to subscribe to vehicle {self.vehicle_id} updates"
-                )
+                message = f"Unable to subscribe to vehicle {self.vehicle_id} updates"
+                delay = self._subscribe_retry_delay(message)
+                if self.data is None:
+                    # Finish setting up without data and subscribe again later, so
+                    # it doesn't wait on Home Assistant's slower setup retries once
+                    # a rate limit has passed. The client has already logged why
+                    _LOGGER.debug("%s, retrying in %.0f seconds", message, delay)
+                    self.config_entry.async_on_unload(
+                        async_call_later(self.hass, delay, self._retry_subscribe)
+                    )
+                    return {}
+                raise UpdateFailed(message, retry_after=delay)
 
+            if self._rate_limited_since:
+                self._rate_limited_since = None
+                async_delete_issue(self.hass, DOMAIN, self._rate_limited_issue_id)
             try:
                 await asyncio.wait_for(self._initial.wait(), INITIAL_UPDATE_TIMEOUT)
             except TimeoutError as err:
@@ -464,11 +498,58 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
 
         return self.data
 
+    def _subscribe_retry_delay(self, message: str) -> float:
+        """Return how long to wait before subscribing again after it failed.
+
+        Raises ConfigEntryAuthFailed when only a new login can help: the session
+        was rejected, or has been rate limited for RATE_LIMIT_REAUTH_AFTER. Before
+        that, a rate limit lasting RATE_LIMIT_ISSUE_AFTER raises a repair issue
+        that offers to log in again.
+        """
+        # The web socket doesn't reconnect once the session is rejected
+        if self.api.ws_unauthenticated:
+            raise ConfigEntryAuthFailed(f"{message}: session unauthenticated")
+        if self.api.ws_rate_limited:
+            now = dt_util.utcnow()
+            self._rate_limited_since = since = self._rate_limited_since or now
+            if now - since >= RATE_LIMIT_REAUTH_AFTER:
+                raise ConfigEntryAuthFailed(
+                    f"{message}: rate limited since {since.isoformat()}"
+                )
+            if now - since >= RATE_LIMIT_ISSUE_AFTER:
+                async_create_issue(
+                    self.hass,
+                    DOMAIN,
+                    self._rate_limited_issue_id,
+                    data={"entry_id": self.config_entry.entry_id},
+                    is_fixable=True,
+                    is_persistent=False,
+                    severity=IssueSeverity.WARNING,
+                    translation_key=ISSUE_RATE_LIMITED,
+                    translation_placeholders=RATE_LIMIT_ISSUE_PLACEHOLDERS,
+                )
+        # Subscribing fails without connecting while the web socket is backing off,
+        # so wait that out
+        if backoff := self.api.ws_backoff_remaining:
+            return backoff + 1
+        return SUBSCRIBE_RETRY_DELAY
+
+    async def _retry_subscribe(self, _: datetime) -> None:
+        """Subscribe again after subscribing failed during setup."""
+        await self.async_request_refresh()
+
     async def _fetch_data(self) -> ClientResponse:
         """Fetch the data."""
         raise NotImplementedError("Polling VehicleState no longer allowed")
 
+    @property
+    def _rate_limited_issue_id(self) -> str:
+        """Return the ID of the repair issue for a lasting rate limit."""
+        return f"{ISSUE_RATE_LIMITED}_{self.config_entry.entry_id}"
+
     async def async_shutdown(self) -> None:
+        # Raised again if the rate limit outlasts a reload
+        async_delete_issue(self.hass, DOMAIN, self._rate_limited_issue_id)
         await self._unsubscribe(True)
         return await super().async_shutdown()
 
