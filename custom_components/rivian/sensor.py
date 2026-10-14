@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 import logging
 from typing import Any, Final
 
@@ -207,16 +207,57 @@ def _waypoints(coordinator: VehicleCoordinator) -> list[dict[str, Any]]:
     return coordinator.get("waypoints") or []
 
 
-def _next_stop(coordinator: VehicleCoordinator) -> dict[str, Any] | None:
-    """Return the trip's next stop."""
+# Statuses of the stop the vehicle is at: "stopping", then "arrived"
+AT_STOP_STATUSES: Final = ("stopping", "arrived")
+
+
+def _current_stop(coordinator: VehicleCoordinator) -> dict[str, Any] | None:
+    """Return the stop the vehicle is at, if any."""
     waypoints = _waypoints(coordinator)
+    if waypoints and waypoints[0].get("status") in AT_STOP_STATUSES:
+        return waypoints[0]
+    return None
+
+
+def _next_stop(coordinator: VehicleCoordinator) -> dict[str, Any] | None:
+    """Return the trip's next stop, past the one the vehicle is at."""
+    waypoints = _waypoints(coordinator)
+    current = _current_stop(coordinator)
     return next(
         (waypoint for waypoint in waypoints if waypoint.get("status") == "next_stop"),
         None,
     ) or next(
-        (waypoint for waypoint in waypoints if waypoint.get("status") != "arrived"),
+        (waypoint for waypoint in waypoints if waypoint is not current),
         None,
     )
+
+
+def _next_stop_attributes(coordinator: VehicleCoordinator) -> dict[str, Any] | None:
+    """Return the next stop's details, and the stop the vehicle is at."""
+    attributes = _waypoint_attributes(_next_stop(coordinator))
+    current = _current_stop(coordinator)
+    if attributes is None and current is None:
+        return None
+    return (attributes or {}) | {"arrived_at": _waypoint_name(current)}
+
+
+def _next_stop_arrival(coordinator: VehicleCoordinator) -> datetime | None:
+    """Return the next stop's live arrival time, or its planned one."""
+    if not (waypoint := _next_stop(coordinator)):
+        return None
+    if not _current_stop(coordinator):
+        return _arrival(waypoint, coordinator, "nextWaypointArrivalTime")
+    # At a stop, trip_progress counts down to it (sliding later while parked)
+    # and the planned arrival isn't updated, so add the drive on from there
+    index = next(i for i, w in enumerate(_waypoints(coordinator)) if w is waypoint)
+    legs = (coordinator.get("legs") or [])[1 : index + 1]
+    if (
+        (leaving := _live_arrival(coordinator, "nextWaypointArrivalTime"))
+        and len(legs) == index
+        and all(leg.get("duration") is not None for leg in legs)
+    ):
+        return leaving + timedelta(seconds=sum(leg["duration"] for leg in legs))
+    return waypoint.get("arrivalTime")
 
 
 def _destination(coordinator: VehicleCoordinator) -> dict[str, Any] | None:
@@ -282,15 +323,13 @@ NAVIGATION_SENSORS: Final[tuple[RivianNavigationSensorEntityDescription, ...]] =
         key="next_stop",
         translation_key="next_stop",
         value_fn=lambda coor: _waypoint_name(_next_stop(coor)),
-        attributes_fn=lambda coor: _waypoint_attributes(_next_stop(coor)),
+        attributes_fn=_next_stop_attributes,
     ),
     RivianNavigationSensorEntityDescription(
         key="next_stop_eta",
         translation_key="next_stop_eta",
         device_class=SensorDeviceClass.TIMESTAMP,
-        value_fn=lambda coor: _arrival(
-            _next_stop(coor), coor, "nextWaypointArrivalTime"
-        ),
+        value_fn=_next_stop_arrival,
     ),
     RivianNavigationSensorEntityDescription(
         key="destination",
