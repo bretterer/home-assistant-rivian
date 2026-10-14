@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 import logging
 from typing import Any, Final
 
@@ -207,34 +207,27 @@ def _waypoints(coordinator: VehicleCoordinator) -> list[dict[str, Any]]:
     return coordinator.get("waypoints") or []
 
 
-# Statuses of a stop the vehicle is at; the trip drops it once the vehicle leaves
-AT_STOP_STATUSES: Final = ("arrived", "stopping")
+# Statuses of the stop the vehicle is at: "stopping", then "arrived"
+AT_STOP_STATUSES: Final = ("stopping", "arrived")
 
 
 def _current_stop(coordinator: VehicleCoordinator) -> dict[str, Any] | None:
     """Return the stop the vehicle is at, if any."""
-    return next(
-        (
-            waypoint
-            for waypoint in _waypoints(coordinator)
-            if waypoint.get("status") in AT_STOP_STATUSES
-        ),
-        None,
-    )
+    waypoints = _waypoints(coordinator)
+    if waypoints and waypoints[0].get("status") in AT_STOP_STATUSES:
+        return waypoints[0]
+    return None
 
 
 def _next_stop(coordinator: VehicleCoordinator) -> dict[str, Any] | None:
     """Return the trip's next stop, past the one the vehicle is at."""
     waypoints = _waypoints(coordinator)
+    current = _current_stop(coordinator)
     return next(
         (waypoint for waypoint in waypoints if waypoint.get("status") == "next_stop"),
         None,
     ) or next(
-        (
-            waypoint
-            for waypoint in waypoints
-            if waypoint.get("status") not in AT_STOP_STATUSES
-        ),
+        (waypoint for waypoint in waypoints if waypoint is not current),
         None,
     )
 
@@ -252,10 +245,19 @@ def _next_stop_arrival(coordinator: VehicleCoordinator) -> datetime | None:
     """Return the next stop's live arrival time, or its planned one."""
     if not (waypoint := _next_stop(coordinator)):
         return None
-    if _current_stop(coordinator):
-        # At a stop, trip_progress keeps counting down to it, not the next one
-        return waypoint.get("arrivalTime")
-    return _arrival(waypoint, coordinator, "nextWaypointArrivalTime")
+    if not _current_stop(coordinator):
+        return _arrival(waypoint, coordinator, "nextWaypointArrivalTime")
+    # At a stop, trip_progress counts down to it (sliding later while parked)
+    # and the planned arrival isn't updated, so add the drive on from there
+    index = next(i for i, w in enumerate(_waypoints(coordinator)) if w is waypoint)
+    legs = (coordinator.get("legs") or [])[1 : index + 1]
+    if (
+        (leaving := _live_arrival(coordinator, "nextWaypointArrivalTime"))
+        and len(legs) == index
+        and all(leg.get("duration") is not None for leg in legs)
+    ):
+        return leaving + timedelta(seconds=sum(leg["duration"] for leg in legs))
+    return waypoint.get("arrivalTime")
 
 
 def _destination(coordinator: VehicleCoordinator) -> dict[str, Any] | None:

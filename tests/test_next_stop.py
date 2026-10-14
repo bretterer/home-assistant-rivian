@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -22,7 +22,11 @@ LIVE_ARRIVAL = datetime(2026, 1, 1, 12, 11, tzinfo=UTC)
 ARRIVALS = {GROCERY: GROCERY_ARRIVAL, TRAILHEAD: TRAILHEAD_ARRIVAL}
 
 
-def coordinator(*stops: tuple[str, str]) -> MagicMock:
+# The drive to each stop, in seconds
+DRIVES = {BAKERY: 300, GROCERY: 600, TRAILHEAD: 900}
+
+
+def coordinator(*stops: tuple[str, str], legs: bool = True) -> MagicMock:
     """A coordinator navigating through stops of (name, status)."""
     waypoints = [
         {
@@ -36,6 +40,8 @@ def coordinator(*stops: tuple[str, str]) -> MagicMock:
         for name, status in stops
     ]
     values: dict[str, Any] = {"waypoints": waypoints}
+    if legs:
+        values["legs"] = [{"duration": DRIVES[name]} for name, _ in stops]
     coor = MagicMock()
     coor.get.side_effect = values.get
     coor.data = {
@@ -81,9 +87,27 @@ def test_trip_with_two_stops(
     assert sensor._next_stop_attributes(coor)["arrived_at"] == arrived_at
 
 
-def test_eta_at_a_stop_is_the_planned_one() -> None:
-    """trip_progress counts down to the stop the vehicle is at, so skip it."""
+def test_eta_at_a_stop_adds_the_drive_on() -> None:
+    """At a stop, trip_progress counts down to it, so add the next drive.
+
+    The planned arrival isn't updated while parked, so it falls into the past.
+    """
     coor = coordinator((GROCERY, "stopping"), (TRAILHEAD, "future"))
+
+    assert sensor._next_stop_arrival(coor) == LIVE_ARRIVAL + timedelta(seconds=900)
+
+
+def test_eta_at_a_stop_without_legs_is_the_planned_one() -> None:
+    """Without the drive's duration, fall back to the planned arrival."""
+    coor = coordinator((GROCERY, "stopping"), (TRAILHEAD, "future"), legs=False)
+
+    assert sensor._next_stop_arrival(coor) == TRAILHEAD_ARRIVAL
+
+
+def test_eta_at_a_stop_without_live_time_is_the_planned_one() -> None:
+    """Without trip_progress since the trip was planned, use the planned arrival."""
+    coor = coordinator((GROCERY, "stopping"), (TRAILHEAD, "future"))
+    coor.data["nextWaypointArrivalTime"]["timeStamp"] = "2026-01-01T12:08:00+00:00"
 
     assert sensor._next_stop_arrival(coor) == TRAILHEAD_ARRIVAL
 
@@ -102,6 +126,24 @@ def test_at_the_destination() -> None:
     assert sensor._next_stop(coor) is None
     assert sensor._next_stop_arrival(coor) is None
     assert sensor._next_stop_attributes(coor) == {"arrived_at": TRAILHEAD}
+
+
+def test_unset_status_past_the_first_stop() -> None:
+    """An unset status decodes as "stopping"; only the first stop can be one."""
+    coor = coordinator((GROCERY, "next_stop"), (TRAILHEAD, "stopping"))
+
+    assert sensor._next_stop(coor)["name"] == GROCERY
+    assert sensor._next_stop_attributes(coor)["arrived_at"] is None
+    assert sensor._next_stop_arrival(coor) == LIVE_ARRIVAL
+
+
+def test_arrived_after_stopping() -> None:
+    """Once close to the stop, "arrived" follows "stopping"."""
+    coor = coordinator((BAKERY, "arrived"), (GROCERY, "future"))
+
+    assert sensor._next_stop(coor)["name"] == GROCERY
+    assert sensor._next_stop_attributes(coor)["arrived_at"] == BAKERY
+    assert sensor._next_stop_arrival(coor) == LIVE_ARRIVAL + timedelta(seconds=600)
 
 
 def test_not_navigating() -> None:
