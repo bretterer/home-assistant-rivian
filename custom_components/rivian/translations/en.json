@@ -1000,6 +1000,17 @@
           }
         }
       }
+    },
+    "rate_limited": {
+      "title": "Rivian live updates are rate limited",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Log in to Rivian again",
+            "description": "Rivian has been rate limiting live vehicle updates for over {issue_after} minutes, so your vehicle's sensors aren't updating. Logging in again starts a new session, which should clear it.\n\nSelect **Submit** to log in again. If it's still rate limited after {reauth_after} hours, you'll be asked to log in again anyway."
+          }
+        }
+      }
     }
   }
 }

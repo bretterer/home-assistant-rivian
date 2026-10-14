@@ -101,9 +101,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         coor = VehicleCoordinator(
             hass=hass, config_entry=entry, client=client, vehicle_id=vehicle_id
         )
+        # Without data when subscribing failed, until a retry succeeds
         await coor.async_config_entry_first_refresh()
-        if not coor.data:
-            raise ConfigEntryNotReady("Issue loading vehicle data")
         await coor.charging_coordinator.async_config_entry_first_refresh()
         await coor.drivers_coordinator.async_config_entry_first_refresh()
         vehicle_coordinators[vehicle_id] = coor

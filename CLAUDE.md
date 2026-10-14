@@ -97,5 +97,5 @@ Each platform (sensor, binary_sensor, button, climate, cover, lock, number, sele
 
 ## Key Dependencies
 
-- `rivian-python-client[ble]==2.3.0` - Core API client (includes BLE support for pairing)
+- `rivian-python-client[ble]==2.3.1` - Core API client (includes BLE support for pairing)
 - `homeassistant>=2026.9.0` - Home Assistant core
