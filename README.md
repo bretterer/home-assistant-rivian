@@ -169,7 +169,7 @@ Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
 | Limited acceleration (cold)                         | Sensor         |                                                                                          |
 | Limited regenerative braking (cold)                 | Sensor         |                                                                                          |
 | Locked state                                        | Binary sensor  | Locked/unlocked status of all closures                                                   |
-| Next stop                                           | Sensor         | Next stop of the active navigation trip, including charging stops                        |
+| Next stop                                           | Sensor         | Next stop of the active navigation trip, including charging stops, past the one the vehicle is at (its `arrived_at` attribute) |
 | Next stop ETA                                       | Sensor         | Estimated arrival at the next stop                                                       |
 | No updates since                                    | Sensor         | When the vehicle last reported data; empty unless that was over 10 minutes ago           |
 | Odometer                                            | Sensor         |                                                                                          |

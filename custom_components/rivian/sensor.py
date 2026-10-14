@@ -207,16 +207,55 @@ def _waypoints(coordinator: VehicleCoordinator) -> list[dict[str, Any]]:
     return coordinator.get("waypoints") or []
 
 
+# Statuses of a stop the vehicle is at; the trip drops it once the vehicle leaves
+AT_STOP_STATUSES: Final = ("arrived", "stopping")
+
+
+def _current_stop(coordinator: VehicleCoordinator) -> dict[str, Any] | None:
+    """Return the stop the vehicle is at, if any."""
+    return next(
+        (
+            waypoint
+            for waypoint in _waypoints(coordinator)
+            if waypoint.get("status") in AT_STOP_STATUSES
+        ),
+        None,
+    )
+
+
 def _next_stop(coordinator: VehicleCoordinator) -> dict[str, Any] | None:
-    """Return the trip's next stop."""
+    """Return the trip's next stop, past the one the vehicle is at."""
     waypoints = _waypoints(coordinator)
     return next(
         (waypoint for waypoint in waypoints if waypoint.get("status") == "next_stop"),
         None,
     ) or next(
-        (waypoint for waypoint in waypoints if waypoint.get("status") != "arrived"),
+        (
+            waypoint
+            for waypoint in waypoints
+            if waypoint.get("status") not in AT_STOP_STATUSES
+        ),
         None,
     )
+
+
+def _next_stop_attributes(coordinator: VehicleCoordinator) -> dict[str, Any] | None:
+    """Return the next stop's details, and the stop the vehicle is at."""
+    attributes = _waypoint_attributes(_next_stop(coordinator))
+    current = _current_stop(coordinator)
+    if attributes is None and current is None:
+        return None
+    return (attributes or {}) | {"arrived_at": _waypoint_name(current)}
+
+
+def _next_stop_arrival(coordinator: VehicleCoordinator) -> datetime | None:
+    """Return the next stop's live arrival time, or its planned one."""
+    if not (waypoint := _next_stop(coordinator)):
+        return None
+    if _current_stop(coordinator):
+        # At a stop, trip_progress keeps counting down to it, not the next one
+        return waypoint.get("arrivalTime")
+    return _arrival(waypoint, coordinator, "nextWaypointArrivalTime")
 
 
 def _destination(coordinator: VehicleCoordinator) -> dict[str, Any] | None:
@@ -282,15 +321,13 @@ NAVIGATION_SENSORS: Final[tuple[RivianNavigationSensorEntityDescription, ...]] =
         key="next_stop",
         translation_key="next_stop",
         value_fn=lambda coor: _waypoint_name(_next_stop(coor)),
-        attributes_fn=lambda coor: _waypoint_attributes(_next_stop(coor)),
+        attributes_fn=_next_stop_attributes,
     ),
     RivianNavigationSensorEntityDescription(
         key="next_stop_eta",
         translation_key="next_stop_eta",
         device_class=SensorDeviceClass.TIMESTAMP,
-        value_fn=lambda coor: _arrival(
-            _next_stop(coor), coor, "nextWaypointArrivalTime"
-        ),
+        value_fn=_next_stop_arrival,
     ),
     RivianNavigationSensorEntityDescription(
         key="destination",
