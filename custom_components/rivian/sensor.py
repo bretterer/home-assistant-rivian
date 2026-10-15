@@ -54,7 +54,7 @@ from .entity import (
     RivianVehicleFreshnessEntity,
     RivianWallboxEntity,
 )
-from .helpers import async_remove_stale_entities
+from .helpers import async_remove_stale_entities, departure_schedule_summary
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -132,6 +132,11 @@ async def async_setup_entry(
                 coord, entry, CHARGING_SCHEDULE_DAYS_SENSOR, vehicle
             )
         )
+        entities.append(
+            RivianDepartureSchedulesEntity(
+                coord, entry, DEPARTURE_SCHEDULES_SENSOR, vehicle
+            )
+        )
         entities.extend(
             RivianNavigationSensorEntity(coord, entry, description, vehicle)
             for description in NAVIGATION_SENSORS
@@ -174,6 +179,39 @@ CHARGING_SCHEDULE_DAYS_SENSOR = RivianSensorEntityDescription(
     entity_category=EntityCategory.DIAGNOSTIC,
     field="charging_schedule_days",
 )
+
+
+DEPARTURE_SCHEDULES_SENSOR = RivianSensorEntityDescription(
+    key="departure_schedules",
+    translation_key="departure_schedules",
+    field="departure_schedules",
+)
+
+
+class RivianDepartureSchedulesEntity(RivianVehicleEntity, SensorEntity):
+    """Departure Schedules Entity."""
+
+    @property
+    def available(self) -> bool:
+        """Return availability."""
+        return self._available and self.coordinator.departure_schedules is not None
+
+    @property
+    def native_value(self) -> int | None:
+        """Return the number of departure schedules."""
+        if (schedules := self.coordinator.departure_schedules) is None:
+            return None
+        return len(schedules)
+
+    @property
+    def extra_state_attributes(self) -> Mapping[str, Any] | None:
+        """Return the departure schedules."""
+        return {
+            "schedules": [
+                departure_schedule_summary(schedule)
+                for schedule in self.coordinator.departure_schedules or []
+            ]
+        }
 
 
 class RivianChargingScheduleDaysEntity(RivianVehicleEntity, SensorEntity):

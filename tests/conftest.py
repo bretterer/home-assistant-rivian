@@ -783,6 +783,14 @@ def _setup_mock_environment() -> None:
         sys.modules["homeassistant.util.dt"] = dt_mod
         util_mod.dt = dt_mod  # type: ignore[attr-defined]
 
+        # homeassistant.util.unit_conversion: services.py converts action
+        # temperatures; only needs to import cleanly here.
+        unit_conversion_mod = DynamicModule(
+            "homeassistant.util.unit_conversion", is_package=False
+        )
+        sys.modules["homeassistant.util.unit_conversion"] = unit_conversion_mod
+        util_mod.unit_conversion = unit_conversion_mod  # type: ignore[attr-defined]
+
         # homeassistant.components.recorder: backs statistics.py similarly.
         recorder_pkg_mod = DynamicModule(
             "homeassistant.components.recorder", is_package=True
