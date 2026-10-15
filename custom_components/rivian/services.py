@@ -7,6 +7,7 @@ from typing import Any, Final
 
 import voluptuous as vol
 
+from homeassistant.auth.permissions.const import CAT_ENTITIES, POLICY_CONTROL
 from homeassistant.const import (
     ATTR_DEVICE_ID,
     ATTR_NAME,
@@ -15,8 +16,12 @@ from homeassistant.const import (
     UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant, ServiceCall, callback
-from homeassistant.exceptions import ServiceValidationError
-from homeassistant.helpers import config_validation as cv, device_registry as dr
+from homeassistant.exceptions import ServiceValidationError, Unauthorized, UnknownUser
+from homeassistant.helpers import (
+    config_validation as cv,
+    device_registry as dr,
+    entity_registry as er,
+)
 from homeassistant.util.unit_conversion import TemperatureConverter
 
 from .const import (
@@ -120,6 +125,34 @@ def _get_coordinator(hass: HomeAssistant, device_id: str) -> VehicleCoordinator:
     raise ServiceValidationError(f"{device_id} is not a loaded Rivian vehicle")
 
 
+async def _async_verify_vehicle_control(hass: HomeAssistant, call: ServiceCall) -> None:
+    """Require the caller to be allowed to control the target vehicle.
+
+    These actions target a device, so Home Assistant's entity permission checks do
+    not run for them. A user may act on a vehicle when they can control at least one
+    of its entities. Calls without a user (automations, scripts) are trusted.
+    """
+    if not (user_id := call.context.user_id):
+        return
+    if (user := await hass.auth.async_get_user(user_id)) is None:
+        raise UnknownUser(
+            context=call.context, permission=POLICY_CONTROL, user_id=user_id
+        )
+    entities = er.async_entries_for_device(
+        er.async_get(hass), call.data[ATTR_DEVICE_ID]
+    )
+    if not any(
+        user.permissions.check_entity(entity.entity_id, POLICY_CONTROL)
+        for entity in entities
+    ):
+        raise Unauthorized(
+            context=call.context,
+            permission=POLICY_CONTROL,
+            user_id=user_id,
+            perm_category=CAT_ENTITIES,
+        )
+
+
 def _get_schedule_changes(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, Any]:
     """Convert service data to departure schedule changes.
 
@@ -189,6 +222,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
 
     async def create_departure_schedule(call: ServiceCall) -> None:
         """Create a departure schedule."""
+        await _async_verify_vehicle_control(hass, call)
         coordinator = _get_coordinator(hass, call.data[ATTR_DEVICE_ID])
         await coordinator.create_departure_schedule(
             deep_merge(
@@ -198,6 +232,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
 
     async def update_departure_schedule(call: ServiceCall) -> None:
         """Update a departure schedule."""
+        await _async_verify_vehicle_control(hass, call)
         coordinator = _get_coordinator(hass, call.data[ATTR_DEVICE_ID])
         await coordinator.update_departure_schedule(
             call.data[ATTR_SCHEDULE_ID], _get_schedule_changes(hass, call.data)
@@ -205,6 +240,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
 
     async def delete_departure_schedule(call: ServiceCall) -> None:
         """Delete a departure schedule."""
+        await _async_verify_vehicle_control(hass, call)
         coordinator = _get_coordinator(hass, call.data[ATTR_DEVICE_ID])
         await coordinator.delete_departure_schedule(call.data[ATTR_SCHEDULE_ID])
 
