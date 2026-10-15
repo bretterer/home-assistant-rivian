@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -36,6 +36,8 @@ class RivianBinarySensorEntityDescription(BinarySensorEntityDescription):
     # Value to consider binary sensor to be "on"
     on_value: bool | float | int | str | list[str] = True
     negate: bool = False
+    # Only create for vehicles reporting this supported feature
+    supported_feature: str | None = None
 
 
 @dataclass(kw_only=True)
@@ -54,6 +56,10 @@ class RivianCoverEntityDescription(CoverEntityDescription):
     is_closed: Callable[[VehicleCoordinator], bool]
     close_cover: Callable[[VehicleCoordinator], Awaitable[None]]
     open_cover: Callable[[VehicleCoordinator], Awaitable[None]]
+    is_opening: Callable[[VehicleCoordinator], bool] | None = None
+    is_closing: Callable[[VehicleCoordinator], bool] | None = None
+    # Whether closing is currently possible, e.g. not with a cable plugged in
+    can_close: Callable[[VehicleCoordinator], bool] | None = None
 
 
 @dataclass(kw_only=True)
@@ -88,6 +94,20 @@ class RivianSensorEntityDescription(SensorEntityDescription):
     field: str
     value_fn: Callable[[VehicleCoordinator], Any] | None = None
     value_lambda: Callable[[Any], Any] | None = None
+    # Keep the last known value (across restarts) while the field is unreported
+    restore: bool = False
+    # Only create for vehicles reporting this supported feature
+    supported_feature: str | None = None
+
+
+@dataclass(kw_only=True)
+class RivianNavigationSensorEntityDescription(SensorEntityDescription):
+    """Rivian navigation sensor entity description."""
+
+    value_fn: Callable[[VehicleCoordinator], Any]
+    attributes_fn: Callable[[VehicleCoordinator], Mapping[str, Any] | None] = lambda _: (
+        None
+    )
 
 
 @dataclass(kw_only=True)

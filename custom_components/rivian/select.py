@@ -19,15 +19,14 @@ from .entity import RivianVehicleControlEntity
 
 _LOGGER = logging.getLogger(__name__)
 
-LEVEL_MAP = {"Off": "0", "On": "1", "Level_1": "2", "Level_2": "3", "Level_3": "4"}
-LEVELS = ["Off", "Level_1", "Level_2", "Level_3"]
+LEVEL_MAP = {"off": "0", "on": "1", "level_1": "2", "level_2": "3", "level_3": "4"}
+LEVELS = ["off", "level_1", "level_2", "level_3"]
 
 
 SELECTS: Final[tuple[RivianSelectEntityDescription, ...]] = (
     RivianSelectEntityDescription(
         key="seat_front_left_heat",
-        icon="mdi:car-seat-heater",
-        name="Seat Front Left Heat",
+        translation_key="seat_front_left_heat",
         options=LEVELS,
         field="seatFrontLeftHeat",
         select=lambda coordinator, option: coordinator.send_vehicle_command(
@@ -37,8 +36,7 @@ SELECTS: Final[tuple[RivianSelectEntityDescription, ...]] = (
     ),
     RivianSelectEntityDescription(
         key="seat_front_left_vent",
-        icon="mdi:car-seat-cooler",
-        name="Seat Front Left Vent",
+        translation_key="seat_front_left_vent",
         options=LEVELS,
         field="seatFrontLeftVent",
         select=lambda coordinator, option: coordinator.send_vehicle_command(
@@ -48,8 +46,7 @@ SELECTS: Final[tuple[RivianSelectEntityDescription, ...]] = (
     ),
     RivianSelectEntityDescription(
         key="seat_front_right_heat",
-        icon="mdi:car-seat-heater",
-        name="Seat Front Right Heat",
+        translation_key="seat_front_right_heat",
         options=LEVELS,
         field="seatFrontRightHeat",
         select=lambda coordinator, option: coordinator.send_vehicle_command(
@@ -59,8 +56,7 @@ SELECTS: Final[tuple[RivianSelectEntityDescription, ...]] = (
     ),
     RivianSelectEntityDescription(
         key="seat_front_right_vent",
-        icon="mdi:car-seat-cooler",
-        name="Seat Front Right Vent",
+        translation_key="seat_front_right_vent",
         options=LEVELS,
         field="seatFrontRightVent",
         select=lambda coordinator, option: coordinator.send_vehicle_command(
@@ -70,8 +66,7 @@ SELECTS: Final[tuple[RivianSelectEntityDescription, ...]] = (
     ),
     RivianSelectEntityDescription(
         key="seat_rear_left_heat",
-        icon="mdi:car-seat-heater",
-        name="Seat Rear Left Heat",
+        translation_key="seat_rear_left_heat",
         options=LEVELS,
         field="seatRearLeftHeat",
         select=lambda coordinator, option: coordinator.send_vehicle_command(
@@ -81,8 +76,7 @@ SELECTS: Final[tuple[RivianSelectEntityDescription, ...]] = (
     ),
     RivianSelectEntityDescription(
         key="seat_rear_right_heat",
-        icon="mdi:car-seat-heater",
-        name="Seat Rear Right Heat",
+        translation_key="seat_rear_right_heat",
         options=LEVELS,
         field="seatRearRightHeat",
         select=lambda coordinator, option: coordinator.send_vehicle_command(

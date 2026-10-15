@@ -9,7 +9,7 @@ from rivian import VehicleCommand
 
 from homeassistant.components.number import NumberDeviceClass, NumberEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import PERCENTAGE, UnitOfElectricCurrent
+from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfElectricCurrent
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -33,8 +33,7 @@ NUMBERS: Final[tuple[RivianNumberEntityDescription, ...]] = (
     RivianNumberEntityDescription(
         key="charge_limit",
         device_class=NumberDeviceClass.BATTERY,
-        icon="mdi:battery-charging-70",
-        name="Charge Limit",
+        translation_key="charge_limit",
         native_min_value=50,
         native_unit_of_measurement=PERCENTAGE,
         field="batteryLimit",
@@ -47,6 +46,7 @@ NUMBERS: Final[tuple[RivianNumberEntityDescription, ...]] = (
 CHARGING_SCHEDULE_AMPERAGE_NUMBER = RivianNumberEntityDescription(
     key="charging_schedule_amperage",
     translation_key="charging_schedule_amperage",
+    entity_category=EntityCategory.CONFIG,
     device_class=NumberDeviceClass.CURRENT,
     native_min_value=CHARGING_SCHEDULE_AMPERAGE_MINIMUM,
     native_max_value=CHARGING_SCHEDULE_AMPERAGE_MAXIMUM,

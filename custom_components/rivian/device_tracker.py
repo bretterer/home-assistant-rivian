@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import Any
 
 from homeassistant.components.device_tracker import SourceType, TrackerEntity
@@ -15,7 +14,8 @@ from .coordinator import VehicleCoordinator
 from .data_classes import RivianTrackerEntityDescription
 from .entity import RivianVehicleEntity
 
-LOCATION_DESCRIPTION = RivianTrackerEntityDescription(key="location", name="Location")
+# No name, so the entity is named after the vehicle
+LOCATION_DESCRIPTION = RivianTrackerEntityDescription(key="location", name=None)
 
 
 async def async_setup_entry(
@@ -51,7 +51,9 @@ class RivianDeviceEntity(RivianVehicleEntity, TrackerEntity):
         """Create a Rivian device tracker entity."""
         super().__init__(coordinator, config_entry, description, vehicle)
         self._attribute = "gnssLocation"
-        self._tracker_data = coordinator.data[self._attribute]
+        self._tracker_data = (
+            coordinator.data.get(self._attribute) if coordinator.data else None
+        )
 
     @property
     def force_update(self) -> bool:
@@ -61,36 +63,29 @@ class RivianDeviceEntity(RivianVehicleEntity, TrackerEntity):
     @property
     def latitude(self) -> float | None:
         """Return latitude value of the device."""
-        return self._tracker_data["latitude"]
+        if not self._tracker_data:
+            return None
+        return self._tracker_data.get("latitude")
 
     @property
     def longitude(self) -> float | None:
         """Return longitude value of the device."""
-        return self._tracker_data["longitude"]
+        if not self._tracker_data:
+            return None
+        return self._tracker_data.get("longitude")
 
     @property
     def source_type(self) -> SourceType:
         """Return the source type, eg gps or router, of the device."""
         return SourceType.GPS
 
-    # @property
-    # def location_accuracy(self) -> int:
-    #     return self._tracker_data[6]
-
-    @property
-    def extra_state_attributes(self) -> Mapping[str, Any]:
-        """Return the state attributes of the device."""
-        return {
-            "last_update": self._tracker_data["timeStamp"],
-        }
-
     @callback
     def _handle_coordinator_update(self) -> None:
         """Respond to a DataUpdateCoordinator update."""
-        entity = self.coordinator.data[self._attribute]
-        try:
-            if entity["timeStamp"] != self._tracker_data["timeStamp"]:
-                self._tracker_data = entity
-                self.async_write_ha_state()
-        except Exception:  # noqa: BLE001
+        if not (data := self.coordinator.data):
+            return
+        if not (entity := data.get(self._attribute)):
+            return
+        if not self._tracker_data or entity != self._tracker_data:
             self._tracker_data = entity
+            self.async_write_ha_state()

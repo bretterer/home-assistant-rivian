@@ -8,6 +8,7 @@ from typing import Any, Final
 
 from homeassistant.components.time import TimeEntity
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -60,10 +61,14 @@ async def _async_set_schedule_time(
         await coordinator.update_charging_schedule_data({"duration": duration})
     else:
         old_dur = sched.get("duration", DEFAULT_CHARGING_SCHEDULE_DURATION)
-        old_end = (start_mins + old_dur) % MINUTES_PER_DAY
-        new_dur = old_end - target_mins
-        if new_dur <= 0:
-            new_dur += MINUTES_PER_DAY
+        if old_dur >= MINUTES_PER_DAY:
+            # An all-day schedule stays all day from its new start
+            new_dur = MINUTES_PER_DAY
+        else:
+            old_end = (start_mins + old_dur) % MINUTES_PER_DAY
+            new_dur = old_end - target_mins
+            if new_dur <= 0:
+                new_dur += MINUTES_PER_DAY
         await coordinator.update_charging_schedule_data(
             {"startTime": target_mins, "duration": new_dur}
         )
@@ -73,12 +78,14 @@ TIME_ENTITIES: Final[tuple[RivianTimeEntityDescription, ...]] = (
     RivianTimeEntityDescription(
         key="charging_schedule_start",
         translation_key="charging_schedule_start",
+        entity_category=EntityCategory.CONFIG,
         value_fn=lambda c: _get_schedule_time(c, is_end_time=False),
         set_fn=lambda c, v: _async_set_schedule_time(c, v, is_end_time=False),
     ),
     RivianTimeEntityDescription(
         key="charging_schedule_end",
         translation_key="charging_schedule_end",
+        entity_category=EntityCategory.CONFIG,
         value_fn=lambda c: _get_schedule_time(c, is_end_time=True),
         set_fn=lambda c, v: _async_set_schedule_time(c, v, is_end_time=True),
     ),

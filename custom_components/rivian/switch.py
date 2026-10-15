@@ -9,10 +9,11 @@ from rivian import VehicleCommand
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import ATTR_COORDINATOR, ATTR_VEHICLE, DOMAIN
+from .const import ACTIVE_CHARGING_STATES, ATTR_COORDINATOR, ATTR_VEHICLE, DOMAIN
 from .coordinator import VehicleCoordinator
 from .data_classes import RivianSwitchEntityDescription
 from .entity import RivianVehicleControlEntity, RivianVehicleEntity
@@ -23,8 +24,7 @@ _LOGGER = logging.getLogger(__name__)
 SWITCHES: Final[tuple[RivianSwitchEntityDescription, ...]] = (
     RivianSwitchEntityDescription(
         key="alarm",
-        icon="mdi:alarm-light",
-        name="Alarm",
+        translation_key="alarm",
         is_on=lambda coor: coor.get("alarmSoundStatus") == "true",
         turn_off=lambda coor: coor.send_vehicle_command(
             command=VehicleCommand.PANIC_OFF
@@ -33,15 +33,14 @@ SWITCHES: Final[tuple[RivianSwitchEntityDescription, ...]] = (
     ),
     RivianSwitchEntityDescription(
         key="charging_enabled",
-        icon="mdi:lightning-bolt",
-        name="Charging Enabled",
+        translation_key="charging_enabled",
+        # Startable remotely (charging is held, e.g. by a schedule), or charging,
+        # so it can be stopped
         available=lambda coor: (
-            coor.get("remoteChargingAvailable") == 1
-            or coor.get("chargerState") == "charging_active"
+            coor.get("remoteChargingAvailable") == "true"
+            or coor.get("chargerState") in ACTIVE_CHARGING_STATES
         ),
-        is_on=lambda coor: (
-            coor.get("chargerState") in ("charging_active", "charging_connecting")
-        ),
+        is_on=lambda coor: coor.get("chargerState") in ACTIVE_CHARGING_STATES,
         turn_off=lambda coor: coor.send_vehicle_command(
             command=VehicleCommand.STOP_CHARGING
         ),
@@ -51,9 +50,9 @@ SWITCHES: Final[tuple[RivianSwitchEntityDescription, ...]] = (
     ),
     RivianSwitchEntityDescription(
         key="gear_guard_video",
-        icon="mdi:cctv",
-        name="Gear Guard Video",
-        is_on=lambda coor: coor.get("gearGuardVideoStatus") != "Disabled",
+        translation_key="gear_guard_video",
+        entity_category=EntityCategory.CONFIG,
+        is_on=lambda coor: coor.get("gearGuardVideoStatus") != "disabled",
         turn_off=lambda coor: coor.send_vehicle_command(
             command=VehicleCommand.DISABLE_GEAR_GUARD_VIDEO
         ),
@@ -63,9 +62,8 @@ SWITCHES: Final[tuple[RivianSwitchEntityDescription, ...]] = (
     ),
     RivianSwitchEntityDescription(
         key="steering_wheel_heat",
-        icon="mdi:steering",
-        name="Steering Wheel Heat",
-        is_on=lambda coor: coor.get("steeringWheelHeat") != "Off",
+        translation_key="steering_wheel_heat",
+        is_on=lambda coor: coor.get("steeringWheelHeat") != "off",
         turn_off=lambda coor: coor.send_vehicle_command(
             command=VehicleCommand.CABIN_HVAC_STEERING_HEAT, params={"level": 0}
         ),
@@ -78,6 +76,7 @@ SWITCHES: Final[tuple[RivianSwitchEntityDescription, ...]] = (
 CHARGING_SCHEDULE_ENABLED_SWITCH = RivianSwitchEntityDescription(
     key="charging_schedule_enabled",
     translation_key="charging_schedule_enabled",
+    entity_category=EntityCategory.CONFIG,
     is_on=lambda c: c.charging_schedule.get("enabled", True),
     turn_off=lambda c: c.update_charging_schedule_data({"enabled": False}),
     turn_on=lambda c: c.update_charging_schedule_data({"enabled": True}),
@@ -142,19 +141,12 @@ class RivianSwitchEntity(RivianVehicleControlEntity, SwitchEntity):
         """Return True if entity is on."""
         return self.entity_description.is_on(self.coordinator)
 
-    @property
-    def available(self) -> bool:
-        """Return the availability of the entity."""
-        return super().available and (
-            _fn(self.coordinator)
-            if (_fn := self.entity_description.available)
-            else True
-        )
-
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the entity off."""
         await self.entity_description.turn_off(self.coordinator)
+        self._settle_after_command()
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the entity on."""
         await self.entity_description.turn_on(self.coordinator)
+        self._settle_after_command()
