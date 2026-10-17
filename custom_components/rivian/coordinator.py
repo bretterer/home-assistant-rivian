@@ -415,8 +415,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
     async def update_charging_schedule_data(self, schedule: dict[str, Any]) -> None:
         """Update the first charging schedule via Rivian API mutation.
 
-        The mutation replaces all of the vehicle's schedules, so the others are
-        sent back unchanged. Without any, a default schedule is created.
+        Without any existing schedule, a default schedule is created.
         """
         try:
             schedules = await self._fetch_charging_schedules()
@@ -435,9 +434,11 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
                     }
                 }
             ]
-        schedules = [schedules[0] | schedule, *schedules[1:]]
+        updated_schedule = schedules[0] | schedule
         try:
-            response = await self.api.set_charging_schedules(self.vehicle_id, schedules)
+            response = await self.api.set_charging_schedules(
+                self.vehicle_id, [updated_schedule]
+            )
             res_json = await response.json()
         except Exception as err:
             raise HomeAssistantError(
@@ -449,7 +450,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             raise HomeAssistantError(
                 f"Unable to update the charging schedule: {res_json.get('errors')}"
             )
-        self._charging_schedules = schedules
+        self._charging_schedules = [updated_schedule, *schedules[1:]]
         self._last_schedule_fetch = time.time()
         self.async_update_listeners()
 
