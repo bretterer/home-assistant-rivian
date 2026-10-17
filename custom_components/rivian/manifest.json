@@ -1,7 +1,7 @@
 {
   "domain": "rivian",
   "name": "Rivian (Unofficial)",
-  "after_dependencies": ["bluetooth_adapters"],
+  "after_dependencies": ["bluetooth_adapters", "recorder"],
   "codeowners": ["@bretterer"],
   "config_flow": true,
   "documentation": "https://github.com/bretterer/home-assistant-rivian",
