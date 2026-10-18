@@ -77,8 +77,13 @@ DEFAULT_TRACK_FULL_DETAIL_DAYS = 0  # 0 = never thin
 TRACK_FULL_DETAIL_DAYS_MIN = 0
 TRACK_FULL_DETAIL_DAYS_MAX = 3650
 
-# Whether drives get weather (temperature, wind, rain) from the public
-# Open-Meteo API.
+# Whether unnamed, frequently-visited "auto" places are reverse-geocoded via
+# the public OSM Nominatim API. Kept here for the same reason as the options
+# above -- __init__.py imports this name from this module.
+CONF_PLACE_GEOCODING = "place_geocoding"
+DEFAULT_PLACE_GEOCODING = True
+# Whether drives and charging sessions get weather (temperature, wind, rain)
+# from the public Open-Meteo API.
 CONF_WEATHER_LOOKUPS = "weather_lookups"
 DEFAULT_WEATHER_LOOKUPS = True
 
@@ -134,6 +139,9 @@ OPTIONS_SCHEMA = vol.Schema(
                 mode=NumberSelectorMode.BOX,
             )
         ),
+        vol.Optional(
+            CONF_PLACE_GEOCODING, default=DEFAULT_PLACE_GEOCODING
+        ): BooleanSelector(),
         vol.Optional(
             CONF_WEATHER_LOOKUPS, default=DEFAULT_WEATHER_LOOKUPS
         ): BooleanSelector(),

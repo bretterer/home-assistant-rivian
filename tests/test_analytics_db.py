@@ -1470,93 +1470,6 @@ class TestSchemaMigrationV1ToV2:
         finally:
             db.close()
 
-    def test_migrating_v8_db_adds_routes_table_and_drive_route_column(
-        self, mock_hass: Any, analytics_db_path: str
-    ) -> None:
-        """Opening a v8 database adds the v9 routes table and drives.route_id."""
-        raw = sqlite3.connect(analytics_db_path)
-        try:
-            raw.executescript(_V6_SCHEMA_SQL)
-            raw.execute(
-                "CREATE TABLE IF NOT EXISTS osm_roads (bbox_key TEXT PRIMARY KEY, "
-                "fetched_ts REAL NOT NULL, data BLOB NOT NULL)"
-            )
-            raw.execute(
-                "CREATE TABLE IF NOT EXISTS track_fills (vin TEXT NOT NULL, "
-                "drive_id TEXT NOT NULL, after_t REAL NOT NULL, points_json TEXT "
-                "NOT NULL, source TEXT NOT NULL DEFAULT 'osm', created_ts REAL "
-                "NOT NULL, PRIMARY KEY (vin, drive_id, after_t))"
-            )
-            raw.execute(
-                "ALTER TABLE drive_tracks ADD COLUMN gaps_scanned INTEGER "
-                "NOT NULL DEFAULT 0"
-            )
-            raw.execute(
-                "CREATE TABLE IF NOT EXISTS places (place_id INTEGER PRIMARY KEY, "
-                "vin TEXT NOT NULL, name TEXT, category TEXT, lat REAL NOT NULL, "
-                "lon REAL NOT NULL, radius_m REAL NOT NULL DEFAULT 150, "
-                "source TEXT NOT NULL DEFAULT 'auto', zone_entity_id TEXT, "
-                "hidden INTEGER NOT NULL DEFAULT 0, geocode_name TEXT, "
-                "geocoded_ts REAL, created_ts REAL NOT NULL, updated_ts REAL NOT NULL)"
-            )
-            raw.execute("ALTER TABLE drives ADD COLUMN start_place_id INTEGER")
-            raw.execute("ALTER TABLE drives ADD COLUMN end_place_id INTEGER")
-            raw.execute(
-                "INSERT INTO drives (vin, drive_id, start_time, end_time, "
-                "distance_miles, duration_seconds, energy_kwh, created_ts, "
-                "start_lat, start_lon, end_lat, end_lon) VALUES "
-                "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    TEST_VIN,
-                    "pre_migration_v8",
-                    "2026-01-01T00:00:00Z",
-                    "2026-01-01T00:10:00Z",
-                    5.0,
-                    600.0,
-                    2.0,
-                    time.time(),
-                    37.0,
-                    -122.0,
-                    37.1,
-                    -122.1,
-                ),
-            )
-            raw.execute("PRAGMA user_version = 8")
-            raw.commit()
-        finally:
-            raw.close()
-
-        db = AnalyticsDatabase(mock_hass, db_path=analytics_db_path)
-        db.setup()
-        try:
-            with db._lock:
-                tables = {
-                    row[0]
-                    for row in db._conn.execute(
-                        "SELECT name FROM sqlite_master WHERE type='table'"
-                    ).fetchall()
-                }
-                drive_columns = {
-                    row[1]
-                    for row in db._conn.execute("PRAGMA table_info(drives)").fetchall()
-                }
-                user_version = db._conn.execute("PRAGMA user_version").fetchone()[0]
-                drive_row = db._conn.execute(
-                    "SELECT drive_id, route_id FROM drives WHERE vin = ?",
-                    (TEST_VIN,),
-                ).fetchone()
-            assert "routes" in tables
-            assert "route_id" in drive_columns
-            assert user_version == SCHEMA_VERSION == 14
-            assert db.get_meta("schema_version") == str(SCHEMA_VERSION)
-            assert drive_row["drive_id"] == "pre_migration_v8"
-            assert drive_row["route_id"] is None
-
-            summary = db.list_drives(TEST_VIN, include_micro=True)
-            assert summary[0]["distance_miles"] == 5.0
-        finally:
-            db.close()
-
 
 class TestUpsertTracks:
     """upsert_tracks: writes, short-track skip, and live-vs-backfill precedence."""
@@ -3632,10 +3545,840 @@ def _timed(base: str, hour: int, minute: int = 0) -> str:
     return f"{base}T{hour:02d}:{minute:02d}:00Z"
 
 
-class TestDeleteDrivesAndDay:
-    """delete_drives/delete_day, and delete_vin's cleanup."""
+class TestPlaces:
+    """AnalyticsDatabase places: rebuild/sync/assign/CRUD, and day()/delete_vin integration."""
 
-    def test_delete_drives_removes_rows_and_tracks(self, analytics_db: Any) -> None:
+    def _seed_commute_drives(self, db: AnalyticsDatabase, days: int = 4) -> None:
+        """Write `days` round trips Home -> Work -> Home, enough for a cluster."""
+        drives: list[DriveRecord] = []
+        for day in range(1, days + 1):
+            base = f"2026-01-{day:02d}"
+            drives.append(
+                _make_drive(
+                    f"to_work_{day}",
+                    20.0,
+                    6.0,
+                    _timed(base, 8),
+                    _timed(base, 8, 30),
+                    start_lat=HOME[0],
+                    start_lon=HOME[1],
+                    end_lat=WORK[0],
+                    end_lon=WORK[1],
+                )
+            )
+            drives.append(
+                _make_drive(
+                    f"to_home_{day}",
+                    20.0,
+                    6.0,
+                    _timed(base, 17),
+                    _timed(base, 17, 30),
+                    start_lat=WORK[0],
+                    start_lon=WORK[1],
+                    end_lat=HOME[0],
+                    end_lon=HOME[1],
+                )
+            )
+        db.upsert_drives(TEST_VIN, drives)
+
+    def test_rebuild_places_clusters_frequent_endpoints(
+        self, analytics_db: Any
+    ) -> None:
+        self._seed_commute_drives(analytics_db)
+        result = analytics_db.rebuild_places("real")
+        assert result["places"] == 2
+        places = analytics_db.list_places("real")
+        assert len(places) == 2
+        assert {p["source"] for p in places} == {"auto"}
+        assert all(p["visits"] >= 3 for p in places)
+
+    def test_rebuild_places_is_idempotent_and_ids_are_stable(
+        self, analytics_db: Any
+    ) -> None:
+        self._seed_commute_drives(analytics_db)
+        analytics_db.rebuild_places("real")
+        first_ids = sorted(p["id"] for p in analytics_db.list_places("real"))
+
+        analytics_db.rebuild_places("real")
+        second_ids = sorted(p["id"] for p in analytics_db.list_places("real"))
+        assert first_ids == second_ids
+
+    def test_rebuild_places_assigns_drive_start_end_place_ids(
+        self, analytics_db: Any
+    ) -> None:
+        self._seed_commute_drives(analytics_db)
+        analytics_db.rebuild_places("real")
+        with analytics_db._lock:
+            row = analytics_db._conn.execute(
+                "SELECT start_place_id, end_place_id FROM drives "
+                "WHERE vin = ? AND drive_id = ?",
+                (TEST_VIN, "to_work_1"),
+            ).fetchone()
+        assert row["start_place_id"] is not None
+        assert row["end_place_id"] is not None
+        assert row["start_place_id"] != row["end_place_id"]
+
+    def test_assign_drive_places_is_incremental_and_does_not_recluster(
+        self, analytics_db: Any
+    ) -> None:
+        """assign_drive_places only looks up existing places: a 4th round trip
+        alone (below MIN_VISITS) gets no place until a full rebuild."""
+        self._seed_commute_drives(analytics_db, days=1)
+        analytics_db.assign_drive_places(TEST_VIN, "to_work_1")
+        with analytics_db._lock:
+            row = analytics_db._conn.execute(
+                "SELECT start_place_id, end_place_id FROM drives WHERE drive_id = ?",
+                ("to_work_1",),
+            ).fetchone()
+        assert row["start_place_id"] is None
+        assert row["end_place_id"] is None
+        assert analytics_db.list_places("real") == []
+
+    def test_sync_zones_seeds_zone_place_and_takes_priority_over_clustering(
+        self, analytics_db: Any
+    ) -> None:
+        self._seed_commute_drives(analytics_db)
+        zones = [
+            {
+                "entity_id": "zone.home",
+                "name": "Home",
+                "latitude": HOME[0],
+                "longitude": HOME[1],
+                "radius": 100,
+            }
+        ]
+        analytics_db.sync_zones("real", zones)
+        places = analytics_db.list_places("real")
+        zone_places = [p for p in places if p["source"] == "zone"]
+        assert len(zone_places) == 1
+        assert zone_places[0]["label"] == "Home"
+        # Home's points went to the zone place, not a new auto cluster.
+        assert not any(
+            p["source"] == "auto"
+            and abs(p["lat"] - HOME[0]) < 0.01
+            and abs(p["lon"] - HOME[1]) < 0.01
+            for p in places
+        )
+
+    def test_sync_zones_removes_place_for_a_deleted_zone(
+        self, analytics_db: Any
+    ) -> None:
+        zones = [
+            {
+                "entity_id": "zone.home",
+                "name": "Home",
+                "latitude": HOME[0],
+                "longitude": HOME[1],
+                "radius": 100,
+            }
+        ]
+        work_zone = {
+            "entity_id": "zone.work",
+            "name": "Work",
+            "latitude": WORK[0],
+            "longitude": WORK[1],
+            "radius": 100,
+        }
+        analytics_db.sync_zones("real", [*zones, work_zone])
+        assert len(analytics_db.list_places("real")) == 2
+        analytics_db.sync_zones("real", zones)
+        assert [p["zone_entity_id"] for p in analytics_db.list_places("real")] == [
+            "zone.home"
+        ]
+
+    def test_sync_zones_with_no_zones_loaded_deletes_nothing(
+        self, analytics_db: Any
+    ) -> None:
+        zones = [
+            {
+                "entity_id": "zone.home",
+                "name": "Home",
+                "latitude": HOME[0],
+                "longitude": HOME[1],
+                "radius": 100,
+            }
+        ]
+        analytics_db.sync_zones("real", zones)
+        analytics_db.sync_zones("real", [])
+        assert len(analytics_db.list_places("real")) == 1
+
+    def test_sync_zones_clamps_radius_to_bounds(self, analytics_db: Any) -> None:
+        zones = [
+            {
+                "entity_id": "zone.tiny",
+                "name": "Tiny",
+                "latitude": HOME[0],
+                "longitude": HOME[1],
+                "radius": 1,
+            },
+            {
+                "entity_id": "zone.huge",
+                "name": "Huge",
+                "latitude": WORK[0],
+                "longitude": WORK[1],
+                "radius": 10000,
+            },
+        ]
+        analytics_db.sync_zones("real", zones)
+        places = {p["zone_entity_id"]: p for p in analytics_db.list_places("real")}
+        assert places["zone.tiny"]["radius_m"] == 50
+        assert places["zone.huge"]["radius_m"] == 500
+
+    def test_update_place_rename_converts_auto_to_user(self, analytics_db: Any) -> None:
+        self._seed_commute_drives(analytics_db)
+        analytics_db.rebuild_places("real")
+        place = analytics_db.list_places("real")[0]
+        analytics_db.update_place("real", place["id"], name="Home")
+        updated = next(
+            p for p in analytics_db.list_places("real") if p["id"] == place["id"]
+        )
+        assert updated["source"] == "user"
+        assert updated["name"] == "Home"
+        assert updated["label"] == "Home"
+
+    def test_update_place_hide_leaves_drives_unlabeled_in_day(
+        self, analytics_db: Any
+    ) -> None:
+        self._seed_commute_drives(analytics_db)
+        analytics_db.rebuild_places("real")
+        places = analytics_db.list_places("real")
+        home_place = next(p for p in places if abs(p["lat"] - HOME[0]) < 0.01)
+        analytics_db.update_place("real", home_place["id"], hidden=True)
+
+        payload = analytics_db.day(TEST_VIN, UTC, date(2026, 1, 1))
+        for segment in payload["segments"]:
+            if segment["start_place"] is not None:
+                assert segment["start_place"]["id"] != home_place["id"]
+            if segment["end_place"] is not None:
+                assert segment["end_place"]["id"] != home_place["id"]
+
+    def test_update_place_unknown_id_raises(self, analytics_db: Any) -> None:
+        with pytest.raises(ValueError):
+            analytics_db.update_place("real", 999999, name="X")
+
+    def test_update_place_unsupported_field_raises(self, analytics_db: Any) -> None:
+        place_id = analytics_db.create_place("real", HOME[0], HOME[1], "Home")
+        with pytest.raises(ValueError):
+            analytics_db.update_place("real", place_id, bogus_field=1)
+
+    def test_create_place_is_user_sourced_and_assigns_drives(
+        self, analytics_db: Any
+    ) -> None:
+        self._seed_commute_drives(analytics_db, days=1)
+        place_id = analytics_db.create_place("real", HOME[0], HOME[1], "Home")
+        places = analytics_db.list_places("real")
+        created = next(p for p in places if p["id"] == place_id)
+        assert created["source"] == "user"
+        assert created["name"] == "Home"
+        with analytics_db._lock:
+            row = analytics_db._conn.execute(
+                "SELECT start_place_id FROM drives WHERE drive_id = ?",
+                ("to_work_1",),
+            ).fetchone()
+        assert row["start_place_id"] == place_id
+
+    def test_merge_places_moves_visits_and_deletes_merged(
+        self, analytics_db: Any
+    ) -> None:
+        self._seed_commute_drives(analytics_db, days=1)
+        home_a = analytics_db.create_place("real", HOME[0], HOME[1], "Home A")
+        home_b_lat, home_b_lon = HOME[0] + 0.01, HOME[1] + 0.01
+        home_b = analytics_db.create_place("real", home_b_lat, home_b_lon, "Home B")
+        # Manually park one drive's start at home_b so it has a visit to move.
+        with analytics_db._lock, analytics_db._transaction():
+            analytics_db._conn.execute(
+                "UPDATE drives SET start_place_id = ? WHERE drive_id = ?",
+                (home_b, "to_work_1"),
+            )
+
+        analytics_db.merge_places("real", home_a, [home_b])
+
+        remaining_ids = {p["id"] for p in analytics_db.list_places("real")}
+        assert home_b not in remaining_ids
+        assert home_a in remaining_ids
+        with analytics_db._lock:
+            row = analytics_db._conn.execute(
+                "SELECT start_place_id FROM drives WHERE drive_id = ?",
+                ("to_work_1",),
+            ).fetchone()
+        assert row["start_place_id"] == home_a
+
+    def test_merged_auto_place_is_not_redetected_by_a_rebuild(
+        self, analytics_db: Any
+    ) -> None:
+        # Two auto places 250 m apart (just past the 200 m cluster radius).
+        self._seed_commute_drives(analytics_db)
+        near_work = (WORK[0] + 0.00225, WORK[1])
+        drives = [
+            _make_drive(
+                f"to_near_{day}",
+                20.0,
+                6.0,
+                _timed(f"2026-01-{day:02d}", 12),
+                _timed(f"2026-01-{day:02d}", 12, 10),
+                start_lat=WORK[0],
+                start_lon=WORK[1],
+                end_lat=near_work[0],
+                end_lon=near_work[1],
+            )
+            for day in range(1, 5)
+        ]
+        analytics_db.upsert_drives(TEST_VIN, drives)
+        analytics_db.rebuild_places("real")
+        places = analytics_db.list_places("real")
+        work = next(p for p in places if abs(p["lat"] - WORK[0]) < 0.001)
+        near = next(p for p in places if abs(p["lat"] - near_work[0]) < 0.0005)
+
+        analytics_db.merge_places("real", work["id"], [near["id"]])
+        analytics_db.rebuild_places("real")
+
+        after = analytics_db.list_places("real")
+        assert near["id"] not in {p["id"] for p in after}
+        merged = next(p for p in after if p["id"] == work["id"])
+        assert merged["source"] == "user"
+        assert merged["radius_m"] >= 250
+        # No new auto place re-appeared at the merged spot.
+        assert not any(
+            p["source"] == "auto" and abs(p["lat"] - near_work[0]) < 0.0005
+            for p in after
+        )
+
+    def test_merge_refuses_to_merge_away_a_zone_place(self, analytics_db: Any) -> None:
+        analytics_db.sync_zones(
+            "real",
+            [
+                {
+                    "entity_id": "zone.home",
+                    "name": "Home",
+                    "latitude": HOME[0],
+                    "longitude": HOME[1],
+                    "radius": 100,
+                }
+            ],
+        )
+        zone_id = analytics_db.list_places("real")[0]["id"]
+        other = analytics_db.create_place("real", WORK[0], WORK[1], "Work")
+        with pytest.raises(ValueError):
+            analytics_db.merge_places("real", other, [zone_id])
+
+    def test_moving_or_resizing_an_auto_place_pins_it_as_user(
+        self, analytics_db: Any
+    ) -> None:
+        self._seed_commute_drives(analytics_db)
+        analytics_db.rebuild_places("real")
+        place = analytics_db.list_places("real")[0]
+        analytics_db.update_place("real", place["id"], radius_m=300)
+        updated = next(
+            p for p in analytics_db.list_places("real") if p["id"] == place["id"]
+        )
+        assert updated["source"] == "user"
+        assert updated["radius_m"] == 300
+
+    def test_visits_count_a_stop_once_not_as_arrival_plus_departure(
+        self, analytics_db: Any
+    ) -> None:
+        self._seed_commute_drives(analytics_db, days=4)
+        analytics_db.rebuild_places("real")
+        for place in analytics_db.list_places("real"):
+            assert place["visits"] == 4
+
+    def test_places_needing_geocode_only_unnamed_auto_with_min_visits(
+        self, analytics_db: Any
+    ) -> None:
+        self._seed_commute_drives(analytics_db)
+        analytics_db.rebuild_places("real")
+        candidates = analytics_db.places_needing_geocode("real")
+        assert len(candidates) == 2
+
+        # Naming one removes it from the candidate list.
+        analytics_db.update_place("real", candidates[0]["place_id"], name="Named")
+        candidates_after = analytics_db.places_needing_geocode("real")
+        assert len(candidates_after) == 1
+
+    def test_resized_unnamed_place_is_still_geocoded(self, analytics_db: Any) -> None:
+        # Resizing before naming pins the place as "user" but leaves it
+        # unnamed; it should still get an OSM name.
+        self._seed_commute_drives(analytics_db)
+        analytics_db.rebuild_places("real")
+        place_id = analytics_db.places_needing_geocode("real")[0]["place_id"]
+        analytics_db.update_place("real", place_id, radius_m=250)
+        assert place_id in {
+            c["place_id"] for c in analytics_db.places_needing_geocode("real")
+        }
+
+    def test_save_geocode_retried_only_after_cooldown(self, analytics_db: Any) -> None:
+        self._seed_commute_drives(analytics_db)
+        analytics_db.rebuild_places("real")
+        candidate = analytics_db.places_needing_geocode("real")[0]
+        now = time.time()
+        analytics_db.save_geocode("real", candidate["place_id"], None, now)
+
+        # Just attempted: not due again yet.
+        assert candidate["place_id"] not in {
+            c["place_id"] for c in analytics_db.places_needing_geocode("real")
+        }
+
+        with analytics_db._lock, analytics_db._transaction():
+            analytics_db._conn.execute(
+                "UPDATE places SET geocoded_ts = ? WHERE place_id = ?",
+                (now - 8 * 86400.0, candidate["place_id"]),
+            )
+        assert candidate["place_id"] in {
+            c["place_id"] for c in analytics_db.places_needing_geocode("real")
+        }
+
+    def test_save_geocode_success_sets_geocode_name(self, analytics_db: Any) -> None:
+        self._seed_commute_drives(analytics_db)
+        analytics_db.rebuild_places("real")
+        candidate = analytics_db.places_needing_geocode("real")[0]
+        analytics_db.save_geocode("real", candidate["place_id"], "Main St", time.time())
+        place = next(
+            p
+            for p in analytics_db.list_places("real")
+            if p["id"] == candidate["place_id"]
+        )
+        assert place["geocode_name"] == "Main St"
+        assert place["label"] == "Main St"
+
+    def test_has_unbuilt_places_until_rebuilt(self, analytics_db: Any) -> None:
+        assert analytics_db.has_unbuilt_places("real") is True
+        analytics_db.rebuild_places("real")
+        assert analytics_db.has_unbuilt_places("real") is False
+
+    def test_day_carries_place_labels_for_segments_stops_and_endpoints(
+        self, analytics_db: Any
+    ) -> None:
+        self._seed_commute_drives(analytics_db, days=1)
+        analytics_db.create_place("real", HOME[0], HOME[1], "Home")
+        analytics_db.create_place("real", WORK[0], WORK[1], "Work")
+
+        payload = analytics_db.day(TEST_VIN, UTC, date(2026, 1, 1))
+        assert len(payload["segments"]) == 2
+        first, second = payload["segments"]
+        assert first["start_place"]["label"] == "Home"
+        assert first["end_place"]["label"] == "Work"
+        assert second["start_place"]["label"] == "Work"
+        assert second["end_place"]["label"] == "Home"
+
+        assert len(payload["stops"]) == 1
+        assert payload["stops"][0]["place"]["label"] == "Work"
+        assert payload["start"]["place"]["label"] == "Home"
+        assert payload["end"]["place"]["label"] == "Home"
+
+    def test_get_drive_detail_carries_place_labels(self, analytics_db: Any) -> None:
+        self._seed_commute_drives(analytics_db, days=1)
+        analytics_db.create_place("real", HOME[0], HOME[1], "Home")
+        analytics_db.create_place("real", WORK[0], WORK[1], "Work")
+
+        detail = analytics_db.get_drive_detail(TEST_VIN, "to_work_1")
+        assert detail["drive"]["start_place"]["label"] == "Home"
+        assert detail["drive"]["end_place"]["label"] == "Work"
+
+    def test_delete_vin_clears_places(self, analytics_db: Any) -> None:
+        self._seed_commute_drives(analytics_db)
+        analytics_db.rebuild_places("real")
+        assert analytics_db.list_places("real") != []
+        before = analytics_db.list_places("real")
+        analytics_db.delete_vin(TEST_VIN)
+        # Places belong to no vehicle: deleting a car's history keeps them
+        # (an unvisited, unnamed auto place goes on the next rebuild).
+        assert analytics_db.list_places("real") == [
+            {
+                **p,
+                "visits": 0,
+                "visits_by_vin": {},
+                "arrivals": 0,
+                "departures": 0,
+                "last_visit_ts": None,
+            }
+            for p in before
+        ]
+        analytics_db.rebuild_places("real")
+        assert [
+            p for p in analytics_db.list_places("real") if p["source"] == "auto"
+        ] == []
+
+
+class TestRoutes:
+    """AnalyticsDatabase routes: schema v9 migration, rebuild/list/detail/rename."""
+
+    def _seed_commute_drives(self, db: AnalyticsDatabase, days: int = 4) -> None:
+        drives: list[DriveRecord] = []
+        for day in range(1, days + 1):
+            base = f"2026-01-{day:02d}"
+            drives.append(
+                _make_drive(
+                    f"to_work_{day}",
+                    20.0,
+                    6.0,
+                    _timed(base, 8),
+                    _timed(base, 8, 30),
+                    start_lat=HOME[0],
+                    start_lon=HOME[1],
+                    end_lat=WORK[0],
+                    end_lon=WORK[1],
+                )
+            )
+            drives.append(
+                _make_drive(
+                    f"to_home_{day}",
+                    20.0,
+                    6.0,
+                    _timed(base, 17),
+                    _timed(base, 17, 30),
+                    start_lat=WORK[0],
+                    start_lon=WORK[1],
+                    end_lat=HOME[0],
+                    end_lon=HOME[1],
+                )
+            )
+        db.upsert_drives(TEST_VIN, drives)
+
+    def _set_duration(
+        self, db: AnalyticsDatabase, drive_id: str, seconds: float
+    ) -> None:
+        with db._lock, db._transaction():
+            db._conn.execute(
+                "UPDATE drives SET duration_seconds = ? WHERE vin = ? AND drive_id = ?",
+                (seconds, TEST_VIN, drive_id),
+            )
+
+    def test_migrating_v8_db_adds_routes_table_and_drive_route_column(
+        self, mock_hass: Any, analytics_db_path: str
+    ) -> None:
+        """Opening a v8 database adds the v9 routes table and drives.route_id."""
+        raw = sqlite3.connect(analytics_db_path)
+        try:
+            raw.executescript(_V6_SCHEMA_SQL)
+            raw.execute(
+                "CREATE TABLE IF NOT EXISTS osm_roads (bbox_key TEXT PRIMARY KEY, "
+                "fetched_ts REAL NOT NULL, data BLOB NOT NULL)"
+            )
+            raw.execute(
+                "CREATE TABLE IF NOT EXISTS track_fills (vin TEXT NOT NULL, "
+                "drive_id TEXT NOT NULL, after_t REAL NOT NULL, points_json TEXT "
+                "NOT NULL, source TEXT NOT NULL DEFAULT 'osm', created_ts REAL "
+                "NOT NULL, PRIMARY KEY (vin, drive_id, after_t))"
+            )
+            raw.execute(
+                "ALTER TABLE drive_tracks ADD COLUMN gaps_scanned INTEGER "
+                "NOT NULL DEFAULT 0"
+            )
+            raw.execute(
+                "CREATE TABLE IF NOT EXISTS places (place_id INTEGER PRIMARY KEY, "
+                "vin TEXT NOT NULL, name TEXT, category TEXT, lat REAL NOT NULL, "
+                "lon REAL NOT NULL, radius_m REAL NOT NULL DEFAULT 150, "
+                "source TEXT NOT NULL DEFAULT 'auto', zone_entity_id TEXT, "
+                "hidden INTEGER NOT NULL DEFAULT 0, geocode_name TEXT, "
+                "geocoded_ts REAL, created_ts REAL NOT NULL, updated_ts REAL NOT NULL)"
+            )
+            raw.execute("ALTER TABLE drives ADD COLUMN start_place_id INTEGER")
+            raw.execute("ALTER TABLE drives ADD COLUMN end_place_id INTEGER")
+            raw.execute(
+                "INSERT INTO drives (vin, drive_id, start_time, end_time, "
+                "distance_miles, duration_seconds, energy_kwh, created_ts, "
+                "start_lat, start_lon, end_lat, end_lon) VALUES "
+                "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    TEST_VIN,
+                    "pre_migration_v8",
+                    "2026-01-01T00:00:00Z",
+                    "2026-01-01T00:10:00Z",
+                    5.0,
+                    600.0,
+                    2.0,
+                    time.time(),
+                    37.0,
+                    -122.0,
+                    37.1,
+                    -122.1,
+                ),
+            )
+            raw.execute("PRAGMA user_version = 8")
+            raw.commit()
+        finally:
+            raw.close()
+
+        db = AnalyticsDatabase(mock_hass, db_path=analytics_db_path)
+        db.setup()
+        try:
+            with db._lock:
+                tables = {
+                    row[0]
+                    for row in db._conn.execute(
+                        "SELECT name FROM sqlite_master WHERE type='table'"
+                    ).fetchall()
+                }
+                drive_columns = {
+                    row[1]
+                    for row in db._conn.execute("PRAGMA table_info(drives)").fetchall()
+                }
+                user_version = db._conn.execute("PRAGMA user_version").fetchone()[0]
+                drive_row = db._conn.execute(
+                    "SELECT drive_id, route_id FROM drives WHERE vin = ?",
+                    (TEST_VIN,),
+                ).fetchone()
+            assert "routes" in tables
+            assert "route_id" in drive_columns
+            assert user_version == SCHEMA_VERSION == 14
+            assert db.get_meta("schema_version") == str(SCHEMA_VERSION)
+            assert drive_row["drive_id"] == "pre_migration_v8"
+            assert drive_row["route_id"] is None
+
+            summary = db.list_drives(TEST_VIN, include_micro=True)
+            assert summary[0]["distance_miles"] == 5.0
+        finally:
+            db.close()
+
+    def test_rebuild_routes_groups_commute_into_two_routes(
+        self, analytics_db: Any
+    ) -> None:
+        self._seed_commute_drives(analytics_db)
+        analytics_db.rebuild_places("real")
+        result = analytics_db.rebuild_routes("real")
+        assert result["routes"] == 2
+        routes = analytics_db.list_routes("real")
+        assert len(routes) == 2
+        assert {r["drive_count"] for r in routes} == {4}
+        assert all(r["variant"] == 1 for r in routes)
+
+    def test_rebuild_routes_below_threshold_is_not_a_route(
+        self, analytics_db: Any
+    ) -> None:
+        self._seed_commute_drives(analytics_db, days=2)
+        analytics_db.rebuild_places("real")
+        analytics_db.rebuild_routes("real")
+        assert analytics_db.list_routes("real") == []
+
+    def test_rebuild_routes_is_idempotent_and_ids_stable(
+        self, analytics_db: Any
+    ) -> None:
+        self._seed_commute_drives(analytics_db)
+        analytics_db.rebuild_places("real")
+        analytics_db.rebuild_routes("real")
+        first_ids = sorted(r["id"] for r in analytics_db.list_routes("real"))
+
+        analytics_db.rebuild_routes("real")
+        second_ids = sorted(r["id"] for r in analytics_db.list_routes("real"))
+        assert first_ids == second_ids
+
+    def test_rebuild_routes_assigns_drive_route_id(self, analytics_db: Any) -> None:
+        self._seed_commute_drives(analytics_db)
+        analytics_db.rebuild_places("real")
+        analytics_db.rebuild_routes("real")
+        with analytics_db._lock:
+            row = analytics_db._conn.execute(
+                "SELECT route_id FROM drives WHERE vin = ? AND drive_id = ?",
+                (TEST_VIN, "to_work_1"),
+            ).fetchone()
+        assert row["route_id"] is not None
+
+    def test_list_routes_sorted_by_drive_count_desc_with_stats(
+        self, analytics_db: Any
+    ) -> None:
+        self._seed_commute_drives(analytics_db, days=4)
+        # Add a smaller route (3 drives) so the two routes have different sizes.
+        extra = [
+            _make_drive(
+                "to_gym_1",
+                5.0,
+                1.5,
+                _timed("2026-02-01", 9),
+                _timed("2026-02-01", 9, 10),
+                start_lat=HOME[0],
+                start_lon=HOME[1],
+                end_lat=HOME[0] + 0.05,
+                end_lon=HOME[1] + 0.05,
+            ),
+            _make_drive(
+                "to_gym_2",
+                5.0,
+                1.5,
+                _timed("2026-02-02", 9),
+                _timed("2026-02-02", 9, 10),
+                start_lat=HOME[0],
+                start_lon=HOME[1],
+                end_lat=HOME[0] + 0.05,
+                end_lon=HOME[1] + 0.05,
+            ),
+            _make_drive(
+                "to_gym_3",
+                5.0,
+                1.5,
+                _timed("2026-02-03", 9),
+                _timed("2026-02-03", 9, 10),
+                start_lat=HOME[0],
+                start_lon=HOME[1],
+                end_lat=HOME[0] + 0.05,
+                end_lon=HOME[1] + 0.05,
+            ),
+        ]
+        analytics_db.upsert_drives(TEST_VIN, extra)
+        analytics_db.rebuild_places("real")
+        analytics_db.rebuild_routes("real")
+        routes = analytics_db.list_routes("real")
+        assert len(routes) == 3
+        counts = [r["drive_count"] for r in routes]
+        assert counts == sorted(counts, reverse=True)
+        for route in routes:
+            assert "stats" in route
+            assert route["stats"]["count"] == route["drive_count"]
+            assert route["label"]
+
+    def test_route_detail_returns_rank_vs_avg_and_preview_only(
+        self, analytics_db: Any
+    ) -> None:
+        self._seed_commute_drives(analytics_db)
+        self._set_duration(analytics_db, "to_work_1", 500.0)
+        self._set_duration(analytics_db, "to_work_2", 600.0)
+        self._set_duration(analytics_db, "to_work_3", 700.0)
+        self._set_duration(analytics_db, "to_work_4", 600.0)
+        analytics_db.rebuild_places("real")
+        analytics_db.rebuild_routes("real")
+
+        # Only one drive gets a stored GPS route.
+        analytics_db.upsert_tracks(TEST_VIN, [("to_work_1", _make_track(n=5))])
+
+        route = next(
+            r
+            for r in analytics_db.list_routes("real")
+            if any(
+                d["drive_id"] == "to_work_1"
+                for d in analytics_db.route_detail("real", r["id"])["drives"]
+            )
+        )
+        detail = analytics_db.route_detail("real", route["id"])
+        assert detail["stats"]["count"] == 4
+        by_id = {d["drive_id"]: d for d in detail["drives"]}
+        assert by_id["to_work_1"]["rank"] == 1
+        assert by_id["to_work_3"]["rank"] == 4
+        assert by_id["to_work_1"]["preview"] is not None
+        assert by_id["to_work_2"]["preview"] is None
+        assert "track_json" not in by_id["to_work_1"]
+        assert isinstance(by_id["to_work_1"]["preview"]["lat"], list)
+
+    def test_rename_route_sets_name_and_label(self, analytics_db: Any) -> None:
+        self._seed_commute_drives(analytics_db)
+        analytics_db.rebuild_places("real")
+        analytics_db.rebuild_routes("real")
+        route = analytics_db.list_routes("real")[0]
+        analytics_db.rename_route("real", route["id"], "My Commute")
+        updated = next(
+            r for r in analytics_db.list_routes("real") if r["id"] == route["id"]
+        )
+        assert updated["name"] == "My Commute"
+        assert updated["label"] == "My Commute"
+
+    def test_rename_route_unknown_id_raises(self, analytics_db: Any) -> None:
+        with pytest.raises(ValueError):
+            analytics_db.rename_route("real", 999999, "X")
+
+    def test_has_unbuilt_routes_until_rebuilt(self, analytics_db: Any) -> None:
+        assert analytics_db.has_unbuilt_routes("real") is True
+        analytics_db.rebuild_routes("real")
+        assert analytics_db.has_unbuilt_routes("real") is False
+
+    def test_rebuild_routes_after_place_merge_reflects_new_grouping(
+        self, analytics_db: Any
+    ) -> None:
+        # Two work-adjacent spots 250 m apart (just past the 200 m cluster
+        # radius), each with exactly MIN_ROUTE_DRIVES Home-> drives: two
+        # separate, barely-qualifying routes until they're merged into one.
+        near_work = (WORK[0] + 0.00225, WORK[1])
+        drives = [
+            _make_drive(
+                f"to_work_{day}",
+                20.0,
+                6.0,
+                _timed(f"2026-01-{day:02d}", 8),
+                _timed(f"2026-01-{day:02d}", 8, 30),
+                start_lat=HOME[0],
+                start_lon=HOME[1],
+                end_lat=WORK[0],
+                end_lon=WORK[1],
+            )
+            for day in range(1, 4)
+        ] + [
+            _make_drive(
+                f"to_near_work_{day}",
+                20.0,
+                6.0,
+                _timed(f"2026-02-{day:02d}", 8),
+                _timed(f"2026-02-{day:02d}", 8, 30),
+                start_lat=HOME[0],
+                start_lon=HOME[1],
+                end_lat=near_work[0],
+                end_lon=near_work[1],
+            )
+            for day in range(1, 4)
+        ]
+        analytics_db.upsert_drives(TEST_VIN, drives)
+        analytics_db.rebuild_places("real")
+        analytics_db.rebuild_routes("real")
+        before = analytics_db.list_routes("real")
+        assert len(before) == 2
+        assert {r["drive_count"] for r in before} == {3}
+
+        places = analytics_db.list_places("real")
+        work_place = next(p for p in places if abs(p["lat"] - WORK[0]) < 0.001)
+        near_place = next(p for p in places if abs(p["lat"] - near_work[0]) < 0.0005)
+        # merge_places rebuilds routes itself -- no explicit rebuild_routes call.
+        analytics_db.merge_places("real", work_place["id"], [near_place["id"]])
+
+        after = analytics_db.list_routes("real")
+        assert len(after) == 1
+        assert after[0]["drive_count"] == 6
+
+    def test_create_and_update_place_also_rebuild_routes_automatically(
+        self, analytics_db: Any
+    ) -> None:
+        self._seed_commute_drives(analytics_db)
+        analytics_db.rebuild_places("real")
+        analytics_db.rebuild_routes("real")
+        assert len(analytics_db.list_routes("real")) == 2
+
+        # Hiding the Home place (a geometry-affecting update) removes it from
+        # assignment, which collapses both routes -- with no explicit
+        # rebuild_routes call, update_place must have triggered it itself.
+        places = analytics_db.list_places("real")
+        home_place = next(p for p in places if abs(p["lat"] - HOME[0]) < 0.01)
+        analytics_db.update_place("real", home_place["id"], hidden=True)
+        assert analytics_db.list_routes("real") == []
+
+    def test_day_carries_route_info_for_segments(self, analytics_db: Any) -> None:
+        self._seed_commute_drives(analytics_db, days=4)
+        analytics_db.rebuild_places("real")
+        analytics_db.rebuild_routes("real")
+
+        payload = analytics_db.day(TEST_VIN, UTC, date(2026, 1, 1))
+        first = payload["segments"][0]
+        assert first["route"] is not None
+        assert first["route"]["count"] == 4
+        assert first["route"]["rank"] is not None
+        assert "→" in first["route"]["label"]
+
+    def test_delete_vin_clears_routes(self, analytics_db: Any) -> None:
+        self._seed_commute_drives(analytics_db)
+        analytics_db.rebuild_places("real")
+        analytics_db.rebuild_routes("real")
+        assert analytics_db.list_routes("real") != []
+        analytics_db.delete_vin(TEST_VIN)
+        # Routes belong to no vehicle either: they stay until a rebuild
+        # finds no drive left to support them.
+        assert analytics_db.list_routes("real") != []
+        analytics_db.rebuild_places("real")
+        analytics_db.rebuild_routes("real")
+        assert analytics_db.list_routes("real") == []
+
+
+class TestDeleteDrivesDayPlaceSession:
+    """delete_drives/delete_day/delete_place, and delete_vin's cleanup."""
+
+    def test_delete_drives_removes_rows_tracks_and_rebuilds(
+        self, analytics_db: Any
+    ) -> None:
+        # places.MIN_VISITS is 3, so 3 "keep" drives (plus 1 "gone" one) are
+        # needed for auto places to still exist after the delete.
         drives = [
             _make_drive(
                 f"keep{i}",
@@ -3672,6 +4415,8 @@ class TestDeleteDrivesAndDay:
             ],
         )
         analytics_db.update_heat(TEST_VIN, UTC)
+        analytics_db.rebuild_places("real")
+        analytics_db.rebuild_routes("real")
         assert analytics_db.heat_info(TEST_VIN, "all")["drives"] == 4
 
         result = analytics_db.delete_drives(TEST_VIN, ["gone"])
@@ -3690,6 +4435,8 @@ class TestDeleteDrivesAndDay:
         assert drive_count == 0
         assert track_count == 0
         assert analytics_db.heat_info(TEST_VIN, "all")["drives"] == 3
+        # The remaining "keep" drives are still assigned to their places.
+        assert analytics_db.list_places("real") != []
 
     def test_delete_drives_drops_month_heat_when_no_route_left(
         self, analytics_db: Any
@@ -3761,6 +4508,70 @@ class TestDeleteDrivesAndDay:
                 ).fetchall()
             }
         assert remaining == {"day2"}
+
+    def test_delete_place_user_place_is_deleted(self, analytics_db: Any) -> None:
+        place_id = analytics_db.create_place("real", HOME[0], HOME[1], "Home")
+        result = analytics_db.delete_place("real", place_id)
+        assert result == {"action": "deleted"}
+        assert analytics_db.list_places("real") == []
+
+    def test_delete_place_auto_suggestion_is_hidden_not_deleted(
+        self, analytics_db: Any
+    ) -> None:
+        self._seed_commute_drives(analytics_db)
+        analytics_db.rebuild_places("real")
+        places = analytics_db.list_places("real")
+        auto_place = next(p for p in places if p["source"] == "auto")
+
+        result = analytics_db.delete_place("real", auto_place["id"])
+        assert result == {"action": "hidden"}
+        with analytics_db._lock:
+            row = analytics_db._conn.execute(
+                "SELECT hidden FROM places WHERE dataset = ? AND place_id = ?",
+                ("real", auto_place["id"]),
+            ).fetchone()
+        assert row["hidden"] == 1
+
+    def _seed_commute_drives(self, db: AnalyticsDatabase, days: int = 4) -> None:
+        drives: list[DriveRecord] = []
+        for day in range(1, days + 1):
+            base = f"2026-03-{day:02d}"
+            drives.append(
+                _make_drive(
+                    f"to_work_{day}",
+                    20.0,
+                    6.0,
+                    _timed(base, 8),
+                    _timed(base, 8, 30),
+                    start_lat=HOME[0],
+                    start_lon=HOME[1],
+                    end_lat=WORK[0],
+                    end_lon=WORK[1],
+                )
+            )
+        db.upsert_drives(TEST_VIN, drives)
+
+    def test_delete_place_zone_place_raises(self, analytics_db: Any) -> None:
+        analytics_db.sync_zones(
+            "real",
+            [
+                {
+                    "entity_id": "zone.home",
+                    "name": "Home",
+                    "latitude": HOME[0],
+                    "longitude": HOME[1],
+                    "radius": 100,
+                }
+            ],
+        )
+        places = analytics_db.list_places("real")
+        zone_place = next(p for p in places if p["source"] == "zone")
+        with pytest.raises(ValueError):
+            analytics_db.delete_place("real", zone_place["id"])
+
+    def test_delete_place_unknown_id_raises(self, analytics_db: Any) -> None:
+        with pytest.raises(ValueError):
+            analytics_db.delete_place("real", 999999)
 
     def test_delete_vin_clears_pictures_and_meta(self, analytics_db: Any) -> None:
         from custom_components.rivian.analytics_db import VehiclePicture

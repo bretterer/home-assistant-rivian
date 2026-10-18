@@ -123,3 +123,27 @@ snap_route_gaps:
       example: "7PDSGABA8NN000000"
       selector:
         text:
+
+rebuild_places:
+  name: Rebuild favorite places
+  description: Re-clusters frequent drive start/stop spots (3+ visits within about 200 m) into places, seeded from HA zones, and reassigns every drive's start/end place. Only needed after editing zones outside of the normal sync, or to force a rebuild after many drives changed at once (e.g. a backfill).
+  fields:
+    vin:
+      name: Vehicle VIN
+      description: Specific vehicle VIN to rebuild (leave blank for all configured vehicles).
+      required: false
+      example: "7PDSGABA8NN000000"
+      selector:
+        text:
+
+rebuild_routes:
+  name: Rebuild favorite drives
+  description: Re-groups repeated start->end place pairs (3+ drives) into routes and path-similarity variants, and recomputes each route's fastest/average/slowest stats. Only needed to force a rebuild after many drives or places changed at once (e.g. a backfill or a place merge).
+  fields:
+    vin:
+      name: Vehicle VIN
+      description: Specific vehicle VIN to rebuild (leave blank for all configured vehicles).
+      required: false
+      example: "7PDSGABA8NN000000"
+      selector:
+        text:

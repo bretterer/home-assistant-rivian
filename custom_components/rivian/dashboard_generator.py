@@ -255,6 +255,28 @@ def _build_drives_view(vehicles: list[tuple[str, str, str]]) -> dict[str, Any]:
     )
 
 
+def _build_places_view(vehicles: list[tuple[str, str, str]]) -> dict[str, Any]:
+    """Build the panel-mode Places tab: one places card."""
+    return _build_panel_view(
+        vehicles,
+        title="Destinations",
+        path="places",
+        icon="mdi:map-marker-star",
+        card_type="custom:rivian-places-card",
+    )
+
+
+def _build_routes_view(vehicles: list[tuple[str, str, str]]) -> dict[str, Any]:
+    """Build the panel-mode Routes tab: one favorite-drives card."""
+    return _build_panel_view(
+        vehicles,
+        title="Fav Routes",
+        path="routes",
+        icon="mdi:routes",
+        card_type="custom:rivian-routes-card",
+    )
+
+
 async def async_discover_vehicle_prefixes(
     hass: HomeAssistant,
 ) -> list[tuple[str, str, str, str]]:
@@ -328,10 +350,12 @@ async def async_create_efficiency_dashboard(
 ) -> bool:
     """Create or update the turnkey, tabbed Rivian dashboard in Home Assistant.
 
-    Views/tabs are generated in order: Overview and Drives (panel). The
-    Overview tab is a single `rivian-overview-card` listing every vehicle (see
-    `_build_overview_view`). Drives holds ONE card that follows the shared
-    vehicle selection. There is no picker or conditional card anywhere.
+    Views/tabs are generated in order: Overview, Drives (panel), Places
+    (panel) and Routes (panel). The Overview tab is a
+    single `rivian-overview-card` listing every vehicle (see
+    `_build_overview_view`). Drives, Places and Routes each hold ONE card
+    that follows the shared vehicle selection. There is no picker or
+    conditional card anywhere.
     """
     dashboard_id = url_path.replace("-", "_")
     vehicles_with_entry = await async_discover_vehicle_prefixes(hass)
@@ -365,10 +389,14 @@ async def async_create_efficiency_dashboard(
         vehicles_with_entry, entities_by_vin, vehicle_models, url_path
     )
     drives_view = _build_drives_view(vehicles)
+    places_view = _build_places_view(vehicles)
+    routes_view = _build_routes_view(vehicles)
 
     views: list[dict[str, Any]] = [
         overview_view,
         drives_view,
+        routes_view,
+        places_view,
         # No vehicle status/controls tab for now; a redesigned one is planned.
     ]
 

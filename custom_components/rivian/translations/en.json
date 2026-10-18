@@ -31,12 +31,14 @@
           "track_capture": "Store GPS routes for drives",
           "track_retention_days": "Keep GPS routes for (days, 0 = as long as the drive)",
           "track_full_detail_days": "Thin routes older than (days, 0 = never)",
+          "place_geocoding": "Automatically name frequent places",
           "weather_lookups": "Weather for drives"
         },
         "data_description": {
           "track_capture": "When off, drives are still recorded but no GPS route is stored for them, so the map/drive-explorer route view is unavailable.",
           "track_retention_days": "How long a drive's full GPS route is kept before it's deleted (the drive summary itself follows the analytics history retention setting above). A typical daily-driving route history runs roughly 12 MB/year at full detail.",
           "track_full_detail_days": "Routes older than this are simplified to about 10% of their original size (same overall shape, fewer points) to save storage, without being deleted.",
+          "place_geocoding": "When on, an unnamed frequent stop (3+ visits within ~200 m) is looked up once via the public OSM Nominatim API to suggest a name. Only that place's coordinates are sent; the result is cached. When off, suggested places keep a numbered label until you name them yourself.",
           "weather_lookups": "When on, each drive gets its outside temperature from the public Open-Meteo API. Only coordinates rounded to about 1 km and times are sent. When off, nothing is sent and drives show no temperature."
         }
       }
@@ -1116,6 +1118,26 @@
         "vin": {
           "name": "Vehicle VIN",
           "description": "Specific vehicle VIN to process (leave blank for all configured vehicles)."
+        }
+      }
+    },
+    "rebuild_places": {
+      "name": "Rebuild favorite places",
+      "description": "Re-clusters frequent drive start/stop spots (3+ visits within about 200 m) into places, seeded from HA zones, and reassigns every drive's start/end place. Only needed after editing zones outside of the normal sync, or to force a rebuild after many drives changed at once (e.g. a backfill).",
+      "fields": {
+        "vin": {
+          "name": "Vehicle VIN",
+          "description": "Specific vehicle VIN to rebuild (leave blank for all configured vehicles)."
+        }
+      }
+    },
+    "rebuild_routes": {
+      "name": "Rebuild favorite drives",
+      "description": "Re-groups repeated start->end place pairs (3+ drives) into routes and path-similarity variants, and recomputes each route's fastest/average/slowest stats. Only needed to force a rebuild after many drives or places changed at once (e.g. a backfill or a place merge).",
+      "fields": {
+        "vin": {
+          "name": "Vehicle VIN",
+          "description": "Specific vehicle VIN to rebuild (leave blank for all configured vehicles)."
         }
       }
     }

@@ -729,7 +729,10 @@ export const STAT_TILE_TITLES = {
   "Drive mode": "Drive mode(s) selected during the drive",
   Driver: "The driver profile that was active",
   Trailer: "Whether the car reported a trailer attached",
+  Route: "Rank among your drives on this repeated route (a favorite drive), and how it compares with that route's average time",
   Vehicle: "Which vehicle made this drive",
+  From: "Where the drive started (a named place, when known)",
+  To: "Where the drive ended (a named place, when known)",
 };
 
 /** The title for a stat tile by its label ("Busiest month \u00b7 80 mi" matches by prefix). */
@@ -789,6 +792,18 @@ export function heatCountAt(counts, fx, fy) {
 export function heatTipText(count) {
   if (!count || count < 1) return "";
   return count === 1 ? "Driven 1 time" : `Driven ${count.toLocaleString()} times`;
+}
+
+/** "#3 of 15 · 8% faster than avg" for a segment's `route` field (see analytics_db.day()). */
+export function _routeTileText(route) {
+  if (!route) return "–";
+  const rankText = route.rank ? `#${route.rank} of ${route.count}` : `${route.count} drives`;
+  if (route.vs_avg_pct === null || route.vs_avg_pct === undefined) return rankText;
+  // vs_avg_pct is a percentage of average elapsed time; approximate the
+  // seconds delta isn't available here, so word it by percentage instead
+  // when no absolute delta is provided by the backend.
+  const direction = route.vs_avg_pct < 0 ? "faster" : "slower";
+  return `${rankText} · ${Math.abs(Math.round(route.vs_avg_pct))}% ${direction} than avg`;
 }
 
 /** Format a duration in seconds as "1 h 12 min" or "12 min", for map tooltips. */
@@ -993,6 +1008,26 @@ export function projectDay(day, vin) {
     prior_tail: info.prior_tail == null ? null : info.prior_tail,
     others: segments.filter((s) => s.vin !== vin),
   };
+}
+
+/**
+ * Place categories the naming forms offer when the server's list isn't
+ * available (an older backend). The server's `rivian/places/list` reply
+ * carries the real list (`categories`), shared with the Places card.
+ */
+export const FALLBACK_PLACE_CATEGORIES = [
+  { key: "home", label: "Home" },
+  { key: "work", label: "Work" },
+  { key: "school", label: "School" },
+  { key: "shop", label: "Shopping" },
+  { key: "charging", label: "Charging" },
+  { key: "other", label: "Other" },
+];
+
+/** The category list of a `rivian/places/list` reply, else the fallback. */
+export function placeCategoriesFrom(result) {
+  const list = result && Array.isArray(result.categories) ? result.categories : null;
+  return list && list.length ? list : FALLBACK_PLACE_CATEGORIES;
 }
 
 /**
@@ -1260,6 +1295,20 @@ export function driveModeLabel(mode, localize) {
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
+/**
+ * "Home → Work" style suffix for a segment's tree row, from its start/end
+ * place refs ({id, label, category} or null, as `analytics/day` sends them).
+ * Only the known side is shown when the other is unplaced; "" when neither is.
+ */
+export function segmentPlaceLabel(seg) {
+  const start = seg && seg.start_place ? seg.start_place.label : null;
+  const end = seg && seg.end_place ? seg.end_place.label : null;
+  if (start && end) return `${start} → ${end}`;
+  if (start) return `${start} →`;
+  if (end) return `→ ${end}`;
+  return "";
+}
+
 function _segmentMeta(seg) {
   const miles = typeof seg.distance_miles === "number" ? seg.distance_miles.toFixed(1) : "–";
   const mins =
@@ -1384,13 +1433,16 @@ export function visibleTreeRows(cache, selection, tz, opts = {}) {
         const segments = (dayData && dayData.segments) || [];
         const multiLabels = multi ? multiSegmentLabels(segments, vehicles) : null;
         for (const seg of segments) {
+          const placeLabel = segmentPlaceLabel(seg);
           const vehicle = multi ? vmap.get(seg.vin) : null;
           rows.push({
             level: "segment",
             key: d.key,
             driveId: seg.drive_id,
             ariaLevel: 5,
-            label: _timeLabel(seg.start_ts, tz),
+            label: placeLabel
+              ? `${_timeLabel(seg.start_ts, tz)} · ${placeLabel}`
+              : _timeLabel(seg.start_ts, tz),
             // Numbered 1..x in the day's order, matching the map badges
             // (per vehicle, with its letter, when several are in view).
             number: multi
@@ -1998,6 +2050,9 @@ const _CARD_STYLE = `
     font-size: 0.72em;
     color: var(--secondary-text-color);
   }
+  .rde-stat-place {
+    position: relative;
+  }
   .rde-delete-row {
     flex-basis: 100%;
     display: flex;
@@ -2013,6 +2068,84 @@ const _CARD_STYLE = `
     background: var(--card-background-color, #fff);
     color: var(--error-color, #db4437);
     cursor: pointer;
+  }
+  .rde-place-edit-btn {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    border: none;
+    background: none;
+    cursor: pointer;
+    font-size: 0.8em;
+    color: var(--secondary-text-color);
+    padding: 2px;
+  }
+  .rde-place-form {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    justify-content: center;
+    margin-top: 6px;
+    width: 100%;
+  }
+  .rde-place-form input,
+  .rde-place-form select,
+  .rde-place-form button {
+    font: inherit;
+    font-size: 0.78em;
+    padding: 3px 5px;
+    border-radius: 4px;
+    border: 1px solid var(--divider-color, #e0e0e0);
+    background: var(--card-background-color, #fff);
+    color: var(--primary-text-color);
+  }
+  .rde-place-form button {
+    cursor: pointer;
+  }
+  option { background-color: inherit; color: inherit; }
+  /* Customizable <select> (Chromium 135+, incl. HA's Android app): the open
+     list is drawn by the page, so it follows the theme -- the native list
+     ignored it (white frame, wrong size and scrollbar in dark mode). Other
+     browsers keep the native control. */
+  @supports (appearance: base-select) {
+    .rde-place-form select, .rde-map-place-popup select, .rde-place-form select::picker(select), .rde-map-place-popup select::picker(select) { appearance: base-select; }
+    .rde-place-form select, .rde-map-place-popup select { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+    .rde-place-form select::picker-icon, .rde-map-place-popup select::picker-icon { color: var(--secondary-text-color, #727272); font-size: 0.8em; }
+    .rde-place-form select::picker(select), .rde-map-place-popup select::picker(select) {
+      background: var(--card-background-color, var(--primary-background-color, #fff));
+      color: var(--primary-text-color, #212121);
+      border: 1px solid var(--divider-color, #e0e0e0);
+      border-radius: 8px;
+      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+      padding: 4px 0;
+      margin-block: 2px;
+      max-height: min(320px, 60vh);
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: var(--divider-color, #e0e0e0) transparent;
+      font-family: inherit;
+      font-size: 14px;
+    }
+    .rde-place-form select option, .rde-map-place-popup select option { padding: 6px 12px; background: transparent; color: inherit; min-height: 0; }
+    .rde-place-form select option:hover, .rde-place-form select option:focus-visible, .rde-map-place-popup select option:hover, .rde-map-place-popup select option:focus-visible { background: var(--secondary-background-color, rgba(127, 127, 127, 0.18)); outline: none; }
+    .rde-place-form select option:checked, .rde-map-place-popup select option:checked { font-weight: 600; }
+    .rde-place-form select option::checkmark, .rde-map-place-popup select option::checkmark { color: var(--primary-color, #03a9f4); }
+  }
+  .rde-map-place-popup {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 160px;
+  }
+  .rde-map-place-popup-title {
+    font-weight: 500;
+  }
+  .rde-map-place-popup input,
+  .rde-map-place-popup select,
+  .rde-map-place-popup button {
+    font: inherit;
+    font-size: 0.85em;
+    padding: 4px 6px;
   }
   .rde-footer {
     padding: 4px 12px 8px;
@@ -2285,7 +2418,7 @@ const BaseElement = typeof HTMLElement === "undefined" ? class {} : HTMLElement;
 /**
  * "dark" | "light" for a computed CSS background color ("rgb(r, g, b)" /
  * "rgba(...)"), or null when it is transparent or unparseable. Native
- * controls follow `color-scheme`, so a card sets it from its own background
+ * dropdowns follow `color-scheme`, so a card sets it from its own background
  * (a dark custom theme may not set Home Assistant's dark-mode flag).
  */
 export function schemeForColor(color) {
@@ -2293,6 +2426,20 @@ export function schemeForColor(color) {
   if (!m || (m[4] !== undefined && Number(m[4]) === 0)) return null;
   const lum = (0.2126 * Number(m[1]) + 0.7152 * Number(m[2]) + 0.0722 * Number(m[3])) / 255;
   return lum < 0.5 ? "dark" : "light";
+}
+
+/**
+ * Give a native <select> the color scheme of its own background, so the
+ * browser draws its open list (frame, padding, scrollbar) to match. Run as the
+ * list opens: the computed background is only reliable once it's on screen.
+ */
+function _themeSelect(select) {
+  try {
+    const scheme = schemeForColor(getComputedStyle(select).backgroundColor);
+    if (scheme) select.style.colorScheme = scheme;
+  } catch (_err) {
+    // Not rendered: the browser default applies.
+  }
 }
 
 class RivianDriveExplorerCard extends BaseElement {
@@ -2332,7 +2479,7 @@ class RivianDriveExplorerCard extends BaseElement {
     return this._hass;
   }
 
-  /** Match native controls to the card's real background (see `schemeForColor`). */
+  /** Match native dropdowns to the card's real background (see `schemeForColor`). */
   _syncColorScheme(hass) {
     const key = `${hass && hass.themes ? hass.themes.theme : ""}|${!!(hass && hass.themes && hass.themes.darkMode)}`;
     if (key === this._schemeKey) return;
@@ -2429,6 +2576,14 @@ class RivianDriveExplorerCard extends BaseElement {
     this.shadowRoot.appendChild(this._leafletStyleEl);
 
     this._card = document.createElement("ha-card");
+    // Theme each native dropdown as it opens (see `_themeSelect`).
+    const themeSelect = (ev) => {
+      const t = ev.composedPath ? ev.composedPath()[0] : ev.target;
+      if (t && t.tagName === "SELECT") _themeSelect(t);
+    };
+    this.shadowRoot.addEventListener("pointerdown", themeSelect, true);
+    this.shadowRoot.addEventListener("focusin", themeSelect, true);
+    this.shadowRoot.addEventListener("keydown", themeSelect, true);
     this.shadowRoot.appendChild(this._card);
 
     this._renderShell();
@@ -2646,7 +2801,7 @@ class RivianDriveExplorerCard extends BaseElement {
     return this._multi ? { vins: [...this._vins] } : { vin: this._vins[0] };
   }
 
-  /** The vehicle a single-vehicle action (delete) applies to when a segment carries no `vin`. */
+  /** The vehicle a single-vehicle action (delete, place edit) applies to when a segment carries no `vin`. */
   _primaryVin() {
     return this._vins[0];
   }
@@ -3335,11 +3490,15 @@ class RivianDriveExplorerCard extends BaseElement {
     if (seg.trailer !== null && seg.trailer !== undefined) {
       tiles.push(["Trailer", seg.trailer ? "Yes" : "No"]);
     }
+    if (seg.route) {
+      tiles.push(["Route", _routeTileText(seg.route), true]);
+    }
     if (this._multi && seg.vin) {
       const vehicle = this._vehicleOf(seg.vin);
       if (vehicle) tiles.unshift(["Vehicle", `${vehicle.letter} · ${vehicle.name || vehicle.model || ""}`]);
     }
     this._setStatTiles(tiles);
+    this._appendPlaceTiles(seg);
     this._appendDeleteButton("Delete drive", () => deleteDriveMessage(seg, tz), () =>
       this._deleteDrive(seg.drive_id, seg.vin)
     );
@@ -3394,6 +3553,164 @@ class RivianDriveExplorerCard extends BaseElement {
     this._cache.root = null;
     this._cache.years = {};
     this._cache.months = {};
+  }
+
+  /** From/To tiles appended after the plain stat tiles, with an admin "name this place" pencil. */
+  _appendPlaceTiles(seg) {
+    const isAdmin = !!(this._hass && this._hass.user && this._hass.user.is_admin);
+    for (const side of ["start", "end"]) {
+      const place = side === "start" ? seg.start_place : seg.end_place;
+      const tile = document.createElement("div");
+      tile.className = "rde-stat rde-stat-place";
+      tile.title = STAT_TILE_TITLES[side === "start" ? "From" : "To"];
+      const valEl = document.createElement("div");
+      valEl.className = "rde-stat-value";
+      _escapeText(valEl, place ? place.label : "—");
+      const labEl = document.createElement("div");
+      labEl.className = "rde-stat-label";
+      _escapeText(labEl, side === "start" ? "From" : "To");
+      tile.appendChild(valEl);
+      tile.appendChild(labEl);
+      if (isAdmin) {
+        const pencil = document.createElement("button");
+        pencil.type = "button";
+        pencil.className = "rde-place-edit-btn";
+        pencil.title = `Name or rename the ${side === "start" ? "starting" : "ending"} place`;
+        pencil.setAttribute("aria-label", pencil.title);
+        _escapeText(pencil, "✎");
+        pencil.addEventListener("click", () => this._togglePlaceForm(tile, seg, side, place));
+        tile.appendChild(pencil);
+      }
+      this._statsEl.appendChild(tile);
+    }
+  }
+
+  /**
+   * Fill a category <select> from the server's category list (shared with the
+   * Places card), starting from the fallback list until it arrives. The list
+   * is fetched once per card from `rivian/places/list`.
+   */
+  _fillCategorySelect(select, current, vin) {
+    const fill = (categories) => {
+      const wanted = select.value || current || "";
+      select.textContent = "";
+      const blank = document.createElement("option");
+      blank.value = "";
+      _escapeText(blank, "–");
+      select.appendChild(blank);
+      for (const category of categories) {
+        const opt = document.createElement("option");
+        opt.value = category.key;
+        _escapeText(opt, category.label);
+        select.appendChild(opt);
+      }
+      select.value = wanted;
+    };
+    fill(this._placeCategories || FALLBACK_PLACE_CATEGORIES);
+    if (!this._placeCategories && !this._placeCategoriesPromise && this._hass) {
+      this._placeCategoriesPromise = this._hass
+        .callWS({ type: "rivian/places/list", ...(vin ? { vin } : {}) })
+        .then((result) => {
+          this._placeCategories = placeCategoriesFrom(result);
+        })
+        .catch(() => {
+          this._placeCategories = null;
+        })
+        .finally(() => {
+          this._placeCategoriesPromise = null;
+        });
+    }
+    if (!this._placeCategories && this._placeCategoriesPromise) {
+      this._placeCategoriesPromise.then(() => {
+        if (this._placeCategories) fill(this._placeCategories);
+      });
+    }
+  }
+
+  /** Shows (or hides, if already open for this tile) an inline name/category form for a drive endpoint. */
+  _togglePlaceForm(tile, seg, side, place) {
+    if (this._placeFormEl && this._placeFormEl.parentElement === tile) {
+      this._placeFormEl.remove();
+      this._placeFormEl = null;
+      return;
+    }
+    if (this._placeFormEl) this._placeFormEl.remove();
+
+    const form = document.createElement("div");
+    form.className = "rde-place-form";
+
+    const nameInput = document.createElement("input");
+    nameInput.type = "text";
+    nameInput.placeholder = "Name this place";
+    nameInput.value = place && place.name ? place.name : "";
+    nameInput.setAttribute("aria-label", "Place name");
+
+    const categorySelect = document.createElement("select");
+    categorySelect.setAttribute("aria-label", "Place category");
+    categorySelect.title = "Category: sets the icon and color of the place";
+    this._fillCategorySelect(categorySelect, place && place.category, seg.vin || this._primaryVin());
+
+    const saveBtn = document.createElement("button");
+    saveBtn.type = "button";
+    _escapeText(saveBtn, "Save");
+    saveBtn.title = "Save this place name";
+    saveBtn.addEventListener("click", () => {
+      this._savePlaceName(seg, side, place, nameInput.value.trim(), categorySelect.value || null).catch(
+        (err) => this._showError(err)
+      );
+    });
+
+    const cancelBtn = document.createElement("button");
+    cancelBtn.type = "button";
+    _escapeText(cancelBtn, "Cancel");
+    cancelBtn.title = "Close without saving";
+    cancelBtn.addEventListener("click", () => {
+      form.remove();
+      this._placeFormEl = null;
+    });
+
+    form.appendChild(nameInput);
+    form.appendChild(categorySelect);
+    form.appendChild(saveBtn);
+    form.appendChild(cancelBtn);
+    tile.appendChild(form);
+    this._placeFormEl = form;
+    nameInput.focus();
+  }
+
+  /** Names a drive endpoint: updates its existing place, or creates one at that endpoint's coordinates. */
+  async _savePlaceName(seg, side, place, name, category) {
+    if (!name) return;
+    const vin = seg.vin || this._primaryVin();
+    if (place) {
+      await this._hass.callWS({
+        type: "rivian/places/update",
+        vin,
+        place_id: place.id,
+        name,
+        category,
+      });
+    } else {
+      const lat = side === "start" ? seg.start_lat : seg.end_lat;
+      const lon = side === "start" ? seg.start_lon : seg.end_lon;
+      if (lat == null || lon == null) return;
+      await this._hass.callWS({
+        type: "rivian/places/create",
+        vin,
+        lat,
+        lon,
+        name,
+        category,
+      });
+    }
+    if (this._placeFormEl) {
+      this._placeFormEl.remove();
+      this._placeFormEl = null;
+    }
+    // The day's places changed: bypass the cached response so labels refresh.
+    const dayKey = this._selection && this._selection.key;
+    if (dayKey && this._cache.days) delete this._cache.days[dayKey];
+    await this._selectNode(this._selection);
   }
 
   // -- charts: time-series panel under the map -----------------------------
@@ -4878,6 +5195,11 @@ class RivianDriveExplorerCard extends BaseElement {
     const segmentTime = (n, key) => _timeLabel(segments[n - 1] ? segments[n - 1][key] : null, tz);
     const specs = dayMarkerSpecs(dayData, selectedDriveId);
     const inSegment = selectedDriveId != null;
+    const isAdmin = !!(this._hass && this._hass.user && this._hass.user.is_admin);
+    const placeAt = (n, key) => {
+      const seg = segments[n - 1];
+      return seg ? seg[key] : null;
+    };
 
     // Badges: where each other drive starts. Clicking one selects that drive.
     for (const badge of specs.badges) {
@@ -4892,7 +5214,9 @@ class RivianDriveExplorerCard extends BaseElement {
         badge.numbers
           .map((n, k) => {
             const parked = badge.parked[k];
-            const when = `Drive ${n} starts here, ${segmentTime(n, "start_ts")}`;
+            const placeLabel = placeAt(n, "start_place");
+            const where = placeLabel ? ` — ${placeLabel.label}` : "";
+            const when = `Drive ${n} starts here${where}, ${segmentTime(n, "start_ts")}`;
             return parked == null ? when : `${when} (${formatParkedDuration(parked).toLowerCase()} before)`;
           })
           .join("<br>")
@@ -4922,11 +5246,19 @@ class RivianDriveExplorerCard extends BaseElement {
         fillOpacity: 1,
         renderer,
       }).addTo(this._map);
+      const startPlace = inSegment ? placeAt(specs.start.number, "start_place") : dayData.start && dayData.start.place;
+      const startWhere = startPlace ? ` — ${startPlace.label}` : "";
       marker.bindTooltip(
         inSegment
-          ? `Drive ${specs.start.number} start, ${segmentTime(specs.start.number, "start_ts")}`
-          : `Day start: drive 1, ${segmentTime(1, "start_ts")}`
+          ? `Drive ${specs.start.number} start${startWhere}, ${segmentTime(specs.start.number, "start_ts")}`
+          : `Day start: drive 1${startWhere}, ${segmentTime(1, "start_ts")}`
       );
+      if (isAdmin && inSegment) {
+        const seg = segments[specs.start.number - 1];
+        if (seg) {
+          marker.on("click", () => this._openMapPlacePopup(marker, seg, "start", startPlace));
+        }
+      }
       this._markerLayers.push(marker);
     }
     if (specs.end) {
@@ -4936,13 +5268,56 @@ class RivianDriveExplorerCard extends BaseElement {
         iconAnchor: [5.5, 5.5],
       });
       const marker = L.marker([specs.end.lat, specs.end.lon], { icon, zIndexOffset: 1000 }).addTo(this._map);
+      const endPlace = inSegment ? placeAt(specs.end.number, "end_place") : dayData.end && dayData.end.place;
+      const endWhere = endPlace ? ` — ${endPlace.label}` : "";
       marker.bindTooltip(
         inSegment
-          ? `Drive ${specs.end.number} end, ${segmentTime(specs.end.number, "end_ts")}`
-          : `Day end: drive ${specs.end.number}, ${segmentTime(specs.end.number, "end_ts")}`
+          ? `Drive ${specs.end.number} end${endWhere}, ${segmentTime(specs.end.number, "end_ts")}`
+          : `Day end: drive ${specs.end.number}${endWhere}, ${segmentTime(specs.end.number, "end_ts")}`
       );
+      if (isAdmin && inSegment) {
+        const seg = segments[specs.end.number - 1];
+        if (seg) {
+          marker.on("click", () => this._openMapPlacePopup(marker, seg, "end", endPlace));
+        }
+      }
       this._markerLayers.push(marker);
     }
+  }
+
+  /** Admin-only: a small Leaflet popup on the selected drive's own start/end marker to name that spot. */
+  _openMapPlacePopup(marker, seg, side, place) {
+    const wrap = document.createElement("div");
+    wrap.className = "rde-map-place-popup";
+    const title = document.createElement("div");
+    title.className = "rde-map-place-popup-title";
+    _escapeText(title, place ? place.label : "Name this place");
+    wrap.appendChild(title);
+
+    const nameInput = document.createElement("input");
+    nameInput.type = "text";
+    nameInput.placeholder = "Name this place";
+    nameInput.setAttribute("aria-label", "Place name");
+    nameInput.value = place && place.name ? place.name : "";
+
+    const categorySelect = document.createElement("select");
+    categorySelect.setAttribute("aria-label", "Place category");
+    this._fillCategorySelect(categorySelect, place && place.category, seg.vin || this._primaryVin());
+
+    const saveBtn = document.createElement("button");
+    saveBtn.type = "button";
+    _escapeText(saveBtn, "Save");
+    saveBtn.title = "Save this place name";
+    saveBtn.addEventListener("click", () => {
+      this._savePlaceName(seg, side, place, nameInput.value.trim(), categorySelect.value || null)
+        .then(() => marker.closePopup())
+        .catch((err) => this._showError(err));
+    });
+
+    wrap.appendChild(nameInput);
+    wrap.appendChild(categorySelect);
+    wrap.appendChild(saveBtn);
+    marker.bindPopup(wrap).openPopup();
   }
 
   _renderSpeedLegend(scaleMax) {
@@ -5328,10 +5703,17 @@ class RivianDriveExplorerCard extends BaseElement {
     const L = this._leaflet;
     const renderer = this._map.options.renderer;
     const tz = this._hass && this._hass.config ? this._hass.config.time_zone : undefined;
+    const isAdmin = !!(this._hass && this._hass.user && this._hass.user.is_admin);
     const specs = multiDayMarkerSpecs(raw, this._vehicleList, selected);
+    const segOf = (item) => (raw.segments || []).find((s) => s.vin === item.vin && s.drive_id === item.driveId);
     const timeOf = (item, key) => {
-      const seg = (raw.segments || []).find((s) => s.vin === item.vin && s.drive_id === item.driveId);
+      const seg = segOf(item);
       return _timeLabel(seg ? seg[key] : null, tz);
+    };
+    const whereOf = (item, key) => {
+      const seg = segOf(item);
+      const place = seg ? seg[key] : null;
+      return place ? ` — ${place.label}` : "";
     };
 
     for (const badge of specs.badges) {
@@ -5349,7 +5731,7 @@ class RivianDriveExplorerCard extends BaseElement {
       marker.bindTooltip(
         badge.items
           .map((item) => {
-            const when = `Drive ${item.label} starts here, ${timeOf(item, "start_ts")}`;
+            const when = `Drive ${item.label} starts here${whereOf(item, "start_place")}, ${timeOf(item, "start_ts")}`;
             return item.parked == null
               ? when
               : `${when} (${formatParkedDuration(item.parked).toLowerCase()} before)`;
@@ -5372,6 +5754,8 @@ class RivianDriveExplorerCard extends BaseElement {
       list.slice(0, i).filter((o) => _metersApart(o, m) <= MARKER_MERGE_M).length;
 
     for (const [i, m] of specs.starts.entries()) {
+      const seg = segOf(m);
+      const placeLabel = whereOf(m, "start_place");
       let marker;
       if (m.selected) {
         marker = L.circleMarker([m.lat, m.lon], {
@@ -5382,7 +5766,10 @@ class RivianDriveExplorerCard extends BaseElement {
           fillOpacity: 1,
           renderer,
         }).addTo(this._map);
-        marker.bindTooltip(`Drive ${m.label} start, ${timeOf(m, "start_ts")}`);
+        marker.bindTooltip(`Drive ${m.label} start${placeLabel}, ${timeOf(m, "start_ts")}`);
+        if (isAdmin && seg) {
+          marker.on("click", () => this._openMapPlacePopup(marker, seg, "start", seg.start_place));
+        }
       } else {
         const color = this._colorOfVin(m.vin);
         const el = document.createElement("div");
@@ -5394,17 +5781,22 @@ class RivianDriveExplorerCard extends BaseElement {
         if (dx) el.style.transform = `translate(calc(-50% + ${dx}px), -50%)`;
         const icon = L.divIcon({ className: "rde-stop-icon", html: el, iconSize: null });
         marker = L.marker([m.lat, m.lon], { icon, keyboard: false }).addTo(this._map);
-        marker.bindTooltip(`${m.label} · day start, ${timeOf(m, "start_ts")}`);
+        marker.bindTooltip(`${m.label} · day start${placeLabel}, ${timeOf(m, "start_ts")}`);
       }
       this._markerLayers.push(marker);
     }
 
     for (const [i, m] of specs.ends.entries()) {
+      const seg = segOf(m);
+      const placeLabel = whereOf(m, "end_place");
       let marker;
       if (m.selected) {
         const icon = L.divIcon({ className: "rde-end-marker", iconSize: [11, 11], iconAnchor: [5.5, 5.5] });
         marker = L.marker([m.lat, m.lon], { icon, zIndexOffset: 1000 }).addTo(this._map);
-        marker.bindTooltip(`Drive ${m.label} end, ${timeOf(m, "end_ts")}`);
+        marker.bindTooltip(`Drive ${m.label} end${placeLabel}, ${timeOf(m, "end_ts")}`);
+        if (isAdmin && seg) {
+          marker.on("click", () => this._openMapPlacePopup(marker, seg, "end", seg.end_place));
+        }
       } else {
         const el = document.createElement("div");
         el.className = "rde-vend-marker";
@@ -5415,7 +5807,7 @@ class RivianDriveExplorerCard extends BaseElement {
         if (dx || dy) el.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
         const icon = L.divIcon({ className: "rde-stop-icon", html: el, iconSize: null });
         marker = L.marker([m.lat, m.lon], { icon, zIndexOffset: 900, keyboard: false }).addTo(this._map);
-        marker.bindTooltip(`${m.label} · day end, ${timeOf(m, "end_ts")}`);
+        marker.bindTooltip(`${m.label} · day end${placeLabel}, ${timeOf(m, "end_ts")}`);
       }
       this._markerLayers.push(marker);
     }

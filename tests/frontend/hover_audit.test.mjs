@@ -6,6 +6,8 @@ import { test } from "node:test";
 
 import * as bar from "../../custom_components/rivian/frontend/rivian-vehicle-bar.js";
 import * as overview from "../../custom_components/rivian/frontend/rivian-overview-card.js";
+import * as routes from "../../custom_components/rivian/frontend/rivian-routes-card.js";
+import * as places from "../../custom_components/rivian/frontend/rivian-places-card.js";
 import * as rde from "../../custom_components/rivian/frontend/rivian-drive-explorer-card.js";
 
 // -- vehicle bar -------------------------------------------------------------
@@ -28,6 +30,54 @@ test("overview: chip titles say when a chip opens details", () => {
   assert.equal(overview.overviewChipTitle({ text: "Parked", entityId: "sensor.x" }), "Parked — tap for details");
   assert.equal(overview.overviewChipTitle({ text: "Parked" }), "Parked");
   assert.equal(overview.overviewChipTitle(null), "");
+});
+
+// -- routes -------------------------------------------------------------------------
+
+test("routes: driveReadout lists the drive's numbers", () => {
+  const text = routes.driveReadout({
+    start_ts: 1700000000,
+    duration_seconds: 990,
+    moving_seconds: 900,
+    efficiency_mi_kwh: 3.456,
+    temp_f: 52.4,
+    vs_avg_pct: -8,
+  });
+  assert.ok(text.includes("16:30 elapsed"), text);
+  assert.ok(text.includes("15:00 moving"), text);
+  assert.ok(text.includes("3.46 mi/kWh"), text);
+  assert.ok(text.includes("52°F"), text);
+  assert.ok(text.includes("vs avg"), text);
+  assert.equal(routes.driveReadout(null), "");
+  assert.ok(routes.driveReadout({ start_ts: 1, duration_seconds: 60, outlier: true }).includes("outlier"));
+});
+
+test("routes: ariaSortFor and column titles", () => {
+  assert.equal(routes.ariaSortFor("date", "desc", "date"), "descending");
+  assert.equal(routes.ariaSortFor("date", "asc", "date"), "ascending");
+  assert.equal(routes.ariaSortFor("date", "asc", "elapsed"), "none");
+  for (const key of ["date", "elapsed", "moving", "efficiency", "temp", "car", "vs"]) {
+    assert.ok(routes.COLUMN_TITLES[key], key);
+  }
+  for (const line of routes.buildOverlayLines({ stats: {}, drives: [] }, null)) {
+    assert.ok(routes.OVERLAY_TITLES[line.label], line.label);
+  }
+});
+
+// -- places ----------------------------------------------------------------------------
+
+test("places: placeTooltip summarizes a place", () => {
+  const text = places.placeTooltip({
+    label: "Home",
+    name: "Home",
+    visits: 79,
+    last_visit_ts: Date.now() / 1000,
+    radius_m: 100.4,
+    source: "zone",
+  });
+  assert.equal(text, "Home · 79 visits · last today · 100 m radius · Home Assistant zone");
+  assert.ok(places.placeTooltip({ label: "Place #3", visits: 3, source: "auto" }).includes("suggestion"));
+  assert.equal(places.placeTooltip(null), "");
 });
 
 // -- drive explorer ----------------------------------------------------------------------------

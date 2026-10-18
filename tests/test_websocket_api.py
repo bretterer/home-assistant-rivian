@@ -23,6 +23,7 @@ from custom_components.rivian.drive_models import (
     SpeedBinData,
     VampireDrainRecord,
 )
+from custom_components.rivian.places import PLACE_CATEGORIES
 from custom_components.rivian.websocket_api import (
     RIVIAN_ANALYTICS_UPDATED_EVENT,
     SUMMARY_WINDOWS,
@@ -1132,13 +1133,457 @@ def test_schemas_reject_malformed_heat_requests(
             schemas[message["type"]]({"id": 1, **message})
 
 
+class _FakePlacesStore:
+    """The slice of DriveStore's async surface the places handlers call."""
+
+    def __init__(self, vin: str = VIN) -> None:
+        self.vin = vin
+        self.list_vins: Any = "unset"
+        self.fired = 0
+        self.places: list[dict[str, Any]] = [
+            {"id": 1, "label": "Home", "category": "home"}
+        ]
+        self.update_calls: list[tuple[int, dict[str, Any]]] = []
+        self.create_calls: list[tuple[float, float, str, Any, Any]] = []
+        self.merge_calls: list[tuple[int, list[int]]] = []
+        self.rebuild_calls: int = 0
+        self.raise_value_error: str | None = None
+
+    async def async_list_places(self, vins: Any = None) -> list[dict[str, Any]]:
+        self.list_vins = vins
+        return self.places
+
+    def _fire_dataset_updated(self) -> None:
+        self.fired += 1
+
+    async def async_update_place(self, place_id: int, **fields: Any) -> None:
+        if self.raise_value_error:
+            raise ValueError(self.raise_value_error)
+        self.update_calls.append((place_id, fields))
+
+    async def async_create_place(
+        self,
+        lat: float,
+        lon: float,
+        name: str,
+        radius_m: Any = None,
+        category: Any = None,
+    ) -> int:
+        self.create_calls.append((lat, lon, name, radius_m, category))
+        return 42
+
+    async def async_merge_places(self, into: int, place_ids: list[int]) -> None:
+        self.merge_calls.append((into, place_ids))
+
+    async def async_rebuild_places(self) -> dict[str, int]:
+        self.rebuild_calls += 1
+        return {"places": 3, "assigned": 10}
+
+
 def _admin_connection(is_admin: bool = True) -> _FakeConnection:
     connection = _FakeConnection()
     connection.user = SimpleNamespace(is_admin=is_admin)
     return connection
 
 
-# -- delete, with confirmation: /delete_drive, /delete_day, /delete_vehicle_history ----
+async def test_places_list_returns_payload_and_is_open_to_non_admins() -> None:
+    store = _FakePlacesStore()
+    hass = _hass_with_store(store)
+    connection = _admin_connection(is_admin=False)
+
+    await ws_api_module._websocket_places_list(hass, connection, {"id": 1, "vin": VIN})
+
+    assert connection.results[1]["places"] == store.places
+    assert connection.results[1]["dataset"] == "real"
+    keys = [c["key"] for c in connection.results[1]["categories"]]
+    assert keys == list(PLACE_CATEGORIES)
+    assert all(
+        c["icon"].startswith("mdi:") for c in connection.results[1]["categories"]
+    )
+
+
+async def test_places_list_unknown_vin_is_not_found() -> None:
+    store = _FakePlacesStore()
+    hass = _hass_with_store(store)
+    connection = _FakeConnection()
+
+    await ws_api_module._websocket_places_list(
+        hass, connection, {"id": 1, "vin": OTHER_VIN}
+    )
+
+    assert connection.errors[1][0] == "not_found"
+
+
+async def test_places_update_admin_succeeds() -> None:
+    store = _FakePlacesStore()
+    hass = _hass_with_store(store)
+    connection = _admin_connection(is_admin=True)
+
+    await ws_api_module._websocket_places_update(
+        hass, connection, {"id": 1, "vin": VIN, "place_id": 1, "name": "Work"}
+    )
+
+    assert store.update_calls == [(1, {"name": "Work"})]
+    assert 1 in connection.results
+
+
+async def test_places_update_rejects_non_admin() -> None:
+    store = _FakePlacesStore()
+    hass = _hass_with_store(store)
+    connection = _admin_connection(is_admin=False)
+
+    await ws_api_module._websocket_places_update(
+        hass, connection, {"id": 1, "vin": VIN, "place_id": 1, "name": "Work"}
+    )
+
+    assert store.update_calls == []
+    assert connection.errors[1][0] == "unauthorized"
+    assert 1 not in connection.results
+
+
+async def test_places_update_invalid_field_is_invalid_format() -> None:
+    store = _FakePlacesStore()
+    store.raise_value_error = "update_place: unsupported fields ['bogus']"
+    hass = _hass_with_store(store)
+    connection = _admin_connection(is_admin=True)
+
+    await ws_api_module._websocket_places_update(
+        hass, connection, {"id": 1, "vin": VIN, "place_id": 1, "name": "Work"}
+    )
+
+    assert connection.errors[1][0] == "invalid_format"
+
+
+async def test_places_create_admin_succeeds_and_returns_place_id() -> None:
+    store = _FakePlacesStore()
+    hass = _hass_with_store(store)
+    connection = _admin_connection(is_admin=True)
+
+    await ws_api_module._websocket_places_create(
+        hass,
+        connection,
+        {"id": 1, "vin": VIN, "lat": 37.0, "lon": -122.0, "name": "Home"},
+    )
+
+    assert store.create_calls == [(37.0, -122.0, "Home", None, None)]
+    assert connection.results[1] == {"place_id": 42}
+
+
+async def test_places_create_rejects_non_admin() -> None:
+    store = _FakePlacesStore()
+    hass = _hass_with_store(store)
+    connection = _admin_connection(is_admin=False)
+
+    await ws_api_module._websocket_places_create(
+        hass,
+        connection,
+        {"id": 1, "vin": VIN, "lat": 37.0, "lon": -122.0, "name": "Home"},
+    )
+
+    assert store.create_calls == []
+    assert connection.errors[1][0] == "unauthorized"
+
+
+async def test_places_merge_admin_succeeds() -> None:
+    store = _FakePlacesStore()
+    hass = _hass_with_store(store)
+    connection = _admin_connection(is_admin=True)
+
+    await ws_api_module._websocket_places_merge(
+        hass, connection, {"id": 1, "vin": VIN, "into": 1, "place_ids": [2, 3]}
+    )
+
+    assert store.merge_calls == [(1, [2, 3])]
+    assert 1 in connection.results
+
+
+async def test_places_merge_rejects_non_admin() -> None:
+    store = _FakePlacesStore()
+    hass = _hass_with_store(store)
+    connection = _admin_connection(is_admin=False)
+
+    await ws_api_module._websocket_places_merge(
+        hass, connection, {"id": 1, "vin": VIN, "into": 1, "place_ids": [2, 3]}
+    )
+
+    assert store.merge_calls == []
+    assert connection.errors[1][0] == "unauthorized"
+
+
+async def test_places_rebuild_admin_succeeds() -> None:
+    store = _FakePlacesStore()
+    hass = _hass_with_store(store)
+    connection = _admin_connection(is_admin=True)
+
+    await ws_api_module._websocket_places_rebuild(
+        hass, connection, {"id": 1, "vin": VIN}
+    )
+
+    assert store.rebuild_calls == 1
+    assert connection.results[1] == {"places": 3, "assigned": 10}
+
+
+async def test_places_rebuild_rejects_non_admin() -> None:
+    store = _FakePlacesStore()
+    hass = _hass_with_store(store)
+    connection = _admin_connection(is_admin=False)
+
+    await ws_api_module._websocket_places_rebuild(
+        hass, connection, {"id": 1, "vin": VIN}
+    )
+
+    assert store.rebuild_calls == 0
+    assert connection.errors[1][0] == "unauthorized"
+
+
+def test_places_schemas_accept_well_formed_messages(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    schemas = _registered_schemas(monkeypatch)
+    messages = [
+        {"type": "rivian/places/list", "vin": VIN},
+        {
+            "type": "rivian/places/update",
+            "vin": VIN,
+            "place_id": 1,
+            "name": "Work",
+            "category": "work",
+            "radius_m": 100,
+            "hidden": False,
+            "lat": 37.0,
+            "lon": -122.0,
+        },
+        {
+            "type": "rivian/places/create",
+            "vin": VIN,
+            "lat": 37.0,
+            "lon": -122.0,
+            "name": "Home",
+        },
+        {
+            "type": "rivian/places/merge",
+            "vin": VIN,
+            "into": 1,
+            "place_ids": [2, 3],
+        },
+        {"type": "rivian/places/rebuild", "vin": VIN},
+    ]
+    for i, message in enumerate(messages, start=1):
+        schemas[message["type"]]({"id": i, **message})
+
+
+def test_places_schemas_reject_malformed_messages(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import voluptuous as vol
+
+    schemas = _registered_schemas(monkeypatch)
+    bad = [
+        {
+            "type": "rivian/places/update",
+            "vin": VIN,
+            "place_id": 1,
+            "category": "not_a_real_category",
+        },
+        {
+            "type": "rivian/places/update",
+            "vin": VIN,
+            "place_id": 1,
+            "radius_m": 1,
+        },
+        {
+            "type": "rivian/places/create",
+            "vin": VIN,
+            "lat": 200.0,
+            "lon": -122.0,
+            "name": "Home",
+        },
+        {
+            "type": "rivian/places/create",
+            "vin": VIN,
+            "lat": 37.0,
+            "lon": -122.0,
+            "name": "x" * 100,
+        },
+    ]
+    for message in bad:
+        with pytest.raises(vol.Invalid):
+            schemas[message["type"]]({"id": 1, **message})
+
+
+class _FakeRoutesStore:
+    """The slice of DriveStore's async surface the routes handlers call."""
+
+    def __init__(self, vin: str = VIN) -> None:
+        self.vin = vin
+        self.list_vins: Any = "unset"
+        self.detail_vins: Any = "unset"
+        self.routes: list[dict[str, Any]] = [
+            {"id": 1, "label": "Home → Work", "drive_count": 15}
+        ]
+        self.route_detail_result: dict[str, Any] | None = {
+            "id": 1,
+            "label": "Home → Work",
+            "drives": [],
+        }
+        self.rename_calls: list[tuple[int, Any]] = []
+        self.raise_value_error: str | None = None
+
+    async def async_list_routes(self, vins: Any = None) -> list[dict[str, Any]]:
+        self.list_vins = vins
+        return self.routes
+
+    async def async_route_detail(
+        self, route_id: int, vins: Any = None
+    ) -> dict[str, Any] | None:
+        self.detail_vins = vins
+        return self.route_detail_result
+
+    async def async_rename_route(self, route_id: int, name: Any) -> None:
+        if self.raise_value_error:
+            raise ValueError(self.raise_value_error)
+        self.rename_calls.append((route_id, name))
+
+
+async def test_routes_list_returns_payload_and_is_open_to_non_admins() -> None:
+    store = _FakeRoutesStore()
+    hass = _hass_with_store(store)
+    connection = _admin_connection(is_admin=False)
+
+    await ws_api_module._websocket_routes_list(hass, connection, {"id": 1, "vin": VIN})
+
+    assert connection.results[1] == {"routes": store.routes, "dataset": "real"}
+
+
+async def test_routes_list_unknown_vin_is_not_found() -> None:
+    store = _FakeRoutesStore()
+    hass = _hass_with_store(store)
+    connection = _FakeConnection()
+
+    await ws_api_module._websocket_routes_list(
+        hass, connection, {"id": 1, "vin": OTHER_VIN}
+    )
+
+    assert connection.errors[1][0] == "not_found"
+
+
+async def test_routes_route_returns_payload_and_is_open_to_non_admins() -> None:
+    store = _FakeRoutesStore()
+    hass = _hass_with_store(store)
+    connection = _admin_connection(is_admin=False)
+
+    await ws_api_module._websocket_routes_route(
+        hass, connection, {"id": 1, "vin": VIN, "route_id": 1}
+    )
+
+    assert connection.results[1] == {"route": store.route_detail_result}
+
+
+async def test_routes_route_not_found_for_missing_route() -> None:
+    store = _FakeRoutesStore()
+    store.route_detail_result = None
+    hass = _hass_with_store(store)
+    connection = _FakeConnection()
+
+    await ws_api_module._websocket_routes_route(
+        hass, connection, {"id": 1, "vin": VIN, "route_id": 999}
+    )
+
+    assert connection.errors[1][0] == "not_found"
+
+
+async def test_routes_route_unknown_vin_is_not_found() -> None:
+    store = _FakeRoutesStore()
+    hass = _hass_with_store(store)
+    connection = _FakeConnection()
+
+    await ws_api_module._websocket_routes_route(
+        hass, connection, {"id": 1, "vin": OTHER_VIN, "route_id": 1}
+    )
+
+    assert connection.errors[1][0] == "not_found"
+
+
+async def test_routes_rename_admin_succeeds() -> None:
+    store = _FakeRoutesStore()
+    hass = _hass_with_store(store)
+    connection = _admin_connection(is_admin=True)
+
+    await ws_api_module._websocket_routes_rename(
+        hass, connection, {"id": 1, "vin": VIN, "route_id": 1, "name": "My Commute"}
+    )
+
+    assert store.rename_calls == [(1, "My Commute")]
+    assert 1 in connection.results
+
+
+async def test_routes_rename_rejects_non_admin() -> None:
+    store = _FakeRoutesStore()
+    hass = _hass_with_store(store)
+    connection = _admin_connection(is_admin=False)
+
+    await ws_api_module._websocket_routes_rename(
+        hass, connection, {"id": 1, "vin": VIN, "route_id": 1, "name": "My Commute"}
+    )
+
+    assert store.rename_calls == []
+    assert connection.errors[1][0] == "unauthorized"
+
+
+async def test_routes_rename_invalid_is_invalid_format() -> None:
+    store = _FakeRoutesStore()
+    store.raise_value_error = "No route 999 for VIN X"
+    hass = _hass_with_store(store)
+    connection = _admin_connection(is_admin=True)
+
+    await ws_api_module._websocket_routes_rename(
+        hass, connection, {"id": 1, "vin": VIN, "route_id": 999, "name": "X"}
+    )
+
+    assert connection.errors[1][0] == "invalid_format"
+
+
+def test_routes_schemas_accept_well_formed_messages(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    schemas = _registered_schemas(monkeypatch)
+    messages = [
+        {"type": "rivian/routes/list", "vin": VIN},
+        {"type": "rivian/routes/route", "vin": VIN, "route_id": 1},
+        {
+            "type": "rivian/routes/rename",
+            "vin": VIN,
+            "route_id": 1,
+            "name": "My Commute",
+        },
+        {"type": "rivian/routes/rename", "vin": VIN, "route_id": 1, "name": None},
+    ]
+    for i, message in enumerate(messages, start=1):
+        schemas[message["type"]]({"id": i, **message})
+
+
+def test_routes_schemas_reject_malformed_messages(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import voluptuous as vol
+
+    schemas = _registered_schemas(monkeypatch)
+    bad = [
+        {
+            "type": "rivian/routes/rename",
+            "vin": VIN,
+            "route_id": 1,
+            "name": "x" * 100,
+        },
+        {"type": "rivian/routes/route", "vin": VIN},
+    ]
+    for message in bad:
+        with pytest.raises(vol.Invalid):
+            schemas[message["type"]]({"id": 1, **message})
+
+
+# -- delete, with confirmation: /delete_drive, /delete_day, /delete_vehicle_history,
+# -- /places/delete ---------------------------------------------------------
 
 
 class _FakeDeleteStore:
@@ -1148,9 +1593,12 @@ class _FakeDeleteStore:
         self.vin = vin
         self.deleted_drive_ids: list[str] = []
         self.deleted_days: list[Any] = []
+        self.deleted_place_ids: list[int] = []
         self.vehicle_history_deleted = False
         self.drive_result: dict[str, Any] = {"deleted": 1, "affected_hours": [0.0]}
         self.day_result: dict[str, Any] = {"deleted": 2, "affected_hours": [0.0]}
+        self.place_result: dict[str, Any] = {"action": "deleted"}
+        self.raise_value_error: str | None = None
 
     async def async_delete_drive(self, drive_id: str) -> dict[str, Any]:
         self.deleted_drive_ids.append(drive_id)
@@ -1159,6 +1607,12 @@ class _FakeDeleteStore:
     async def async_delete_day(self, tz: Any, day: Any) -> dict[str, Any]:
         self.deleted_days.append(day)
         return self.day_result
+
+    async def async_delete_place(self, place_id: int) -> dict[str, Any]:
+        if self.raise_value_error:
+            raise ValueError(self.raise_value_error)
+        self.deleted_place_ids.append(place_id)
+        return self.place_result
 
     async def async_delete_vehicle_history(self) -> None:
         self.vehicle_history_deleted = True
@@ -1267,6 +1721,45 @@ async def test_delete_vehicle_history_rejects_non_admin() -> None:
     assert connection.errors[1][0] == "unauthorized"
 
 
+async def test_places_delete_admin_succeeds() -> None:
+    store = _FakeDeleteStore()
+    hass = _hass_with_store(store)
+    connection = _admin_connection(is_admin=True)
+
+    await ws_api_module._websocket_places_delete(
+        hass, connection, {"id": 1, "vin": VIN, "place_id": 5}
+    )
+
+    assert store.deleted_place_ids == [5]
+    assert connection.results[1] == store.place_result
+
+
+async def test_places_delete_rejects_non_admin() -> None:
+    store = _FakeDeleteStore()
+    hass = _hass_with_store(store)
+    connection = _admin_connection(is_admin=False)
+
+    await ws_api_module._websocket_places_delete(
+        hass, connection, {"id": 1, "vin": VIN, "place_id": 5}
+    )
+
+    assert store.deleted_place_ids == []
+    assert connection.errors[1][0] == "unauthorized"
+
+
+async def test_places_delete_zone_place_is_invalid_format() -> None:
+    store = _FakeDeleteStore()
+    store.raise_value_error = "Zone places are managed in Home Assistant zones"
+    hass = _hass_with_store(store)
+    connection = _admin_connection(is_admin=True)
+
+    await ws_api_module._websocket_places_delete(
+        hass, connection, {"id": 1, "vin": VIN, "place_id": 5}
+    )
+
+    assert connection.errors[1][0] == "invalid_format"
+
+
 def test_delete_schemas_accept_well_formed_messages(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1275,6 +1768,7 @@ def test_delete_schemas_accept_well_formed_messages(
         {"type": "rivian/analytics/delete_drive", "vin": VIN, "drive_id": "d1"},
         {"type": "rivian/analytics/delete_day", "vin": VIN, "date": "2026-09-20"},
         {"type": "rivian/analytics/delete_vehicle_history", "vin": VIN},
+        {"type": "rivian/places/delete", "vin": VIN, "place_id": 1},
     ]
     for i, message in enumerate(messages, start=1):
         schemas[message["type"]]({"id": i, **message})
@@ -1289,6 +1783,7 @@ def test_delete_schemas_reject_malformed_messages(
     bad = [
         {"type": "rivian/analytics/delete_drive", "vin": VIN},
         {"type": "rivian/analytics/delete_day", "vin": VIN},
+        {"type": "rivian/places/delete", "vin": VIN},
     ]
     for message in bad:
         with pytest.raises(vol.Invalid):
@@ -1821,3 +2316,115 @@ def test_assign_vehicle_slots_keeps_an_absent_vehicles_slot() -> None:
     # Once every slot is held, a new VIN reuses one no present vehicle uses.
     full = {f"old{i}": i for i in range(len(VEHICLE_PALETTE))}
     assert assign_vehicle_slots(full, ["old0", "new"])["new"] == 1
+
+
+# -- shared places/routes: dataset + vins (schema v10) -----------------------------
+
+
+async def test_places_list_vins_and_dataset_resolution() -> None:
+    real = _FakePlacesStore(VIN)
+    other = _FakePlacesStore(OTHER_VIN)
+    hass = SimpleNamespace(
+        data={
+            DOMAIN: {
+                "entry": {ATTR_DRIVE_STORE: {real.vin: real, other.vin: other}},
+            }
+        },
+        bus=_FakeBus(),
+    )
+
+    connection = _admin_connection(is_admin=False)
+    await ws_api_module._websocket_places_list(
+        hass, connection, {"id": 1, "vins": [VIN, OTHER_VIN]}
+    )
+    assert real.list_vins == [VIN, OTHER_VIN]
+    assert connection.results[1]["dataset"] == "real"
+
+    # `vin` is an alias that implies the vehicle's dataset.
+    connection = _admin_connection(is_admin=False)
+    await ws_api_module._websocket_places_list(
+        hass, connection, {"id": 3, "vin": OTHER_VIN}
+    )
+    assert connection.results[3]["dataset"] == "real"
+
+    connection = _admin_connection(is_admin=False)
+    await ws_api_module._websocket_places_list(hass, connection, {"id": 4})
+    assert connection.results[4]["dataset"] == "real"
+
+
+async def test_places_list_empty_dataset_is_not_found() -> None:
+    hass = _hass_with_store(_FakePlacesStore(VIN))
+    connection = _admin_connection(is_admin=False)
+    await ws_api_module._websocket_places_list(
+        hass, connection, {"id": 1, "dataset": "demo"}
+    )
+    assert connection.errors[1][0] == "not_found"
+
+
+async def test_places_edit_needs_no_vin() -> None:
+    store = _FakePlacesStore()
+    hass = _hass_with_store(store)
+    connection = _admin_connection(is_admin=True)
+    await ws_api_module._websocket_places_update(
+        hass, connection, {"id": 1, "place_id": 1, "name": "Cabin"}
+    )
+    assert store.update_calls == [(1, {"name": "Cabin"})]
+
+
+async def test_routes_list_passes_selected_vins() -> None:
+    store = _FakeRoutesStore()
+    hass = _hass_with_store(store)
+    connection = _admin_connection(is_admin=False)
+    await ws_api_module._websocket_routes_list(
+        hass, connection, {"id": 1, "vins": [VIN]}
+    )
+    assert store.list_vins == [VIN]
+    await ws_api_module._websocket_routes_route(
+        hass, connection, {"id": 2, "route_id": 1, "vins": [VIN]}
+    )
+    assert store.detail_vins == [VIN]
+
+
+def test_places_schema_uses_the_shared_category_list(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import voluptuous as vol
+
+    schemas = _registered_schemas(monkeypatch)
+    for category in ("mountain_biking", "swim", "friends", "dining"):
+        schemas["rivian/places/update"](
+            {
+                "id": 1,
+                "type": "rivian/places/update",
+                "place_id": 1,
+                "category": category,
+            }
+        )
+        schemas["rivian/places/create"](
+            {
+                "id": 1,
+                "type": "rivian/places/create",
+                "lat": 1.0,
+                "lon": 2.0,
+                "name": "X",
+                "category": category,
+            }
+        )
+    with pytest.raises(vol.Invalid):
+        schemas["rivian/places/update"](
+            {
+                "id": 1,
+                "type": "rivian/places/update",
+                "place_id": 1,
+                "category": "bogus",
+            }
+        )
+    with pytest.raises(vol.Invalid):
+        schemas["rivian/places/list"](
+            {"id": 1, "type": "rivian/places/list", "dataset": "other"}
+        )
+    # No vin is required any more.
+    schemas["rivian/places/list"]({"id": 1, "type": "rivian/places/list"})
+    schemas["rivian/routes/list"](
+        {"id": 1, "type": "rivian/routes/list", "vins": ["A", "B"]}
+    )

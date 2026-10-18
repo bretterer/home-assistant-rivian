@@ -51,6 +51,7 @@ from .drive_models import (
     VampireDrainRecord,
 )
 from .drive_storage import DriveStore
+from .places import DATASET_REAL, DATASETS, PLACE_CATEGORIES, category_options
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -69,7 +70,26 @@ WS_TYPE_ANALYTICS_DELETE_DAY: Final[str] = "rivian/analytics/delete_day"
 WS_TYPE_ANALYTICS_DELETE_VEHICLE_HISTORY: Final[str] = (
     "rivian/analytics/delete_vehicle_history"
 )
+WS_TYPE_PLACES_LIST: Final[str] = "rivian/places/list"
+WS_TYPE_PLACES_UPDATE: Final[str] = "rivian/places/update"
+WS_TYPE_PLACES_CREATE: Final[str] = "rivian/places/create"
+WS_TYPE_PLACES_MERGE: Final[str] = "rivian/places/merge"
+WS_TYPE_PLACES_REBUILD: Final[str] = "rivian/places/rebuild"
+WS_TYPE_PLACES_DELETE: Final[str] = "rivian/places/delete"
+WS_TYPE_ROUTES_LIST: Final[str] = "rivian/routes/list"
+WS_TYPE_ROUTES_ROUTE: Final[str] = "rivian/routes/route"
+WS_TYPE_ROUTES_RENAME: Final[str] = "rivian/routes/rename"
+ROUTE_NAME_MAX_LEN: Final[int] = 80
 VALID_HEAT_PERIODS: Final[tuple[str, ...]] = ("all", "year", "month")
+# Places and routes belong to no vehicle: ``dataset`` ('real' by default) picks
+# the data, and ``vin`` stays accepted as an alias that implies its dataset.
+_DATASET_FIELDS: Final[dict[Any, Any]] = {
+    vol.Optional("vin"): str,
+    vol.Optional("dataset"): vol.In(DATASETS),
+}
+PLACE_RADIUS_MIN: Final[float] = 25.0
+PLACE_RADIUS_MAX: Final[float] = 1000.0
+PLACE_NAME_MAX_LEN: Final[int] = 80
 SUMMARY_WINDOWS: Final[tuple[tuple[str, int | None], ...]] = (
     ("7d", 7),
     ("30d", 30),
@@ -973,6 +993,265 @@ async def _websocket_analytics_delete_vehicle_history(
     connection.send_result(msg["id"])
 
 
+def _dataset_stores(hass: HomeAssistant, dataset: str) -> list[DriveStore]:
+    """Return every DriveStore whose vehicle belongs to ``dataset``."""
+    domain_data = hass.data.get(DOMAIN, {})
+    if dataset != DATASET_REAL:
+        return []
+    stores: list[DriveStore] = []
+    for entry_data in domain_data.values():
+        if not isinstance(entry_data, dict):
+            continue
+        stores.extend((entry_data.get(ATTR_DRIVE_STORE) or {}).values())
+    return stores
+
+
+def _dataset_target(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> tuple[DriveStore, str, list[str] | None] | None:
+    """Resolve a places/routes command to ``(store, dataset, vins)``.
+
+    Places and routes belong to no vehicle, so ``vin`` is no longer required:
+    ``dataset`` ('real' by default) picks the data. ``vin`` is still accepted as an alias that implies its vehicle's
+    dataset, and ``vins`` (reads only) names the vehicles whose visits/drives
+    to count -- vehicles of the other dataset are ignored. ``store`` is any
+    store of that dataset, used to run the (dataset-wide) operation.
+    On an unknown vehicle or an empty dataset this sends the error itself and
+    returns None.
+    """
+    vins: list[str] | None = list(msg["vins"]) if "vins" in msg else None
+    vin = msg.get("vin")
+    store: DriveStore | None = None
+    if vin is not None:
+        store = _find_store(hass, vin)
+        if store is None:
+            _not_found(connection, msg["id"], vin)
+            return None
+        dataset = DATASET_REAL
+    elif "dataset" in msg:
+        dataset = msg["dataset"]
+    elif vins:
+        if _find_store(hass, vins[0]) is None:
+            _not_found(connection, msg["id"], vins[0])
+            return None
+        dataset = DATASET_REAL
+    else:
+        dataset = DATASET_REAL
+    if vins is not None:
+        resolved, missing = _find_stores(hass, vins)
+        if missing is not None:
+            _not_found(connection, msg["id"], missing)
+            return None
+        vins = [s.vin for s in resolved] if dataset == DATASET_REAL else []
+    if store is None:
+        candidates = _dataset_stores(hass, dataset)
+        if not candidates:
+            connection.send_error(
+                msg["id"], "not_found", f"No vehicles in the {dataset} dataset"
+            )
+            return None
+        store = candidates[0]
+    return store, dataset, vins
+
+
+@websocket_api.async_response
+async def _websocket_places_list(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Handle the ``rivian/places/list`` WebSocket command. Open to all users.
+
+    Places are shared by the household. With ``vins`` the visit counts cover
+    only those vehicles and the list is filtered to the places they visit;
+    each place carries ``visits_by_vin``. The reply also carries the
+    category list (``categories``) the cards use for their pickers.
+    """
+    target = _dataset_target(hass, connection, msg)
+    if target is None:
+        return
+    store, dataset, vins = target
+    places = await store.async_list_places(vins)
+    connection.send_result(
+        msg["id"],
+        {
+            "places": places,
+            "categories": category_options(),
+            "dataset": dataset,
+        },
+    )
+
+
+_PLACE_UPDATE_FIELDS: Final[tuple[str, ...]] = (
+    "name",
+    "category",
+    "radius_m",
+    "hidden",
+    "lat",
+    "lon",
+)
+
+
+@websocket_api.require_admin
+@websocket_api.async_response
+async def _websocket_places_update(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Handle the ``rivian/places/update`` WebSocket command. Admin only."""
+    target = _dataset_target(hass, connection, msg)
+    if target is None:
+        return
+    store = target[0]
+    fields = {key: msg[key] for key in _PLACE_UPDATE_FIELDS if key in msg}
+    try:
+        await store.async_update_place(msg["place_id"], **fields)
+    except ValueError as err:
+        connection.send_error(msg["id"], "invalid_format", str(err))
+        return
+    connection.send_result(msg["id"])
+
+
+@websocket_api.require_admin
+@websocket_api.async_response
+async def _websocket_places_create(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Handle the ``rivian/places/create`` WebSocket command. Admin only."""
+    target = _dataset_target(hass, connection, msg)
+    if target is None:
+        return
+    store = target[0]
+    place_id = await store.async_create_place(
+        msg["lat"],
+        msg["lon"],
+        msg["name"],
+        msg.get("radius_m"),
+        msg.get("category"),
+    )
+    connection.send_result(msg["id"], {"place_id": place_id})
+
+
+@websocket_api.require_admin
+@websocket_api.async_response
+async def _websocket_places_merge(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Handle the ``rivian/places/merge`` WebSocket command. Admin only."""
+    target = _dataset_target(hass, connection, msg)
+    if target is None:
+        return
+    store = target[0]
+    await store.async_merge_places(msg["into"], msg["place_ids"])
+    connection.send_result(msg["id"])
+
+
+@websocket_api.require_admin
+@websocket_api.async_response
+async def _websocket_places_rebuild(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Handle the ``rivian/places/rebuild`` WebSocket command. Admin only."""
+    target = _dataset_target(hass, connection, msg)
+    if target is None:
+        return
+    store = target[0]
+    result = await store.async_rebuild_places()
+    connection.send_result(msg["id"], result)
+    store._fire_dataset_updated()
+
+
+@websocket_api.require_admin
+@websocket_api.async_response
+async def _websocket_places_delete(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Handle the ``rivian/places/delete`` WebSocket command. Admin only.
+
+    Deletes a ``user`` place outright, hides an ``auto`` suggestion (so it
+    won't be suggested again), or errors for a ``zone`` place -- those are
+    managed in Home Assistant zones.
+    """
+    target = _dataset_target(hass, connection, msg)
+    if target is None:
+        return
+    store = target[0]
+    try:
+        result = await store.async_delete_place(msg["place_id"])
+    except ValueError as err:
+        connection.send_error(msg["id"], "invalid_format", str(err))
+        return
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.async_response
+async def _websocket_routes_list(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Handle the ``rivian/routes/list`` WebSocket command. Open to all users.
+
+    Routes are shared; with ``vins`` only routes those vehicles drove come
+    back, ordered by *their* drive count (each car's favorites are its
+    most-driven routes).
+    """
+    target = _dataset_target(hass, connection, msg)
+    if target is None:
+        return
+    store, dataset, vins = target
+    routes = await store.async_list_routes(vins)
+    connection.send_result(msg["id"], {"routes": routes, "dataset": dataset})
+
+
+@websocket_api.async_response
+async def _websocket_routes_route(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Handle the ``rivian/routes/route`` WebSocket command. Open to all users."""
+    target = _dataset_target(hass, connection, msg)
+    if target is None:
+        return
+    store, _dataset, vins = target
+    route = await store.async_route_detail(msg["route_id"], vins)
+    if route is None:
+        connection.send_error(msg["id"], "not_found", f"No route {msg['route_id']}")
+        return
+    connection.send_result(msg["id"], {"route": route})
+
+
+@websocket_api.require_admin
+@websocket_api.async_response
+async def _websocket_routes_rename(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Handle the ``rivian/routes/rename`` WebSocket command. Admin only."""
+    target = _dataset_target(hass, connection, msg)
+    if target is None:
+        return
+    store = target[0]
+    try:
+        await store.async_rename_route(msg["route_id"], msg.get("name"))
+    except ValueError as err:
+        connection.send_error(msg["id"], "invalid_format", str(err))
+        return
+    connection.send_result(msg["id"])
+
+
+@callback
 def async_register_websocket_api(hass: HomeAssistant) -> None:
     """Register the Rivian analytics WebSocket API commands.
 
@@ -1140,6 +1419,133 @@ def async_register_websocket_api(hass: HomeAssistant) -> None:
             {
                 vol.Required("type"): WS_TYPE_ANALYTICS_DELETE_VEHICLE_HISTORY,
                 vol.Required("vin"): str,
+            }
+        ),
+    )
+    websocket_api.async_register_command(
+        hass,
+        WS_TYPE_PLACES_LIST,
+        _websocket_places_list,
+        websocket_api.BASE_COMMAND_MESSAGE_SCHEMA.extend(
+            {
+                vol.Required("type"): WS_TYPE_PLACES_LIST,
+                **_DATASET_FIELDS,
+                vol.Optional("vins"): vol.All([str], vol.Length(min=1)),
+            }
+        ),
+    )
+    websocket_api.async_register_command(
+        hass,
+        WS_TYPE_PLACES_UPDATE,
+        _websocket_places_update,
+        websocket_api.BASE_COMMAND_MESSAGE_SCHEMA.extend(
+            {
+                vol.Required("type"): WS_TYPE_PLACES_UPDATE,
+                **_DATASET_FIELDS,
+                vol.Required("place_id"): vol.Coerce(int),
+                vol.Optional("name"): vol.All(str, vol.Length(max=PLACE_NAME_MAX_LEN)),
+                vol.Optional("category"): vol.Any(vol.In(PLACE_CATEGORIES), None),
+                vol.Optional("radius_m"): vol.All(
+                    vol.Coerce(float), vol.Range(PLACE_RADIUS_MIN, PLACE_RADIUS_MAX)
+                ),
+                vol.Optional("hidden"): bool,
+                vol.Optional("lat"): vol.All(vol.Coerce(float), vol.Range(-90, 90)),
+                vol.Optional("lon"): vol.All(vol.Coerce(float), vol.Range(-180, 180)),
+            }
+        ),
+    )
+    websocket_api.async_register_command(
+        hass,
+        WS_TYPE_PLACES_CREATE,
+        _websocket_places_create,
+        websocket_api.BASE_COMMAND_MESSAGE_SCHEMA.extend(
+            {
+                vol.Required("type"): WS_TYPE_PLACES_CREATE,
+                **_DATASET_FIELDS,
+                vol.Required("lat"): vol.All(vol.Coerce(float), vol.Range(-90, 90)),
+                vol.Required("lon"): vol.All(vol.Coerce(float), vol.Range(-180, 180)),
+                vol.Required("name"): vol.All(str, vol.Length(max=PLACE_NAME_MAX_LEN)),
+                vol.Optional("radius_m"): vol.All(
+                    vol.Coerce(float), vol.Range(PLACE_RADIUS_MIN, PLACE_RADIUS_MAX)
+                ),
+                vol.Optional("category"): vol.Any(vol.In(PLACE_CATEGORIES), None),
+            }
+        ),
+    )
+    websocket_api.async_register_command(
+        hass,
+        WS_TYPE_PLACES_MERGE,
+        _websocket_places_merge,
+        websocket_api.BASE_COMMAND_MESSAGE_SCHEMA.extend(
+            {
+                vol.Required("type"): WS_TYPE_PLACES_MERGE,
+                **_DATASET_FIELDS,
+                vol.Required("into"): vol.Coerce(int),
+                vol.Required("place_ids"): [vol.Coerce(int)],
+            }
+        ),
+    )
+    websocket_api.async_register_command(
+        hass,
+        WS_TYPE_PLACES_REBUILD,
+        _websocket_places_rebuild,
+        websocket_api.BASE_COMMAND_MESSAGE_SCHEMA.extend(
+            {
+                vol.Required("type"): WS_TYPE_PLACES_REBUILD,
+                **_DATASET_FIELDS,
+            }
+        ),
+    )
+    websocket_api.async_register_command(
+        hass,
+        WS_TYPE_PLACES_DELETE,
+        _websocket_places_delete,
+        websocket_api.BASE_COMMAND_MESSAGE_SCHEMA.extend(
+            {
+                vol.Required("type"): WS_TYPE_PLACES_DELETE,
+                **_DATASET_FIELDS,
+                vol.Required("place_id"): vol.Coerce(int),
+            }
+        ),
+    )
+
+    websocket_api.async_register_command(
+        hass,
+        WS_TYPE_ROUTES_LIST,
+        _websocket_routes_list,
+        websocket_api.BASE_COMMAND_MESSAGE_SCHEMA.extend(
+            {
+                vol.Required("type"): WS_TYPE_ROUTES_LIST,
+                **_DATASET_FIELDS,
+                vol.Optional("vins"): vol.All([str], vol.Length(min=1)),
+            }
+        ),
+    )
+    websocket_api.async_register_command(
+        hass,
+        WS_TYPE_ROUTES_ROUTE,
+        _websocket_routes_route,
+        websocket_api.BASE_COMMAND_MESSAGE_SCHEMA.extend(
+            {
+                vol.Required("type"): WS_TYPE_ROUTES_ROUTE,
+                **_DATASET_FIELDS,
+                vol.Optional("vins"): vol.All([str], vol.Length(min=1)),
+                vol.Required("route_id"): vol.Coerce(int),
+            }
+        ),
+    )
+    websocket_api.async_register_command(
+        hass,
+        WS_TYPE_ROUTES_RENAME,
+        _websocket_routes_rename,
+        websocket_api.BASE_COMMAND_MESSAGE_SCHEMA.extend(
+            {
+                vol.Required("type"): WS_TYPE_ROUTES_RENAME,
+                **_DATASET_FIELDS,
+                vol.Required("route_id"): vol.Coerce(int),
+                vol.Optional("name"): vol.Any(
+                    vol.All(str, vol.Length(max=ROUTE_NAME_MAX_LEN)), None
+                ),
             }
         ),
     )

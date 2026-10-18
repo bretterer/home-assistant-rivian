@@ -11,22 +11,24 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 from datetime import UTC, date, datetime, tzinfo
+import functools
 import logging
 from typing import TYPE_CHECKING, Any, Final
 
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
-from . import road_snap
+from . import geocode, road_snap
 from .analytics_db import (
     ENERGY_MODEL_MIN_DRIVES,
     ENERGY_MODEL_WINDOW_DAYS,
+    PLACES_GEOCODE_DEFAULT_LIMIT,
     ActiveCheckpoint,
     AnalyticsDatabase,
     HotCache,
     VehiclePicture,
 )
-from .const import RIVIAN_ANALYTICS_UPDATED_EVENT
+from .const import ATTR_DRIVE_STORE, DOMAIN, RIVIAN_ANALYTICS_UPDATED_EVENT
 from .drive_models import (
     AggregatedDriveStats,
     ChargingSessionRecord,
@@ -35,6 +37,7 @@ from .drive_models import (
 )
 from .drive_track import DriveTrack
 from .energy_model import EnergyModelParams
+from .places import DATASET_REAL
 from .statistics import async_clear_statistics, async_rewrite_statistics
 from .weather import OpenMeteoWeatherClient
 
@@ -47,6 +50,34 @@ LEGACY_STORAGE_KEY_PREFIX: Final[str] = "rivian_drives"
 LEGACY_STORAGE_VERSION: Final[int] = 1
 LEGACY_STORAGE_MINOR_VERSION: Final[int] = 1
 SNAP_GAPS_BATCH_LIMIT: Final[int] = 20
+
+
+def read_zone_states(hass: HomeAssistant) -> list[dict[str, Any]]:
+    """Read HA's configured zones as plain dicts for AnalyticsDatabase.sync_zones.
+
+    Event-loop-only (reads ``hass.states``); the caller hands the resulting
+    plain-dict list into the executor. Shared by DriveStore's one-time seed
+    and __init__.py's setup-time sync and debounced zone-change listener.
+    """
+    zones: list[dict[str, Any]] = []
+    for state in hass.states.async_all("zone"):
+        lat = state.attributes.get("latitude")
+        lon = state.attributes.get("longitude")
+        if lat is None or lon is None:
+            continue
+        try:
+            zones.append(
+                {
+                    "entity_id": state.entity_id,
+                    "name": state.attributes.get("friendly_name") or state.name,
+                    "latitude": float(lat),
+                    "longitude": float(lon),
+                    "radius": state.attributes.get("radius"),
+                }
+            )
+        except (TypeError, ValueError):
+            continue
+    return zones
 
 
 def _empty_cache() -> HotCache:
@@ -74,12 +105,17 @@ class DriveStore:
         hass: HomeAssistant,
         vin: str,
         db: AnalyticsDatabase,
+        place_geocoding: bool = True,
         weather_lookups: bool = True,
     ) -> None:
         """Initialize DriveStore for a specific vehicle VIN against a shared AnalyticsDatabase."""
         self.hass = hass
         self.vin = vin
         self._db = db
+        # Places and routes belong to no vehicle; the only partition is this
+        # dataset.
+        self.dataset = DATASET_REAL
+        self._place_geocoding = place_geocoding
         # The weather_lookups option: off sends nothing to Open-Meteo
         self.weather_lookups = weather_lookups
         self._weather_client: OpenMeteoWeatherClient | None = None
@@ -99,6 +135,8 @@ class DriveStore:
         self._stats_recompute_seeded = False
         self._energy_model_seeded = False
         self._gap_snap_seeded = False
+        self._places_seeded = False
+        self._routes_seeded = False
 
     # -- sync, cache-only accessors (never touch SQLite) ---------------------
 
@@ -175,6 +213,7 @@ class DriveStore:
         self._async_maybe_recompute_stats_once()
         self._async_maybe_fit_energy_model_once()
         self._async_seed_snap_gaps_once()
+        self._async_seed_places_once()
 
     def _async_maybe_recompute_stats_once(self) -> None:
         """Schedule a one-time background stats recompute if any drive needs it.
@@ -448,6 +487,9 @@ class DriveStore:
         is_new = await self.hass.async_add_executor_job(
             self._db.finalize_drive, self.vin, record, track
         )
+        await self.hass.async_add_executor_job(
+            self._db.assign_drive_places, self.vin, record.drive_id
+        )
         await self.async_refresh_cache()
         # Counted in the background: a heat run already in progress (e.g. the
         # startup seed over a long history) must not delay finishing the drive.
@@ -461,6 +503,14 @@ class DriveStore:
                 self._async_snap_gaps_safe(),
                 name=f"rivian gap snap {self.vin}",
             )
+        self.hass.async_create_background_task(
+            self._async_geocode_places_safe(),
+            name=f"rivian places geocode {self.vin}",
+        )
+        self.hass.async_create_background_task(
+            self._async_rebuild_routes_safe(),
+            name=f"rivian routes rebuild {self.vin}",
+        )
         return is_new
 
     async def async_upsert_tracks(
@@ -902,6 +952,263 @@ class DriveStore:
                     )
         return {"added": added, "heat_stale_drives": sorted(heat_stale)}
 
+    # -- favorite places -----------------------------------------------------
+
+    def _async_seed_places_once(self) -> None:
+        """Schedule a one-time background places seed after this store first loads.
+
+        Mirrors ``_async_seed_heat_once``: syncs HA zones (seeding/removing
+        zone places) and then rebuilds auto places from every stored drive,
+        so a fresh install or an upgrade across this feature doesn't wait for
+        a new drive to get its first places. Guarded so it only ever runs
+        once per store instance.
+        """
+        if self._places_seeded:
+            return
+        self._places_seeded = True
+        self.hass.async_create_background_task(
+            self._async_seed_places_safe(),
+            name=f"rivian places seed {self.vin}",
+        )
+
+    async def _async_seed_places_safe(self) -> None:
+        """Best-effort: sync zones, rebuild places, then geocode; never raises.
+
+        Fires the update event only when the rebuild actually produced (or
+        kept) at least one place -- a brand-new VIN with no zones and no
+        drives yet has nothing worth refreshing a card for. Routes depend on
+        places, so their own one-time seed runs right after, in this same
+        task (see ``_async_seed_routes_safe``).
+        """
+        # Places and routes are shared by every vehicle in the dataset, so
+        # only the first store to load seeds them (once per database).
+        if not self._db.claim_once(f"places_seed:{self.dataset}"):
+            self._routes_seeded = True
+            return
+        try:
+            zones = read_zone_states(self.hass)
+            result = await self.async_sync_zones(zones)
+            if result.get("places"):
+                self._fire_dataset_updated()
+            await self.async_geocode_places()
+        except Exception:
+            _LOGGER.exception("Places seed failed for VIN %s (non-fatal)", self.vin)
+        await self._async_seed_routes_safe()
+
+    async def _async_geocode_places_safe(self) -> None:
+        """Best-effort: geocode any places newly due for it; never raises."""
+        try:
+            await self.async_geocode_places()
+        except Exception:
+            _LOGGER.exception("Place geocoding failed for VIN %s (non-fatal)", self.vin)
+
+    async def async_sync_zones(self, zones: list[dict[str, Any]]) -> dict[str, int]:
+        """Upsert HA zones as places and rebuild (see AnalyticsDatabase.sync_zones).
+
+        Does not itself fire the update event -- callers that trigger this
+        directly (the zone-change listener, a deliberate rebuild) fire it;
+        the background first-load seed fires conditionally (see
+        ``_async_seed_places_safe``).
+        """
+        if not self._loaded:
+            await self.async_load()
+        return await self.hass.async_add_executor_job(
+            self._db.sync_zones, self.dataset, zones
+        )
+
+    async def async_rebuild_places(self) -> dict[str, int]:
+        """Re-cluster auto places and reassign every drive (see AnalyticsDatabase.rebuild_places).
+
+        Does not itself fire the update event; callers (the service, the
+        WebSocket command, a post-backfill rebuild) fire it after a
+        successful call, since this is always an explicit, low-frequency
+        action.
+        """
+        if not self._loaded:
+            await self.async_load()
+        return await self.hass.async_add_executor_job(
+            self._db.rebuild_places, self.dataset
+        )
+
+    def _fire_dataset_updated(self) -> None:
+        """Fire the update event for every vehicle sharing this store's dataset.
+
+        Places and routes belong to the whole dataset, so an edit refreshes
+        the cards of every selected vehicle, not just this store's.
+        """
+        domain_data = self.hass.data.get(DOMAIN, {})
+        vins: dict[str, None] = {self.vin: None}
+        for entry_data in domain_data.values():
+            if not isinstance(entry_data, dict):
+                continue
+            for store in (entry_data.get(ATTR_DRIVE_STORE) or {}).values():
+                vins[store.vin] = None
+        for vin in vins:
+            self.hass.bus.async_fire(RIVIAN_ANALYTICS_UPDATED_EVENT, {"vin": vin})
+
+    async def async_list_places(
+        self, vins: list[str] | None = None
+    ) -> list[dict[str, Any]]:
+        """Return the dataset's places with visit counts (per vehicle) and last-visit.
+
+        With ``vins``, counts cover only those vehicles and the list is
+        filtered to the places they visit.
+        """
+        if not self._loaded:
+            await self.async_load()
+        return await self.hass.async_add_executor_job(
+            self._db.list_places, self.dataset, vins
+        )
+
+    async def async_update_place(self, place_id: int, **fields: Any) -> None:
+        """Update a place's editable fields (see AnalyticsDatabase.update_place)."""
+        if not self._loaded:
+            await self.async_load()
+        await self.hass.async_add_executor_job(
+            functools.partial(self._db.update_place, self.dataset, place_id, **fields)
+        )
+        self._fire_dataset_updated()
+
+    async def async_create_place(
+        self,
+        lat: float,
+        lon: float,
+        name: str,
+        radius_m: float | None = None,
+        category: str | None = None,
+    ) -> int:
+        """Create a user-defined place (see AnalyticsDatabase.create_place)."""
+        if not self._loaded:
+            await self.async_load()
+        place_id = await self.hass.async_add_executor_job(
+            self._db.create_place, self.dataset, lat, lon, name, radius_m, category
+        )
+        self._fire_dataset_updated()
+        return place_id
+
+    async def async_merge_places(self, into: int, place_ids: list[int]) -> None:
+        """Merge places into one (see AnalyticsDatabase.merge_places)."""
+        if not self._loaded:
+            await self.async_load()
+        await self.hass.async_add_executor_job(
+            self._db.merge_places, self.dataset, into, place_ids
+        )
+        self._fire_dataset_updated()
+
+    async def async_geocode_places(self) -> dict[str, int]:
+        """Reverse-geocode places still due for it, respecting the place_geocoding option.
+
+        Processes at most ``PLACES_GEOCODE_DEFAULT_LIMIT`` places per call (a
+        new background task is scheduled after every finalize and seed, so a
+        large backlog drains over successive calls rather than one long run).
+        """
+        if not self._place_geocoding:
+            return {"geocoded": 0}
+        if not self._loaded:
+            await self.async_load()
+        candidates = await self.hass.async_add_executor_job(
+            self._db.places_needing_geocode, self.dataset, PLACES_GEOCODE_DEFAULT_LIMIT
+        )
+        if not candidates:
+            return {"geocoded": 0}
+        geocoded = 0
+        now_ts = datetime.now(UTC).timestamp()
+        for candidate in candidates:
+            name = await geocode.async_reverse(
+                self.hass, candidate["lat"], candidate["lon"]
+            )
+            await self.hass.async_add_executor_job(
+                self._db.save_geocode, self.dataset, candidate["place_id"], name, now_ts
+            )
+            if name:
+                geocoded += 1
+        if geocoded:
+            self._fire_dataset_updated()
+        return {"geocoded": geocoded}
+
+    # -- favorite drives (repeated routes) ------------------------------------
+
+    async def _async_seed_routes_safe(self) -> None:
+        """Best-effort one-time background routes seed; never raises.
+
+        Called once, right after the places seed completes (routes depend on
+        places), from ``_async_seed_places_safe``. Guarded so it only ever
+        runs once per store instance, like ``_async_seed_heat_once``.
+        """
+        if self._routes_seeded:
+            return
+        self._routes_seeded = True
+        try:
+            result = await self.async_rebuild_routes()
+            if result.get("routes"):
+                self._fire_dataset_updated()
+        except Exception:
+            _LOGGER.exception("Routes seed failed for VIN %s (non-fatal)", self.vin)
+
+    async def _async_rebuild_routes_safe(self) -> None:
+        """Best-effort background routes rebuild after a finalize; never raises.
+
+        Only fires the update event when the rebuild actually produced (or
+        kept) at least one route -- most finalizes don't change which pairs
+        clear the route threshold, so firing unconditionally would spam a
+        refresh for every single drive.
+        """
+        try:
+            result = await self.async_rebuild_routes()
+            if result.get("routes"):
+                self._fire_dataset_updated()
+            _LOGGER.debug("Rebuilt routes for VIN %s: %s", self.vin, result)
+        except Exception:
+            _LOGGER.exception(
+                "Post-finalize routes rebuild failed for VIN %s (non-fatal)", self.vin
+            )
+
+    async def async_rebuild_routes(self) -> dict[str, int]:
+        """Re-group routes/variants and reassign every drive (see AnalyticsDatabase.rebuild_routes).
+
+        Does not itself fire the update event; callers (the service, the
+        WebSocket command, the one-time seed, the post-finalize refresh) fire
+        it after a successful call.
+        """
+        if not self._loaded:
+            await self.async_load()
+        return await self.hass.async_add_executor_job(
+            self._db.rebuild_routes, self.dataset
+        )
+
+    async def async_list_routes(
+        self, vins: list[str] | None = None
+    ) -> list[dict[str, Any]]:
+        """Return the dataset's routes with stored stats.
+
+        Without ``vins``, by total drive count; with ``vins``, only routes
+        those vehicles drove, ordered by their own drive count.
+        """
+        if not self._loaded:
+            await self.async_load()
+        return await self.hass.async_add_executor_job(
+            self._db.list_routes, self.dataset, vins
+        )
+
+    async def async_route_detail(
+        self, route_id: int, vins: list[str] | None = None
+    ) -> dict[str, Any] | None:
+        """Return one route's stats plus every drive's summary and preview polyline."""
+        if not self._loaded:
+            await self.async_load()
+        return await self.hass.async_add_executor_job(
+            self._db.route_detail, self.dataset, route_id, vins
+        )
+
+    async def async_rename_route(self, route_id: int, name: str | None) -> None:
+        """Set (or clear) a route's display name override (see AnalyticsDatabase.rename_route)."""
+        if not self._loaded:
+            await self.async_load()
+        await self.hass.async_add_executor_job(
+            self._db.rename_route, self.dataset, route_id, name
+        )
+        self._fire_dataset_updated()
+
     # -- delete, with confirmation (caller asks first; see the frontend cards) ----
 
     async def async_delete_drive(self, drive_id: str) -> dict[str, Any]:
@@ -932,6 +1239,16 @@ class DriveStore:
         await self.async_refresh_cache()
         self.hass.bus.async_fire(RIVIAN_ANALYTICS_UPDATED_EVENT, {"vin": self.vin})
 
+    async def async_delete_place(self, place_id: int) -> dict[str, Any]:
+        """Delete (or hide, for an auto suggestion) a place (see AnalyticsDatabase.delete_place)."""
+        if not self._loaded:
+            await self.async_load()
+        result = await self.hass.async_add_executor_job(
+            self._db.delete_place, self.dataset, place_id
+        )
+        self._fire_dataset_updated()
+        return result
+
     async def async_delete_vehicle_history(self) -> None:
         """Delete all analytics data for this VIN and clear its long-term statistics.
 
@@ -942,7 +1259,11 @@ class DriveStore:
             await self.async_load()
         await self.async_reset()
         async_clear_statistics(self.hass, self.vin)
-        self.hass.bus.async_fire(RIVIAN_ANALYTICS_UPDATED_EVENT, {"vin": self.vin})
+        # Places and routes outlive the vehicle; refresh them so a place only
+        # this car visited (and nobody named) drops off and route counts update.
+        await self.hass.async_add_executor_job(self._db.rebuild_places, self.dataset)
+        await self.hass.async_add_executor_job(self._db.rebuild_routes, self.dataset)
+        self._fire_dataset_updated()
 
     # -- diagnostics / test surface -----------------------------------------------
 

@@ -24,7 +24,7 @@ import zlib
 
 from homeassistant.util import dt as dt_util
 
-from . import road_snap
+from . import places, road_snap, routes as routes_mod
 from .drive_models import (
     MICRO_DRIVE_THRESHOLD_MILES,
     MPGE_FACTOR,
@@ -49,7 +49,14 @@ from .energy_model import (
     fit_params,
     interval_features,
 )
-from .road_heat import BASE_LEVEL, HEAT_FORMAT_VERSION, HeatGrid, RoadHeat, track_passes
+from .road_heat import (
+    BASE_LEVEL,
+    HEAT_FORMAT_VERSION,
+    HeatGrid,
+    RoadHeat,
+    track_cells,
+    track_passes,
+)
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -95,9 +102,19 @@ ENERGY_MODEL_MIN_DRIVES: Final[int] = 15
 # is reused before a stale road edit would need a fresh Overpass fetch.
 OSM_ROADS_TTL_SECONDS: Final[float] = 90 * 86400.0
 GAPS_TO_SNAP_DEFAULT_LIMIT: Final[int] = 20
-# The ``meta`` row listing the synthetic demo vehicles, read by the v10/v11
-# migrations of databases written by later versions.
+# Bump when a places definition changes (mirrors DRIVE_STATS_VERSION): every
+# VIN then gets one deterministic rebuild_places() in the background.
+PLACES_VERSION: Final[int] = 1
+# The ``meta`` row listing the synthetic demo vehicles (kept for stored data written by earlier versions).
+# Which dataset a VIN's places/routes belong to is derived from it.
 DEMO_VEHICLES_META_KEY: Final[str] = "demo_vehicles"
+# A place keeps its numbered label and is retried no sooner than this after a
+# failed (or no-name) geocode attempt.
+GEOCODE_RETRY_SECONDS: Final[float] = 7 * 86400.0
+PLACES_GEOCODE_DEFAULT_LIMIT: Final[int] = 10
+# Bump when a routes definition changes (mirrors PLACES_VERSION): every VIN
+# then gets one deterministic rebuild_routes() in the background.
+ROUTES_VERSION: Final[int] = 1
 
 _SCHEMA_SQL: Final[str] = """
 PRAGMA auto_vacuum = INCREMENTAL;
@@ -340,13 +357,13 @@ _UPSERT_DCFC_SQL: Final[str] = """
 INSERT INTO dcfc_sessions (
   vin, session_id, start_time, end_time, start_ts, end_ts, created_ts,
   start_soc, end_soc, energy_added_kwh, max_power_kw, avg_power_kw,
-  is_dcfc, sample_count, samples_json, lat, lon, kind, source,
+  is_dcfc, sample_count, samples_json, lat, lon, place_id, kind, source,
   vendor, network, station_name, station_version, charger_max_kw, is_home,
   rivian_txn_id, outside_temp_f, battery_temp_f
 ) VALUES (
   :vin, :session_id, :start_time, :end_time, :start_ts, :end_ts, :created_ts,
   :start_soc, :end_soc, :energy_added_kwh, :max_power_kw, :avg_power_kw,
-  :is_dcfc, :sample_count, :samples_json, :lat, :lon, :kind, :source,
+  :is_dcfc, :sample_count, :samples_json, :lat, :lon, :place_id, :kind, :source,
   :vendor, :network, :station_name, :station_version, :charger_max_kw, :is_home,
   :rivian_txn_id, :outside_temp_f, :battery_temp_f
 )
@@ -357,7 +374,7 @@ ON CONFLICT(vin, session_id) DO UPDATE SET
   energy_added_kwh=excluded.energy_added_kwh, max_power_kw=excluded.max_power_kw,
   avg_power_kw=excluded.avg_power_kw, is_dcfc=excluded.is_dcfc,
   sample_count=excluded.sample_count, samples_json=excluded.samples_json,
-  lat=excluded.lat, lon=excluded.lon,
+  lat=excluded.lat, lon=excluded.lon, place_id=excluded.place_id,
   kind=excluded.kind, source=excluded.source,
   vendor=COALESCE(excluded.vendor, vendor),
   network=COALESCE(excluded.network, network),
@@ -545,7 +562,7 @@ def _migrate_to_v10(conn: sqlite3.Connection) -> None:
     demo_vins = parse_demo_vins(row[0] if row is not None else None)
 
     def dataset_of(vin: str) -> str:
-        return "demo" if vin in demo_vins else "real"
+        return places.DATASET_DEMO if vin in demo_vins else places.DATASET_REAL
 
     old_places = [
         dict(r)
@@ -1097,6 +1114,12 @@ class AnalyticsDatabase:
         # which is held only for individual batches) so two runs can never
         # double-count the same drive.
         self._heat_run_lock = threading.Lock()
+        # Serializes whole rebuild_places()/rebuild_routes() runs: places and
+        # routes are shared by every vehicle, so two stores seeding at once
+        # must not both insert the same new cluster.
+        self._rebuild_lock = threading.RLock()
+        self._claims_lock = threading.Lock()
+        self._seed_claims: set[str] = set()
         self._heat_cache_lock = threading.Lock()
         self._heat_cache: OrderedDict[
             tuple[str, str],
@@ -1414,6 +1437,7 @@ class AnalyticsDatabase:
             "samples_json": json.dumps(serialized.get("samples", [])),
             "lat": session.lat,
             "lon": session.lon,
+            "place_id": session.place_id,
             "kind": session.kind,
             "source": session.source,
             "vendor": session.vendor,
@@ -1446,6 +1470,7 @@ class AnalyticsDatabase:
             kind=row["kind"],
             lat=row["lat"],
             lon=row["lon"],
+            place_id=row["place_id"],
             source=row["source"],
             vendor=row["vendor"],
             network=row["network"],
@@ -1589,12 +1614,68 @@ class AnalyticsDatabase:
                 )
                 return
             created_ts = time.time()
+            dataset = (
+                places.DATASET_DEMO
+                if vin in self._demo_vins_locked()
+                else places.DATASET_REAL
+            )
             with self._transaction():
                 for session in sessions:
+                    if (
+                        session.place_id is None
+                        and session.lat is not None
+                        and session.lon is not None
+                    ):
+                        session.place_id = self._place_id_at_locked(
+                            dataset, session.lat, session.lon
+                        )
                     self._conn.execute(
                         _UPSERT_DCFC_SQL,
                         self._dcfc_row_params(vin, session, created_ts),
                     )
+
+    def _place_id_at_locked(self, dataset: str, lat: float, lon: float) -> int | None:
+        """Return the nearest non-hidden place of ``dataset`` containing the point.
+
+        Caller must hold ``self._lock``.
+        """
+        rows = self._conn.execute(
+            "SELECT place_id, lat, lon, radius_m, hidden FROM places WHERE dataset = ?",
+            (dataset,),
+        ).fetchall()
+        return places.assign(
+            (lat, lon),
+            [
+                places.ExistingPlace(
+                    place_id=r["place_id"],
+                    lat=r["lat"],
+                    lon=r["lon"],
+                    radius_m=r["radius_m"],
+                    source="",
+                    hidden=bool(r["hidden"]),
+                )
+                for r in rows
+            ],
+        )
+
+    def _reassign_session_places_locked(self, dataset: str) -> None:
+        """Re-point every located charging session of ``dataset`` at its place.
+
+        Caller must hold ``self._lock`` and be inside a transaction.
+        """
+        clause, clause_params = self._dataset_drive_clause(dataset)
+        rows = self._conn.execute(
+            f"SELECT id, lat, lon, place_id FROM dcfc_sessions "
+            f"WHERE lat IS NOT NULL AND lon IS NOT NULL AND {clause}",
+            clause_params,
+        ).fetchall()
+        for r in rows:
+            new_id = self._place_id_at_locked(dataset, r["lat"], r["lon"])
+            if new_id != r["place_id"]:
+                self._conn.execute(
+                    "UPDATE dcfc_sessions SET place_id = ? WHERE id = ?",
+                    (new_id, r["id"]),
+                )
 
     def charging_session_intervals(self, vin: str) -> list[tuple[float, float]]:
         """Return every stored session's ``(start_ts, end_ts)``, for backfill dedupe."""
@@ -1680,7 +1761,10 @@ class AnalyticsDatabase:
         return counts
 
     def delete_vin(self, vin: str) -> None:
-        """Delete all analytics rows (drives, vampire events, DCFC sessions) for a VIN."""
+        """Delete all analytics rows (drives, vampire events, DCFC sessions) for a VIN.
+
+        Never deletes places or routes: they belong to no vehicle.
+        """
         self._assert_executor_thread()
         with self._lock:
             if self.read_only:
@@ -1699,6 +1783,9 @@ class AnalyticsDatabase:
                 self._conn.execute("DELETE FROM road_heat WHERE vin = ?", (vin,))
                 self._conn.execute("DELETE FROM road_heat_drives WHERE vin = ?", (vin,))
                 self._conn.execute("DELETE FROM track_fills WHERE vin = ?", (vin,))
+                # Places and routes belong to no vehicle, so they stay; a
+                # place no remaining drive visits (and nobody named) goes away
+                # on the next rebuild_places().
                 self._conn.execute("DELETE FROM vehicle_pictures WHERE vin = ?", (vin,))
                 self._conn.execute(
                     "DELETE FROM meta WHERE key IN (?, ?, ?, ?)",
@@ -1719,7 +1806,9 @@ class AnalyticsDatabase:
         HA's configured time zone) that any deleted drive was counted into:
         unlike ``rebuild_heat()``, a month with no route left afterward has
         its ``road_heat`` row dropped rather than kept -- this is the one
-        place that happens.
+        place that happens. Finally rebuilds places and routes, since a
+        deleted drive's endpoints no longer count toward clustering or route
+        stats.
 
         Returns ``{"deleted": n, "affected_hours": [...]}``: the hour-aligned
         (UTC epoch) start timestamps of the deleted drives, for the caller to
@@ -1783,6 +1872,10 @@ class AnalyticsDatabase:
             with self._heat_run_lock:
                 self._rebuild_heat_months_locked(vin, tz, months)
 
+        dataset = self.dataset_for_vin(vin)
+        self.rebuild_places(dataset)
+        self.rebuild_routes(dataset)
+
         return {"deleted": deleted, "affected_hours": affected_hours}
 
     def delete_day(self, vin: str, tz: tzinfo, day: date) -> dict[str, Any]:
@@ -1801,6 +1894,50 @@ class AnalyticsDatabase:
             ).fetchall()
         drive_ids = [r["drive_id"] for r in rows]
         return self.delete_drives(vin, drive_ids)
+
+    def delete_place(self, dataset: str, place_id: int) -> dict[str, Any]:
+        """Delete or hide a place, depending on its source.
+
+        A ``user`` place is deleted outright. An ``auto`` suggestion is only
+        hidden (so it won't be suggested again, but can be restored from
+        Hidden). A ``zone`` place can't be deleted here -- it's managed in
+        Home Assistant zones -- and raises ``ValueError``.
+        """
+        self._assert_executor_thread()
+        if self.read_only:
+            _LOGGER.warning("Analytics database is read-only; delete_place skipped")
+            return {"action": "none"}
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT source FROM places WHERE dataset = ? AND place_id = ?",
+                (dataset, place_id),
+            ).fetchone()
+        if row is None:
+            raise ValueError(f"No place {place_id}")
+        source = row["source"]
+        if source == "zone":
+            raise ValueError(
+                "Zone places are managed in Home Assistant zones, not here"
+            )
+        now = time.time()
+        if source == "auto":
+            with self._lock, self._transaction():
+                self._conn.execute(
+                    "UPDATE places SET hidden = 1, updated_ts = ? "
+                    "WHERE dataset = ? AND place_id = ?",
+                    (now, dataset, place_id),
+                )
+            action = "hidden"
+        else:  # user
+            with self._lock, self._transaction():
+                self._conn.execute(
+                    "DELETE FROM places WHERE dataset = ? AND place_id = ?",
+                    (dataset, place_id),
+                )
+            action = "deleted"
+        self.rebuild_places(dataset)
+        self.rebuild_routes(dataset)
+        return {"action": action}
 
     def prune(self, vin: str, cutoff_ts: float) -> int:
         """Delete drives/vampire events older than cutoff_ts; return rows removed.
@@ -2286,6 +2423,15 @@ class AnalyticsDatabase:
             for k, v in record.speed_bins.items()
         }
         summary["chunks"] = [c.to_dict() for c in record.chunks]
+        place_rows = self._place_refs_for_ids(
+            [row["start_place_id"], row["end_place_id"]]
+        )
+        summary["start_place"] = self._place_ref_from_row(
+            place_rows.get(row["start_place_id"])
+        )
+        summary["end_place"] = self._place_ref_from_row(
+            place_rows.get(row["end_place_id"])
+        )
         track_payload = (
             self._merge_fills_into_track(
                 vin, drive_id, DriveTrack.decode(row["track_json"])
@@ -2492,6 +2638,21 @@ class AnalyticsDatabase:
         # re-parse the stored JSON params for every drive.
         model_params = self.get_energy_model(vin) or ENERGY_MODEL_DEFAULT_PARAMS
 
+        place_map = self._place_refs_for_ids(
+            [r["start_place_id"] for r in rows] + [r["end_place_id"] for r in rows],
+        )
+        route_ids = {r["route_id"] for r in rows if r["route_id"] is not None}
+        route_map: dict[int, sqlite3.Row] = {}
+        if route_ids:
+            placeholders = ",".join("?" for _ in route_ids)
+            with self._lock:
+                route_rows = self._conn.execute(
+                    f"SELECT route_id, variant, name, drive_count, stats_json "
+                    f"FROM routes WHERE route_id IN ({placeholders})",
+                    list(route_ids),
+                ).fetchall()
+            route_map = {r["route_id"]: r for r in route_rows}
+
         segments: list[dict[str, Any]] = []
         tracks: list[DriveTrack | None] = []
         for idx, row in enumerate(rows):
@@ -2508,6 +2669,40 @@ class AnalyticsDatabase:
                         err,
                     )
             tracks.append(track)
+            route_field: dict[str, Any] | None = None
+            route_row = (
+                route_map.get(row["route_id"]) if row["route_id"] is not None else None
+            )
+            if route_row is not None:
+                start_ref = self._place_ref_from_row(
+                    place_map.get(row["start_place_id"])
+                )
+                end_ref = self._place_ref_from_row(place_map.get(row["end_place_id"]))
+                start_label = (
+                    start_ref["label"]
+                    if start_ref
+                    else f"Place #{row['start_place_id']}"
+                )
+                end_label = (
+                    end_ref["label"] if end_ref else f"Place #{row['end_place_id']}"
+                )
+                label = route_row["name"] or routes_mod.route_label(
+                    start_label, end_label, route_row["variant"]
+                )
+                route_stats = json.loads(route_row["stats_json"] or "{}")
+                drive_stat = route_stats.get("per_drive", {}).get(
+                    routes_mod.drive_key(vin, row["drive_id"]), {}
+                )
+                # The drive's standing among its own car's drives on the route
+                # (an R2 isn't ranked against an R1T); the car's own count.
+                own = (route_stats.get("by_vin") or {}).get(vin) or {}
+                route_field = {
+                    "id": route_row["route_id"],
+                    "label": label,
+                    "rank": drive_stat.get("vin_rank"),
+                    "count": own.get("count") or route_row["drive_count"],
+                    "vs_avg_pct": drive_stat.get("vin_vs_avg_pct"),
+                }
             model: dict[str, Any] | None = None
             if track is not None:
                 try:
@@ -2536,6 +2731,13 @@ class AnalyticsDatabase:
                         else None
                     ),
                     "model": model,
+                    "start_place": self._place_ref_from_row(
+                        place_map.get(row["start_place_id"])
+                    ),
+                    "end_place": self._place_ref_from_row(
+                        place_map.get(row["end_place_id"])
+                    ),
+                    "route": route_field,
                 }
             )
 
@@ -2597,6 +2799,7 @@ class AnalyticsDatabase:
                     "arrive_ts": arrive_ts,
                     "depart_ts": depart_ts,
                     "duration_seconds": duration_seconds,
+                    "place": seg.get("end_place"),
                 }
             )
             gap = unrecorded_gap(parked_at[:2], route_starts[i + 1])
@@ -2620,6 +2823,7 @@ class AnalyticsDatabase:
                     "lat": recorded_start[0],
                     "lon": recorded_start[1],
                     "ts": recorded_start[2],
+                    "place": segments[0].get("start_place"),
                 }
                 # The day starts where the car was parked before its first
                 # drive. The car's first reports can arrive a minute or two after
@@ -2644,6 +2848,7 @@ class AnalyticsDatabase:
                             "lat": parked[0],
                             "lon": parked[1],
                             "ts": recorded_start[2],
+                            "place": segments[0].get("start_place"),
                         }
                         gaps.insert(
                             0,
@@ -2660,6 +2865,7 @@ class AnalyticsDatabase:
                     "lat": recorded_end[0],
                     "lon": recorded_end[1],
                     "ts": recorded_end[2],
+                    "place": segments[-1].get("end_place"),
                 }
 
         # The tail of the most recent earlier drive with a stored track, so
@@ -3327,6 +3533,1147 @@ class AnalyticsDatabase:
         return self.get_meta(self._drive_stats_meta_key(vin)) != str(
             DRIVE_STATS_VERSION
         )
+
+    def claim_once(self, key: str) -> bool:
+        """Return True the first time ``key`` is claimed on this database instance.
+
+        Lets the first of several stores sharing this database run a one-time
+        background seed (places/routes are shared) while the rest skip it.
+        """
+        with self._claims_lock:
+            if key in self._seed_claims:
+                return False
+            self._seed_claims.add(key)
+            return True
+
+    # -- datasets ------------------------------------------------------------
+    #
+    # Places and routes belong to no vehicle. The only partition is the
+    # ``dataset`` ('real' | 'demo'), so the synthetic demo cars' made-up places
+    # never label, or mix with, the household's real ones. Which VINs are demo
+    # vehicles is the ``demo_vehicles`` meta row.
+
+    def _demo_vins_locked(self) -> set[str]:
+        """Return the registered demo VINs. Caller must hold ``self._lock``."""
+        row = self._conn.execute(
+            "SELECT value FROM meta WHERE key = ?", (DEMO_VEHICLES_META_KEY,)
+        ).fetchone()
+        return parse_demo_vins(row["value"] if row is not None else None)
+
+    def dataset_for_vin(self, vin: str) -> str:
+        """Return ``'demo'`` for a registered demo VIN, else ``'real'``."""
+        self._assert_executor_thread()
+        with self._lock:
+            demo = self._demo_vins_locked()
+        return places.DATASET_DEMO if vin in demo else places.DATASET_REAL
+
+    def _dataset_drive_clause(
+        self, dataset: str, column: str = "vin"
+    ) -> tuple[str, list[str]]:
+        """Return ``(sql, params)`` selecting the drives of ``dataset``.
+
+        Caller must hold ``self._lock``.
+        """
+        demo = sorted(self._demo_vins_locked())
+        placeholders = ",".join("?" for _ in demo)
+        if dataset == places.DATASET_DEMO:
+            if not demo:
+                return "0", []
+            return f"{column} IN ({placeholders})", demo
+        if not demo:
+            return "1", []
+        return f"{column} NOT IN ({placeholders})", demo
+
+    # -- favorite places -------------------------------------------------------
+
+    @staticmethod
+    def _places_meta_key(dataset: str) -> str:
+        """Meta key recording the places definitions a dataset was last rebuilt with."""
+        return f"places_version:{dataset}"
+
+    def has_unbuilt_places(self, dataset: str) -> bool:
+        """Return True until this dataset's places were built with the current definitions.
+
+        Mirrors ``has_unrecomputed_drive_stats``: true right after the v8/v10
+        schema migration (or a PLACES_VERSION bump) until the one-time
+        background ``rebuild_places`` has run.
+        """
+        self._assert_executor_thread()
+        return self.get_meta(self._places_meta_key(dataset)) != str(PLACES_VERSION)
+
+    def _fetch_places_locked(self, dataset: str) -> list[sqlite3.Row]:
+        """Return every place row of a dataset. Caller must hold ``self._lock``."""
+        return self._conn.execute(
+            "SELECT place_id, name, category, lat, lon, radius_m, source, "
+            "zone_entity_id, hidden, geocode_name, geocoded_ts "
+            "FROM places WHERE dataset = ?",
+            (dataset,),
+        ).fetchall()
+
+    def sync_zones(self, dataset: str, zones: list[dict[str, Any]]) -> dict[str, int]:
+        """Upsert HA zones as places (keyed by zone_entity_id), then rebuild.
+
+        Only the ``real`` dataset ever receives zones -- the demo cars must
+        never see the user's real home. A zone's radius is clamped to
+        ``places.ZONE_RADIUS_BOUNDS``. A zone place's name is only set when
+        the row is first created -- a later rename (via ``update_place``)
+        survives a resync. A zone that no longer exists has its place row
+        deleted; its drives are reassigned by the ``rebuild_places`` call that
+        follows.
+        """
+        self._assert_executor_thread()
+        if self.read_only:
+            _LOGGER.warning("Analytics database is read-only; sync_zones skipped")
+            return {"places": 0, "assigned": 0}
+        if dataset != places.DATASET_REAL:
+            return {"places": 0, "assigned": 0}
+
+        now = time.time()
+        with self._lock:
+            existing = self._conn.execute(
+                "SELECT place_id, zone_entity_id FROM places "
+                "WHERE dataset = ? AND source = 'zone'",
+                (dataset,),
+            ).fetchall()
+            existing_by_entity = {r["zone_entity_id"]: r["place_id"] for r in existing}
+            seen_entities: set[str] = set()
+            with self._transaction():
+                for zone in zones:
+                    entity_id = zone.get("entity_id")
+                    lat, lon = zone.get("latitude"), zone.get("longitude")
+                    if not entity_id or lat is None or lon is None:
+                        continue
+                    seen_entities.add(entity_id)
+                    radius = zone.get("radius") or places.DEFAULT_RADIUS_M
+                    radius = max(
+                        places.ZONE_RADIUS_BOUNDS[0],
+                        min(places.ZONE_RADIUS_BOUNDS[1], float(radius)),
+                    )
+                    if entity_id in existing_by_entity:
+                        self._conn.execute(
+                            "UPDATE places SET lat = ?, lon = ?, radius_m = ?, "
+                            "updated_ts = ? WHERE place_id = ?",
+                            (lat, lon, radius, now, existing_by_entity[entity_id]),
+                        )
+                    else:
+                        self._conn.execute(
+                            "INSERT INTO places (dataset, name, category, lat, lon, "
+                            "radius_m, source, zone_entity_id, hidden, created_ts, "
+                            "updated_ts) VALUES (?, ?, NULL, ?, ?, ?, 'zone', ?, 0, ?, ?)",
+                            (
+                                dataset,
+                                zone.get("name"),
+                                lat,
+                                lon,
+                                radius,
+                                entity_id,
+                                now,
+                                now,
+                            ),
+                        )
+                # HA always has zone.home, so no zones at all means they
+                # haven't loaded yet (an early startup sync) -- never treat
+                # that as "every zone was deleted", which would drop their
+                # places and any renames.
+                stale_entities = (
+                    set(existing_by_entity) - seen_entities if seen_entities else set()
+                )
+                for entity_id in stale_entities:
+                    self._conn.execute(
+                        "DELETE FROM places WHERE place_id = ?",
+                        (existing_by_entity[entity_id],),
+                    )
+        result = self.rebuild_places(dataset)
+        self.rebuild_routes(dataset)
+        return result
+
+    def rebuild_places(self, dataset: str) -> dict[str, int]:
+        """Deterministically re-cluster a dataset's auto places and reassign its drives.
+
+        Endpoints are computed per drive's own vehicle (a drive's start chains
+        to the *same car's* previous drive's end), then pooled across the
+        dataset's vehicles before clustering. Selects places/drives under
+        ``self._lock``, computes clustering and assignment outside it (pure
+        CPU, matching ``recompute_drive_stats``'s batching philosophy), then
+        writes every change -- place upserts/deletes and every drive's
+        start/end place id -- in one transaction. Whole rebuilds are
+        serialized so two stores seeding at once can't both insert the same
+        new cluster.
+        """
+        self._assert_executor_thread()
+        if self.read_only:
+            _LOGGER.warning("Analytics database is read-only; rebuild_places skipped")
+            return {"places": 0, "assigned": 0}
+
+        with self._rebuild_lock:
+            with self._lock:
+                place_rows = self._fetch_places_locked(dataset)
+                clause, clause_params = self._dataset_drive_clause(dataset)
+                drive_rows = self._conn.execute(
+                    f"SELECT vin, drive_id, start_lat, start_lon, start_ts, "
+                    f"end_lat, end_lon, end_ts FROM drives WHERE {clause} "
+                    f"ORDER BY vin ASC, sort_ts ASC, created_ts ASC, id ASC",
+                    clause_params,
+                ).fetchall()
+
+            fixed_places = [
+                places.ExistingPlace(
+                    place_id=r["place_id"],
+                    lat=r["lat"],
+                    lon=r["lon"],
+                    radius_m=r["radius_m"],
+                    source=r["source"],
+                    hidden=bool(r["hidden"]),
+                )
+                for r in place_rows
+                if r["source"] in ("zone", "user")
+            ]
+            existing_auto = [
+                places.AutoPlaceState(
+                    place_id=r["place_id"],
+                    lat=r["lat"],
+                    lon=r["lon"],
+                    radius_m=r["radius_m"],
+                    hidden=bool(r["hidden"]),
+                    name=r["name"],
+                    category=r["category"],
+                    geocode_name=r["geocode_name"],
+                    geocoded_ts=r["geocoded_ts"],
+                )
+                for r in place_rows
+                if r["source"] == "auto"
+            ]
+            rows_by_vin: dict[str, list[places.DriveEndpointInput]] = {}
+            for r in drive_rows:
+                rows_by_vin.setdefault(r["vin"], []).append(
+                    places.DriveEndpointInput(
+                        drive_id=r["drive_id"],
+                        start_lat=r["start_lat"],
+                        start_lon=r["start_lon"],
+                        start_ts=r["start_ts"],
+                        end_lat=r["end_lat"],
+                        end_lon=r["end_lon"],
+                        end_ts=r["end_ts"],
+                        vin=r["vin"],
+                    )
+                )
+            endpoints = places.pooled_endpoints(rows_by_vin)
+            clusters = places.cluster_endpoints(endpoints, fixed_places, existing_auto)
+
+            now = time.time()
+            with self._lock, self._transaction():
+                kept_auto_ids = {c.place_id for c in clusters if c.place_id is not None}
+                stale_auto_ids = {ap.place_id for ap in existing_auto} - kept_auto_ids
+                for place_id in stale_auto_ids:
+                    self._conn.execute(
+                        "DELETE FROM places WHERE place_id = ?", (place_id,)
+                    )
+
+                for cluster in clusters:
+                    if cluster.place_id is not None:
+                        self._conn.execute(
+                            "UPDATE places SET lat = ?, lon = ?, updated_ts = ? "
+                            "WHERE place_id = ?",
+                            (cluster.lat, cluster.lon, now, cluster.place_id),
+                        )
+                    else:
+                        self._conn.execute(
+                            "INSERT INTO places (dataset, name, category, lat, lon, "
+                            "radius_m, source, hidden, geocode_name, geocoded_ts, "
+                            "created_ts, updated_ts) VALUES "
+                            "(?, NULL, NULL, ?, ?, ?, 'auto', 0, NULL, NULL, ?, ?)",
+                            (
+                                dataset,
+                                cluster.lat,
+                                cluster.lon,
+                                places.AUTO_RADIUS_M,
+                                now,
+                                now,
+                            ),
+                        )
+
+                all_place_rows = self._conn.execute(
+                    "SELECT place_id, lat, lon, radius_m, hidden FROM places "
+                    "WHERE dataset = ?",
+                    (dataset,),
+                ).fetchall()
+                all_places = [
+                    places.ExistingPlace(
+                        place_id=r["place_id"],
+                        lat=r["lat"],
+                        lon=r["lon"],
+                        radius_m=r["radius_m"],
+                        source="",
+                        hidden=bool(r["hidden"]),
+                    )
+                    for r in all_place_rows
+                ]
+                assignment: dict[tuple[str, str, str], int | None] = {}
+                for endpoint in endpoints:
+                    assignment[(endpoint.vin, endpoint.drive_id, endpoint.kind)] = (
+                        places.assign((endpoint.lat, endpoint.lon), all_places)
+                    )
+
+                assigned = 0
+                for row in drive_rows:
+                    start_place_id = assignment.get(
+                        (row["vin"], row["drive_id"], "start")
+                    )
+                    end_place_id = assignment.get((row["vin"], row["drive_id"], "end"))
+                    self._conn.execute(
+                        "UPDATE drives SET start_place_id = ?, end_place_id = ? "
+                        "WHERE vin = ? AND drive_id = ?",
+                        (start_place_id, end_place_id, row["vin"], row["drive_id"]),
+                    )
+                    assigned += 1
+
+                self._reassign_session_places_locked(dataset)
+
+                self._set_meta_locked(
+                    self._places_meta_key(dataset), str(PLACES_VERSION)
+                )
+
+        return {"places": len(clusters), "assigned": assigned}
+
+    def assign_drive_places(self, vin: str, drive_id: str) -> None:
+        """Incrementally assign one drive's start/end place ids against existing places.
+
+        Unlike ``rebuild_places``, this never re-clusters auto places -- it
+        only looks up the nearest existing place (in the drive's own dataset)
+        for this one drive's (parked-position-adjusted) endpoints. Called after
+        every finalized drive; a full ``rebuild_places`` periodically (service
+        call, zone sync, post-backfill, first-load seed) is what lets a
+        newly-frequent spot become its own auto place.
+        """
+        self._assert_executor_thread()
+        if self.read_only:
+            _LOGGER.warning(
+                "Analytics database is read-only; assign_drive_places skipped"
+            )
+            return
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT start_lat, start_lon, end_lat, end_lon, sort_ts "
+                "FROM drives WHERE vin = ? AND drive_id = ?",
+                (vin, drive_id),
+            ).fetchone()
+            if row is None:
+                return
+            dataset = (
+                places.DATASET_DEMO
+                if vin in self._demo_vins_locked()
+                else places.DATASET_REAL
+            )
+            prev = None
+            if row["sort_ts"] is not None:
+                prev = self._conn.execute(
+                    "SELECT end_lat, end_lon FROM drives WHERE vin = ? "
+                    "AND sort_ts IS NOT NULL AND sort_ts < ? "
+                    "AND end_lat IS NOT NULL AND end_lon IS NOT NULL "
+                    "ORDER BY sort_ts DESC, created_ts DESC, id DESC LIMIT 1",
+                    (vin, row["sort_ts"]),
+                ).fetchone()
+            place_rows = self._conn.execute(
+                "SELECT place_id, lat, lon, radius_m, hidden FROM places "
+                "WHERE dataset = ?",
+                (dataset,),
+            ).fetchall()
+            all_places = [
+                places.ExistingPlace(
+                    place_id=r["place_id"],
+                    lat=r["lat"],
+                    lon=r["lon"],
+                    radius_m=r["radius_m"],
+                    source="",
+                    hidden=bool(r["hidden"]),
+                )
+                for r in place_rows
+            ]
+
+            start_place_id = None
+            if row["start_lat"] is not None and row["start_lon"] is not None:
+                start_lat, start_lon = row["start_lat"], row["start_lon"]
+                if prev is not None:
+                    distance = haversine_m(
+                        prev["end_lat"], prev["end_lon"], start_lat, start_lon
+                    )
+                    if distance <= places.DAY_GAP_MAX_M:
+                        start_lat, start_lon = prev["end_lat"], prev["end_lon"]
+                start_place_id = places.assign((start_lat, start_lon), all_places)
+
+            end_place_id = None
+            if row["end_lat"] is not None and row["end_lon"] is not None:
+                end_place_id = places.assign(
+                    (row["end_lat"], row["end_lon"]), all_places
+                )
+
+            with self._transaction():
+                self._conn.execute(
+                    "UPDATE drives SET start_place_id = ?, end_place_id = ? "
+                    "WHERE vin = ? AND drive_id = ?",
+                    (start_place_id, end_place_id, vin, drive_id),
+                )
+
+    def list_places(
+        self, dataset: str, vins: Sequence[str] | None = None
+    ) -> list[dict[str, Any]]:
+        """Return a dataset's places with visit counts/last-visit from drives.
+
+        ``visits_by_vin`` breaks each place's visits down per vehicle. With
+        ``vins`` the counts cover only those vehicles and the list is filtered
+        to the places they visit -- except hidden places (they label nothing
+        and would otherwise be impossible to restore), named places and zone
+        places, which are kept so a new zone or name shows up before any drive.
+        """
+        self._assert_executor_thread()
+        vin_filter = ""
+        vin_params: list[str] = []
+        if vins is not None:
+            vin_list = list(dict.fromkeys(vins))
+            vin_filter = f" AND vin IN ({','.join('?' for _ in vin_list)})"
+            vin_params = vin_list
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM places WHERE dataset = ? ORDER BY place_id",
+                (dataset,),
+            ).fetchall()
+            if not rows:
+                return []
+            stat_rows = self._conn.execute(
+                f"""
+                SELECT vin, place_id, SUM(dep) AS dep, SUM(arr) AS arr,
+                       MAX(ts) AS last_ts
+                  FROM (
+                      SELECT vin, start_place_id AS place_id, 1 AS dep, 0 AS arr,
+                             start_ts AS ts
+                        FROM drives
+                       WHERE start_place_id IS NOT NULL{vin_filter}
+                      UNION ALL
+                      SELECT vin, end_place_id AS place_id, 0 AS dep, 1 AS arr,
+                             end_ts AS ts
+                        FROM drives
+                       WHERE end_place_id IS NOT NULL{vin_filter}
+                  )
+                 GROUP BY vin, place_id
+                """,
+                [*vin_params, *vin_params],
+            ).fetchall()
+        stats: dict[int, dict[str, Any]] = {}
+        for s in stat_rows:
+            entry = stats.setdefault(
+                s["place_id"],
+                {"by_vin": {}, "arrivals": 0, "departures": 0, "last": None},
+            )
+            dep, arr = s["dep"] or 0, s["arr"] or 0
+            # One stop is an arrival and the next departure, so the larger of
+            # the two is a car's visit count.
+            entry["by_vin"][s["vin"]] = max(dep, arr)
+            entry["arrivals"] += arr
+            entry["departures"] += dep
+            if s["last_ts"] is not None and (
+                entry["last"] is None or s["last_ts"] > entry["last"]
+            ):
+                entry["last"] = s["last_ts"]
+        result: list[dict[str, Any]] = []
+        for r in rows:
+            entry = stats.get(r["place_id"])
+            by_vin = entry["by_vin"] if entry else {}
+            visits = sum(by_vin.values())
+            # Unvisited places are dropped for a vehicle filter, except ones
+            # someone deliberately made: hidden (else impossible to restore),
+            # named, or an HA zone (e.g. a zone just created, not yet driven to).
+            deliberate = r["hidden"] or r["name"] or r["source"] == "zone"
+            if vins is not None and visits == 0 and not deliberate:
+                continue
+            result.append(
+                {
+                    "id": r["place_id"],
+                    "label": places.place_label(
+                        r["name"], r["geocode_name"], r["place_id"]
+                    ),
+                    "name": r["name"],
+                    "geocode_name": r["geocode_name"],
+                    "category": r["category"],
+                    "lat": r["lat"],
+                    "lon": r["lon"],
+                    "radius_m": r["radius_m"],
+                    "source": r["source"],
+                    "zone_entity_id": r["zone_entity_id"],
+                    "hidden": bool(r["hidden"]),
+                    "visits": visits,
+                    "visits_by_vin": dict(by_vin),
+                    "arrivals": entry["arrivals"] if entry else 0,
+                    "departures": entry["departures"] if entry else 0,
+                    "last_visit_ts": entry["last"] if entry else None,
+                }
+            )
+        return result
+
+    _UPDATE_PLACE_FIELDS: Final[frozenset[str]] = frozenset(
+        {"name", "category", "radius_m", "hidden", "lat", "lon"}
+    )
+
+    def update_place(self, dataset: str, place_id: int, **fields: Any) -> None:
+        """Update a place's editable fields.
+
+        Renaming, moving or resizing an ``auto`` place makes it ``user``, so a
+        rebuild never re-clusters the edit away. A change to radius/lat/lon/
+        hidden changes which points the place covers, so it triggers a full
+        ``rebuild_places`` afterward.
+        """
+        self._assert_executor_thread()
+        if self.read_only:
+            _LOGGER.warning("Analytics database is read-only; update_place skipped")
+            return
+        unknown = set(fields) - self._UPDATE_PLACE_FIELDS
+        if unknown:
+            raise ValueError(f"update_place: unsupported fields {sorted(unknown)}")
+        if not fields:
+            return
+        geometry_changed = bool({"radius_m", "lat", "lon", "hidden"} & set(fields))
+        now = time.time()
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT source FROM places WHERE dataset = ? AND place_id = ?",
+                (dataset, place_id),
+            ).fetchone()
+            if row is None:
+                raise ValueError(f"No place {place_id}")
+            set_clauses: list[str] = []
+            params: list[Any] = []
+            for key, value in fields.items():
+                if key == "hidden":
+                    value = int(bool(value))
+                set_clauses.append(f"{key} = ?")
+                params.append(value)
+            pinned = bool(fields.get("name")) or bool(
+                {"radius_m", "lat", "lon"} & set(fields)
+            )
+            if pinned and row["source"] == "auto":
+                set_clauses.append("source = ?")
+                params.append("user")
+            set_clauses.append("updated_ts = ?")
+            params.append(now)
+            params.extend([dataset, place_id])
+            with self._transaction():
+                self._conn.execute(
+                    f"UPDATE places SET {', '.join(set_clauses)} "
+                    f"WHERE dataset = ? AND place_id = ?",
+                    params,
+                )
+        if geometry_changed:
+            self.rebuild_places(dataset)
+            self.rebuild_routes(dataset)
+
+    def create_place(
+        self,
+        dataset: str,
+        lat: float,
+        lon: float,
+        name: str,
+        radius_m: float | None = None,
+        category: str | None = None,
+    ) -> int:
+        """Create a user-defined place (e.g. naming a parked spot), then reassign drives."""
+        self._assert_executor_thread()
+        if self.read_only:
+            _LOGGER.warning("Analytics database is read-only; create_place skipped")
+            return -1
+        now = time.time()
+        radius = radius_m if radius_m is not None else places.DEFAULT_RADIUS_M
+        with self._lock, self._transaction():
+            cur = self._conn.execute(
+                "INSERT INTO places (dataset, name, category, lat, lon, radius_m, "
+                "source, hidden, created_ts, updated_ts) "
+                "VALUES (?, ?, ?, ?, ?, ?, 'user', 0, ?, ?)",
+                (dataset, name, category, lat, lon, radius, now, now),
+            )
+            place_id = cur.lastrowid
+        self.rebuild_places(dataset)
+        self.rebuild_routes(dataset)
+        return place_id
+
+    def merge_places(self, dataset: str, into: int, place_ids: list[int]) -> None:
+        """Merge ``place_ids`` into ``into``, so their visits count toward it.
+
+        ``into`` grows to cover each merged place (centroid distance plus its
+        radius, capped at ``places.ZONE_RADIUS_BOUNDS[1]``) and becomes
+        ``user`` if it was ``auto``, so the rebuild that follows keeps the
+        merged spots assigned to it instead of re-detecting them. Zone places
+        can't be merged away -- the next zone sync would recreate them.
+        """
+        self._assert_executor_thread()
+        if self.read_only:
+            _LOGGER.warning("Analytics database is read-only; merge_places skipped")
+            return
+        merge_ids = [pid for pid in place_ids if pid != into]
+        if not merge_ids:
+            return
+        placeholders = ",".join("?" for _ in merge_ids)
+        now = time.time()
+        with self._lock:
+            target = self._conn.execute(
+                "SELECT lat, lon, radius_m, source FROM places "
+                "WHERE dataset = ? AND place_id = ?",
+                (dataset, into),
+            ).fetchone()
+            if target is None:
+                raise ValueError(f"No place {into}")
+            merged = self._conn.execute(
+                f"SELECT place_id, lat, lon, radius_m, source FROM places "
+                f"WHERE dataset = ? AND place_id IN ({placeholders})",
+                [dataset, *merge_ids],
+            ).fetchall()
+            if any(r["source"] == "zone" for r in merged):
+                raise ValueError(
+                    "A Home Assistant zone place can't be merged into another place"
+                )
+            radius = target["radius_m"]
+            for r in merged:
+                reach = (
+                    haversine_m(target["lat"], target["lon"], r["lat"], r["lon"])
+                    + r["radius_m"]
+                )
+                radius = max(radius, reach)
+            radius = min(places.ZONE_RADIUS_BOUNDS[1], radius)
+            source = "user" if target["source"] == "auto" else target["source"]
+            with self._transaction():
+                self._conn.execute(
+                    "UPDATE places SET radius_m = ?, source = ?, updated_ts = ? "
+                    "WHERE dataset = ? AND place_id = ?",
+                    (radius, source, now, dataset, into),
+                )
+                self._conn.execute(
+                    f"DELETE FROM places WHERE dataset = ? AND place_id IN ({placeholders})",
+                    [dataset, *merge_ids],
+                )
+        self.rebuild_places(dataset)
+        self.rebuild_routes(dataset)
+
+    def places_needing_geocode(
+        self, dataset: str, limit: int = PLACES_GEOCODE_DEFAULT_LIMIT
+    ) -> list[dict[str, Any]]:
+        """Return up to `limit` unnamed (auto, or user-pinned by a move/resize), >= MIN_VISITS places due for a geocode attempt."""
+        self._assert_executor_thread()
+        now = time.time()
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT place_id, lat, lon FROM places
+                 WHERE dataset = ? AND source != 'zone' AND name IS NULL
+                   AND geocode_name IS NULL
+                   AND (geocoded_ts IS NULL OR geocoded_ts < ?)
+                   AND place_id IN (
+                       SELECT place_id FROM (
+                           SELECT start_place_id AS place_id, 1 AS dep, 0 AS arr
+                             FROM drives
+                            WHERE start_place_id IS NOT NULL
+                           UNION ALL
+                           SELECT end_place_id AS place_id, 0 AS dep, 1 AS arr
+                             FROM drives
+                            WHERE end_place_id IS NOT NULL
+                       ) GROUP BY place_id
+                         HAVING MAX(SUM(dep), SUM(arr)) >= ?
+                   )
+                 ORDER BY place_id
+                 LIMIT ?
+                """,
+                (
+                    dataset,
+                    now - GEOCODE_RETRY_SECONDS,
+                    places.MIN_VISITS,
+                    limit,
+                ),
+            ).fetchall()
+        return [
+            {"place_id": r["place_id"], "lat": r["lat"], "lon": r["lon"]} for r in rows
+        ]
+
+    def save_geocode(
+        self, dataset: str, place_id: int, name: str | None, attempted_ts: float
+    ) -> None:
+        """Record a geocode attempt's result (or failure) for one place."""
+        self._assert_executor_thread()
+        if self.read_only:
+            _LOGGER.warning("Analytics database is read-only; save_geocode skipped")
+            return
+        with self._lock, self._transaction():
+            self._conn.execute(
+                "UPDATE places SET geocode_name = ?, geocoded_ts = ?, updated_ts = ? "
+                "WHERE dataset = ? AND place_id = ?",
+                (name, attempted_ts, attempted_ts, dataset, place_id),
+            )
+
+    def _place_refs_for_ids(
+        self, place_ids: Iterable[int | None]
+    ) -> dict[int, sqlite3.Row]:
+        """Return {place_id: row} for the given ids (self-locking).
+
+        Place ids are globally unique, so no dataset filter is needed: a
+        drive's place ids always come from its own dataset.
+        """
+        ids = {pid for pid in place_ids if pid is not None}
+        if not ids:
+            return {}
+        placeholders = ",".join("?" for _ in ids)
+        with self._lock:
+            rows = self._conn.execute(
+                f"SELECT place_id, name, category, geocode_name, hidden FROM places "
+                f"WHERE place_id IN ({placeholders})",
+                list(ids),
+            ).fetchall()
+        return {r["place_id"]: r for r in rows}
+
+    @staticmethod
+    def _place_ref_from_row(row: sqlite3.Row | None) -> dict[str, Any] | None:
+        """Shape one place row as ``{id, label, category}``, or None if hidden/absent."""
+        if row is None or row["hidden"]:
+            return None
+        return {
+            "id": row["place_id"],
+            "label": places.place_label(
+                row["name"], row["geocode_name"], row["place_id"]
+            ),
+            "category": row["category"],
+        }
+
+    @staticmethod
+    def _place_label_from_rows(
+        place_rows: dict[int, sqlite3.Row], place_id: int
+    ) -> str:
+        """Return a place's label (name, geocode name, else "Place #N")."""
+        row = place_rows.get(place_id)
+        if row is None:
+            return f"Place #{place_id}"
+        return places.place_label(row["name"], row["geocode_name"], place_id)
+
+    # -- favorite drives (repeated routes) --------------------------------------
+
+    @staticmethod
+    def _routes_meta_key(dataset: str) -> str:
+        """Meta key recording the routes definitions a dataset was last rebuilt with."""
+        return f"routes_version:{dataset}"
+
+    def has_unbuilt_routes(self, dataset: str) -> bool:
+        """Return True until this dataset's routes were built with the current definitions.
+
+        Mirrors ``has_unbuilt_places``: true right after the v9/v10 schema
+        migration (or a ``routes.MIN_ROUTE_DRIVES``/``ROUTES_VERSION`` bump)
+        until the one-time background ``rebuild_routes`` has run.
+        """
+        self._assert_executor_thread()
+        return self.get_meta(self._routes_meta_key(dataset)) != str(ROUTES_VERSION)
+
+    @staticmethod
+    def _route_stats_payload(stats: routes_mod.RouteStats) -> dict[str, Any]:
+        """Serialize a ``routes.RouteStats`` to the JSON-friendly dict stored/served.
+
+        The flat fields (and the identical ``overall`` block) are across every
+        vehicle that drove the route; ``by_vin`` is each car's own
+        count/best/average/slowest. Drive references are ``"<vin>|<drive_id>"``
+        keys, and ``per_drive`` carries both the overall rank/vs-avg and the
+        rank/vs-avg among the same car's own drives (``vin_*``).
+        """
+        overall = {
+            "count": stats.count,
+            "fastest_seconds": stats.fastest_seconds,
+            "avg_seconds": stats.avg_seconds,
+            "slowest_seconds": stats.slowest_seconds,
+            "avg_efficiency_mi_kwh": stats.avg_efficiency_mi_kwh,
+        }
+        return {
+            "count": stats.count,
+            "fastest_seconds": stats.fastest_seconds,
+            "fastest_drive_id": stats.fastest_drive_id,
+            "slowest_seconds": stats.slowest_seconds,
+            "slowest_drive_id": stats.slowest_drive_id,
+            "avg_seconds": stats.avg_seconds,
+            "fastest_moving_seconds": stats.fastest_moving_seconds,
+            "fastest_moving_drive_id": stats.fastest_moving_drive_id,
+            "slowest_moving_seconds": stats.slowest_moving_seconds,
+            "slowest_moving_drive_id": stats.slowest_moving_drive_id,
+            "avg_moving_seconds": stats.avg_moving_seconds,
+            "avg_efficiency_mi_kwh": stats.avg_efficiency_mi_kwh,
+            "avg_temp_f": stats.avg_temp_f,
+            "last_ts": stats.last_ts,
+            "overall": overall,
+            "by_vin": {
+                vin: {
+                    "count": v.count,
+                    "fastest_seconds": v.fastest_seconds,
+                    "avg_seconds": v.avg_seconds,
+                    "slowest_seconds": v.slowest_seconds,
+                    "avg_efficiency_mi_kwh": v.avg_efficiency_mi_kwh,
+                }
+                for vin, v in stats.by_vin.items()
+            },
+            "per_drive": {
+                key: {
+                    "vin": stat.vin,
+                    "rank": stat.rank,
+                    "vs_avg_pct": stat.vs_avg_pct,
+                    "vin_rank": stat.vin_rank,
+                    "vin_vs_avg_pct": stat.vin_vs_avg_pct,
+                    "outlier": stat.outlier,
+                }
+                for key, stat in stats.drive_stats.items()
+            },
+        }
+
+    def rebuild_routes(self, dataset: str) -> dict[str, int]:
+        """Deterministically re-group a dataset's routes/variants and reassign its drives.
+
+        Routes belong to no vehicle: every drive in the dataset is grouped by
+        place pair and path variant regardless of which car drove it. Mirrors
+        ``rebuild_places``'s batching: selects drives/tracks under
+        ``self._lock``, computes grouping and stats outside it (pure CPU),
+        then writes every change -- route upserts/deletes and every drive's
+        ``route_id`` -- in one transaction. Route ids are stable across a
+        rebuild: the same (dataset, start_place_id, end_place_id, variant)
+        reuses its existing row, so a user's rename survives.
+        """
+        self._assert_executor_thread()
+        if self.read_only:
+            _LOGGER.warning("Analytics database is read-only; rebuild_routes skipped")
+            return {"routes": 0, "assigned": 0}
+
+        with self._rebuild_lock:
+            with self._lock:
+                clause, clause_params = self._dataset_drive_clause(dataset, "d.vin")
+                plain_clause, plain_params = self._dataset_drive_clause(dataset)
+                drive_rows = self._conn.execute(
+                    f"""
+                    SELECT d.vin, d.drive_id, d.start_place_id, d.end_place_id,
+                           d.sort_ts, d.duration_seconds, d.moving_seconds,
+                           d.distance_miles, d.energy_kwh,
+                           d.integrated_temperature_f, t.track_json
+                      FROM drives d
+                      LEFT JOIN drive_tracks t
+                        ON t.vin = d.vin AND t.drive_id = d.drive_id
+                     WHERE {clause} AND d.is_micro_drive = 0
+                       AND d.start_place_id IS NOT NULL AND d.end_place_id IS NOT NULL
+                    """,
+                    clause_params,
+                ).fetchall()
+                existing_routes = self._conn.execute(
+                    "SELECT route_id, start_place_id, end_place_id, variant, name "
+                    "FROM routes WHERE dataset = ?",
+                    (dataset,),
+                ).fetchall()
+
+            inputs: list[routes_mod.RouteDriveInput] = []
+            for row in drive_rows:
+                cells = None
+                if row["track_json"] is not None:
+                    try:
+                        track = DriveTrack.decode(row["track_json"])
+                        cells = routes_mod.coarsen_cells(track_cells(track))
+                    except ValueError as err:
+                        _LOGGER.debug(
+                            "Skipping unreadable route for drive %s (routes): %s",
+                            row["drive_id"],
+                            err,
+                        )
+                inputs.append(
+                    routes_mod.RouteDriveInput(
+                        drive_id=row["drive_id"],
+                        start_place_id=row["start_place_id"],
+                        end_place_id=row["end_place_id"],
+                        sort_ts=row["sort_ts"],
+                        duration_seconds=row["duration_seconds"],
+                        moving_seconds=row["moving_seconds"],
+                        distance_miles=row["distance_miles"],
+                        energy_kwh=row["energy_kwh"],
+                        temp_f=row["integrated_temperature_f"],
+                        cells=cells,
+                        vin=row["vin"],
+                    )
+                )
+
+            groups = routes_mod.build_routes(inputs)
+            existing_by_key = {
+                (r["start_place_id"], r["end_place_id"], r["variant"]): r
+                for r in existing_routes
+            }
+
+            now = time.time()
+            with self._lock, self._transaction():
+                kept_keys: set[tuple[int, int, int]] = set()
+                drive_route_map: dict[tuple[str, str], int] = {}
+                for group in groups:
+                    key = (group.start_place_id, group.end_place_id, group.variant)
+                    kept_keys.add(key)
+                    stats_json = json.dumps(self._route_stats_payload(group.stats))
+                    existing = existing_by_key.get(key)
+                    if existing is not None:
+                        route_id = existing["route_id"]
+                        self._conn.execute(
+                            "UPDATE routes SET drive_count = ?, stats_json = ?, "
+                            "updated_ts = ? WHERE route_id = ?",
+                            (len(group.drive_ids), stats_json, now, route_id),
+                        )
+                    else:
+                        cur = self._conn.execute(
+                            "INSERT INTO routes (dataset, start_place_id, "
+                            "end_place_id, variant, name, drive_count, stats_json, "
+                            "created_ts, updated_ts) "
+                            "VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?)",
+                            (
+                                dataset,
+                                group.start_place_id,
+                                group.end_place_id,
+                                group.variant,
+                                len(group.drive_ids),
+                                stats_json,
+                                now,
+                                now,
+                            ),
+                        )
+                        route_id = cur.lastrowid
+                    for drive_key in group.drive_ids:
+                        vin, _, drive_id = drive_key.partition("|")
+                        drive_route_map[(vin, drive_id)] = route_id
+
+                stale_keys = set(existing_by_key) - kept_keys
+                for key in stale_keys:
+                    self._conn.execute(
+                        "DELETE FROM routes WHERE route_id = ?",
+                        (existing_by_key[key]["route_id"],),
+                    )
+
+                # Clear every candidate drive's route_id first (covers a pair that
+                # dropped below threshold, or a drive that moved pairs), then set
+                # it for the ones that are currently routed.
+                self._conn.execute(
+                    f"UPDATE drives SET route_id = NULL WHERE {plain_clause} "
+                    f"AND is_micro_drive = 0 AND start_place_id IS NOT NULL "
+                    f"AND end_place_id IS NOT NULL",
+                    plain_params,
+                )
+                for (vin, drive_id), route_id in drive_route_map.items():
+                    self._conn.execute(
+                        "UPDATE drives SET route_id = ? WHERE vin = ? AND drive_id = ?",
+                        (route_id, vin, drive_id),
+                    )
+
+                self._set_meta_locked(
+                    self._routes_meta_key(dataset), str(ROUTES_VERSION)
+                )
+
+        return {"routes": len(groups), "assigned": len(drive_route_map)}
+
+    @staticmethod
+    def _selected_route_count(
+        stats: dict[str, Any], vins: Sequence[str] | None
+    ) -> int | None:
+        """Return the selected vehicles' drive count on a route (None = no filter)."""
+        if vins is None:
+            return None
+        by_vin = stats.get("by_vin") or {}
+        return sum(int((by_vin.get(v) or {}).get("count") or 0) for v in vins)
+
+    def list_routes(
+        self, dataset: str, vins: Sequence[str] | None = None
+    ) -> list[dict[str, Any]]:
+        """Return a dataset's routes (summary + stored stats).
+
+        Without ``vins``: by total drive_count desc. With ``vins``: only routes
+        those vehicles have driven, ordered by *their* drive count on the
+        route (then total), so each car's favorites are its most-driven routes.
+        Each entry carries ``selected_count`` (the selected vehicles' drives;
+        the total when unfiltered).
+        """
+        self._assert_executor_thread()
+        with self._lock:
+            route_rows = self._conn.execute(
+                "SELECT * FROM routes WHERE dataset = ? "
+                "ORDER BY drive_count DESC, route_id ASC",
+                (dataset,),
+            ).fetchall()
+            if not route_rows:
+                return []
+            place_ids = {r["start_place_id"] for r in route_rows} | {
+                r["end_place_id"] for r in route_rows
+            }
+            place_rows = self._place_refs_for_ids(place_ids)
+
+        variant_counts: dict[tuple[int, int], int] = {}
+        for r in route_rows:
+            key = (r["start_place_id"], r["end_place_id"])
+            variant_counts[key] = variant_counts.get(key, 0) + 1
+
+        result: list[dict[str, Any]] = []
+        for r in route_rows:
+            stats = json.loads(r["stats_json"] or "{}")
+            selected = self._selected_route_count(stats, vins)
+            if selected is not None and selected <= 0:
+                continue
+            start_label = self._place_label_from_rows(place_rows, r["start_place_id"])
+            end_label = self._place_label_from_rows(place_rows, r["end_place_id"])
+            variant_count = variant_counts[(r["start_place_id"], r["end_place_id"])]
+            label = r["name"] or routes_mod.route_label(
+                start_label, end_label, r["variant"]
+            )
+            result.append(
+                {
+                    "id": r["route_id"],
+                    "start_place": self._place_ref_from_row(
+                        place_rows.get(r["start_place_id"])
+                    ),
+                    "end_place": self._place_ref_from_row(
+                        place_rows.get(r["end_place_id"])
+                    ),
+                    "variant": r["variant"],
+                    "variant_count": variant_count,
+                    "name": r["name"],
+                    "label": label,
+                    "drive_count": r["drive_count"],
+                    "selected_count": (
+                        selected if selected is not None else r["drive_count"]
+                    ),
+                    "stats": stats,
+                    "updated_ts": r["updated_ts"],
+                }
+            )
+        if vins is not None:
+            result.sort(
+                key=lambda e: (-e["selected_count"], -e["drive_count"], e["id"])
+            )
+        return result
+
+    def route_detail(
+        self, dataset: str, route_id: int, vins: Sequence[str] | None = None
+    ) -> dict[str, Any] | None:
+        """Return one route's stats plus every drive's summary and preview polyline.
+
+        Each drive is tagged with its ``vin`` and route-wide ``key``
+        (``"<vin>|<drive_id>"``). Per-drive rank/vs_avg_pct/outlier come from
+        the route's stored ``stats_json`` (computed at the last rebuild), never
+        recomputed here. With ``vins`` only those vehicles' drives are listed
+        (the stats still cover every car). The route's own full GPS track is
+        never loaded -- only its stored ``drive_tracks.preview_json``
+        (<= TRACK_PREVIEW_MAX_POINTS points).
+        """
+        self._assert_executor_thread()
+        vin_clause = ""
+        vin_params: list[str] = []
+        if vins is not None:
+            vin_list = list(dict.fromkeys(vins))
+            vin_clause = f" AND d.vin IN ({','.join('?' for _ in vin_list)})"
+            vin_params = vin_list
+        with self._lock:
+            route_row = self._conn.execute(
+                "SELECT * FROM routes WHERE dataset = ? AND route_id = ?",
+                (dataset, route_id),
+            ).fetchone()
+            if route_row is None:
+                return None
+            drive_rows = self._conn.execute(
+                f"""
+                SELECT d.vin, d.drive_id, d.start_ts, d.end_ts, d.sort_ts,
+                       d.duration_seconds, d.moving_seconds, d.distance_miles,
+                       d.efficiency_mi_kwh, d.integrated_temperature_f,
+                       t.preview_json
+                  FROM drives d
+                  LEFT JOIN drive_tracks t
+                    ON t.vin = d.vin AND t.drive_id = d.drive_id
+                 WHERE d.route_id = ?{vin_clause}
+                 ORDER BY d.sort_ts ASC
+                """,
+                [route_id, *vin_params],
+            ).fetchall()
+            variant_count = self._conn.execute(
+                "SELECT COUNT(*) AS n FROM routes WHERE dataset = ? "
+                "AND start_place_id = ? AND end_place_id = ?",
+                (dataset, route_row["start_place_id"], route_row["end_place_id"]),
+            ).fetchone()["n"]
+            place_rows = self._place_refs_for_ids(
+                [route_row["start_place_id"], route_row["end_place_id"]]
+            )
+
+        start_row = place_rows.get(route_row["start_place_id"])
+        end_row = place_rows.get(route_row["end_place_id"])
+        start_label = self._place_label_from_rows(
+            place_rows, route_row["start_place_id"]
+        )
+        end_label = self._place_label_from_rows(place_rows, route_row["end_place_id"])
+        label = route_row["name"] or routes_mod.route_label(
+            start_label, end_label, route_row["variant"]
+        )
+        stats_payload = json.loads(route_row["stats_json"] or "{}")
+        per_drive = stats_payload.get("per_drive", {})
+
+        drives_payload: list[dict[str, Any]] = []
+        for row in drive_rows:
+            preview = None
+            if row["preview_json"] is not None:
+                try:
+                    preview_track = DriveTrack.decode(row["preview_json"])
+                    preview = {
+                        "lat": [p.lat for p in preview_track.points],
+                        "lon": [p.lon for p in preview_track.points],
+                    }
+                except ValueError as err:
+                    _LOGGER.warning(
+                        "Skipping unreadable preview for drive %s: %s",
+                        row["drive_id"],
+                        err,
+                    )
+            key = routes_mod.drive_key(row["vin"], row["drive_id"])
+            drive_stat = per_drive.get(key, {})
+            drives_payload.append(
+                {
+                    "vin": row["vin"],
+                    "drive_id": row["drive_id"],
+                    "key": key,
+                    "start_ts": row["start_ts"],
+                    "end_ts": row["end_ts"],
+                    "sort_ts": row["sort_ts"],
+                    "duration_seconds": row["duration_seconds"],
+                    "moving_seconds": row["moving_seconds"],
+                    "distance_miles": (
+                        round(row["distance_miles"], 2)
+                        if row["distance_miles"] is not None
+                        else None
+                    ),
+                    "efficiency_mi_kwh": row["efficiency_mi_kwh"],
+                    "temp_f": row["integrated_temperature_f"],
+                    "rank": drive_stat.get("rank"),
+                    "vs_avg_pct": drive_stat.get("vs_avg_pct"),
+                    "vin_rank": drive_stat.get("vin_rank"),
+                    "vin_vs_avg_pct": drive_stat.get("vin_vs_avg_pct"),
+                    "outlier": drive_stat.get("outlier", False),
+                    "preview": preview,
+                }
+            )
+
+        return {
+            "id": route_row["route_id"],
+            "start_place": self._place_ref_from_row(start_row),
+            "end_place": self._place_ref_from_row(end_row),
+            "variant": route_row["variant"],
+            "variant_count": variant_count,
+            "name": route_row["name"],
+            "label": label,
+            "stats": stats_payload,
+            "drives": drives_payload,
+        }
+
+    def rename_route(self, dataset: str, route_id: int, name: str | None) -> None:
+        """Set (or clear, with None/empty) a route's display name override."""
+        self._assert_executor_thread()
+        if self.read_only:
+            _LOGGER.warning("Analytics database is read-only; rename_route skipped")
+            return
+        now = time.time()
+        with self._lock, self._transaction():
+            cur = self._conn.execute(
+                "UPDATE routes SET name = ?, updated_ts = ? "
+                "WHERE dataset = ? AND route_id = ?",
+                (name or None, now, dataset, route_id),
+            )
+            if cur.rowcount == 0:
+                raise ValueError(f"No route {route_id}")
 
     def fit_energy_model(
         self,
