@@ -781,6 +781,9 @@ def _setup_mock_environment() -> None:
         dt_mod.parse_datetime = _parse_datetime  # type: ignore[attr-defined]
         dt_mod.utc_from_timestamp = _utc_from_timestamp  # type: ignore[attr-defined]
         dt_mod.utcnow = _utcnow  # type: ignore[attr-defined]
+        # Backs websocket_api.py's calendar/day handlers, which resolve HA's
+        # configured zone on the event loop before handing it to the executor.
+        dt_mod.get_default_time_zone = lambda: UTC  # type: ignore[attr-defined]
         sys.modules["homeassistant.util.dt"] = dt_mod
         util_mod.dt = dt_mod  # type: ignore[attr-defined]
 

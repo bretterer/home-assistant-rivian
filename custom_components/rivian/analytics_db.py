@@ -8,10 +8,11 @@ perform blocking I/O and therefore must be invoked via
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections import OrderedDict
+from collections.abc import Callable, Iterable, Sequence
 import contextlib
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta, tzinfo
 import json
 import logging
 import os
@@ -19,7 +20,11 @@ import sqlite3
 import threading
 import time
 from typing import TYPE_CHECKING, Any, Final
+import zlib
 
+from homeassistant.util import dt as dt_util
+
+from . import road_snap
 from .drive_models import (
     MICRO_DRIVE_THRESHOLD_MILES,
     MPGE_FACTOR,
@@ -34,7 +39,17 @@ from .drive_models import (
     normalize_drive_modes,
 )
 from .drive_stats import compute_track_stats
-from .drive_track import DriveTrack, haversine_m
+from .drive_track import DriveTrack, TrackPoint, haversine_m
+from .energy_model import (
+    DEFAULT_PARAMS as ENERGY_MODEL_DEFAULT_PARAMS,
+    MIN_DRIVE_DISTANCE_MI,
+    MIN_DRIVE_ENERGY_KWH,
+    EnergyModelParams,
+    anchored_efficiency,
+    fit_params,
+    interval_features,
+)
+from .road_heat import BASE_LEVEL, HEAT_FORMAT_VERSION, HeatGrid, RoadHeat, track_passes
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -57,9 +72,29 @@ SECONDS_PER_DAY: Final[float] = 86400.0
 TRACK_PREVIEW_MAX_POINTS: Final[int] = 150
 TRACK_THIN_BATCH_SIZE: Final[int] = 50
 SERIES_WINDOW_ROW_CAP: Final[int] = 5000
+HEAT_UPDATE_BATCH_SIZE: Final[int] = 50
+# A day view draws a dashed "not recorded" line where the car's position jumps
+# between parking and the next recorded point by more than GPS drift at a
+# parking spot, but not so far that a straight line would mislead.
 # Bump when a drive_stats definition changes: every VIN's stored drives are
 # then recomputed once, in the background, after the next start.
 DRIVE_STATS_VERSION: Final[int] = 1
+DAY_GAP_MIN_M: Final[float] = 150.0
+DAY_GAP_MAX_M: Final[float] = 3000.0
+# How much of the drive before a day's first segment to carry forward as
+# `prior_tail`, so the Efficiency chart's rolling average and 3-min chunks
+# have context for the first minutes of the day's first drive instead of a
+# blank start.
+PRIOR_TAIL_MIN_SOC_DROP_PCT: Final[float] = 1.0
+PRIOR_TAIL_MIN_DISTANCE_M: Final[float] = 10_000.0
+PRIOR_TAIL_MAX_POINTS: Final[int] = 400
+HEAT_CACHE_LIMIT: Final[int] = 24
+ENERGY_MODEL_WINDOW_DAYS: Final[int] = 90
+ENERGY_MODEL_MIN_DRIVES: Final[int] = 15
+# How long a cached OSM road-network fetch (keyed by a coarse bbox grid cell)
+# is reused before a stale road edit would need a fresh Overpass fetch.
+OSM_ROADS_TTL_SECONDS: Final[float] = 90 * 86400.0
+GAPS_TO_SNAP_DEFAULT_LIMIT: Final[int] = 20
 # The ``meta`` row listing the synthetic demo vehicles, read by the v10/v11
 # migrations of databases written by later versions.
 DEMO_VEHICLES_META_KEY: Final[str] = "demo_vehicles"
@@ -964,6 +999,47 @@ def _parse_iso_to_epoch(ts_str: str | None) -> float | None:
         return None
 
 
+def _trim_track_tail(
+    track: DriveTrack,
+    min_soc_drop_pct: float = PRIOR_TAIL_MIN_SOC_DROP_PCT,
+    min_distance_m: float = PRIOR_TAIL_MIN_DISTANCE_M,
+    max_points: int = PRIOR_TAIL_MAX_POINTS,
+) -> DriveTrack:
+    """Return the last points of ``track`` covering a SoC drop or distance.
+
+    Walks backward from the track's last point until either the SoC has
+    dropped at least ``min_soc_drop_pct`` (relative to the last point) or the
+    cumulative distance has reached ``min_distance_m``, whichever comes
+    first, then hard-caps the result to the last ``max_points`` points.
+    """
+    pts = track.points
+    if len(pts) < 2:
+        return DriveTrack(list(pts))
+
+    last_soc = pts[-1].soc
+    cum_distance = 0.0
+    start_idx = len(pts) - 1
+    for i in range(len(pts) - 2, -1, -1):
+        point = pts[i]
+        nxt = pts[i + 1]
+        cum_distance += haversine_m(point.lat, point.lon, nxt.lat, nxt.lon)
+        start_idx = i
+        soc_drop = (
+            point.soc - last_soc
+            if point.soc is not None and last_soc is not None
+            else None
+        )
+        if (soc_drop is not None and soc_drop >= min_soc_drop_pct) or (
+            cum_distance >= min_distance_m
+        ):
+            break
+
+    tail_points = pts[start_idx:]
+    if len(tail_points) > max_points:
+        tail_points = tail_points[-max_points:]
+    return DriveTrack(tail_points)
+
+
 @dataclass(frozen=True)
 class HotCache:
     """Immutable, atomically-swapped snapshot of a VIN's analytics used by entities."""
@@ -1017,6 +1093,18 @@ class AnalyticsDatabase:
         self._hass = hass
         self.db_path = db_path or hass.config.path(DEFAULT_DB_RELATIVE_PATH)
         self._lock = threading.RLock()
+        # Serializes whole update_heat()/rebuild_heat() runs (never self._lock,
+        # which is held only for individual batches) so two runs can never
+        # double-count the same drive.
+        self._heat_run_lock = threading.Lock()
+        self._heat_cache_lock = threading.Lock()
+        self._heat_cache: OrderedDict[
+            tuple[str, str],
+            tuple[HeatGrid, tuple[float, float, float, float] | None, int, int],
+        ] = OrderedDict()
+        # Bumped per VIN on every invalidation, so a grid read from the DB just
+        # before a concurrent update commits is never cached after it.
+        self._heat_generation: dict[str, int] = {}
         # Prefer the loop thread id hass reports over whichever thread happened
         # to construct us, so the executor-thread guard stays correct even if a
         # test or future caller builds this off-loop.
@@ -1591,6 +1679,129 @@ class AnalyticsDatabase:
                 self._set_meta_locked(f"json_migrated_{vin}", json.dumps(counts))
         return counts
 
+    def delete_vin(self, vin: str) -> None:
+        """Delete all analytics rows (drives, vampire events, DCFC sessions) for a VIN."""
+        self._assert_executor_thread()
+        with self._lock:
+            if self.read_only:
+                _LOGGER.warning("Analytics database is read-only; delete_vin skipped")
+                return
+            with self._transaction():
+                self._conn.execute("DELETE FROM drives WHERE vin = ?", (vin,))
+                self._conn.execute("DELETE FROM vampire_events WHERE vin = ?", (vin,))
+                self._conn.execute("DELETE FROM dcfc_sessions WHERE vin = ?", (vin,))
+                self._conn.execute("DELETE FROM capacity_history WHERE vin = ?", (vin,))
+                self._conn.execute("DELETE FROM drive_tracks WHERE vin = ?", (vin,))
+                self._conn.execute("DELETE FROM active_drive WHERE vin = ?", (vin,))
+                self._conn.execute(
+                    "DELETE FROM active_track_chunks WHERE vin = ?", (vin,)
+                )
+                self._conn.execute("DELETE FROM road_heat WHERE vin = ?", (vin,))
+                self._conn.execute("DELETE FROM road_heat_drives WHERE vin = ?", (vin,))
+                self._conn.execute("DELETE FROM track_fills WHERE vin = ?", (vin,))
+                self._conn.execute("DELETE FROM vehicle_pictures WHERE vin = ?", (vin,))
+                self._conn.execute(
+                    "DELETE FROM meta WHERE key IN (?, ?, ?, ?)",
+                    (
+                        f"json_migrated_{vin}",
+                        self._drive_stats_meta_key(vin),
+                        self._energy_model_meta_key(vin),
+                        self._heat_format_meta_key(vin),
+                    ),
+                )
+            self._invalidate_heat_cache_all(vin)
+
+    def delete_drives(self, vin: str, drive_ids: list[str]) -> dict[str, Any]:
+        """Delete one or more drives and everything derived from them.
+
+        Removes the ``drives``, ``drive_tracks`` and ``track_fills`` rows in
+        one transaction. Then recounts road heat for every local month (in
+        HA's configured time zone) that any deleted drive was counted into:
+        unlike ``rebuild_heat()``, a month with no route left afterward has
+        its ``road_heat`` row dropped rather than kept -- this is the one
+        place that happens.
+
+        Returns ``{"deleted": n, "affected_hours": [...]}``: the hour-aligned
+        (UTC epoch) start timestamps of the deleted drives, for the caller to
+        rewrite long-term statistics from the earliest one forward.
+        """
+        self._assert_executor_thread()
+        if not drive_ids:
+            return {"deleted": 0, "affected_hours": []}
+        if self.read_only:
+            _LOGGER.warning("Analytics database is read-only; delete_drives skipped")
+            return {"deleted": 0, "affected_hours": []}
+
+        placeholders = ",".join("?" for _ in drive_ids)
+        with self._lock:
+            drive_rows = self._conn.execute(
+                f"SELECT sort_ts FROM drives WHERE vin = ? "
+                f"AND drive_id IN ({placeholders})",
+                [vin, *drive_ids],
+            ).fetchall()
+            month_rows = self._conn.execute(
+                f"SELECT DISTINCT month FROM road_heat_drives WHERE vin = ? "
+                f"AND drive_id IN ({placeholders})",
+                [vin, *drive_ids],
+            ).fetchall()
+
+        affected_hours = sorted(
+            {
+                (row["sort_ts"] // 3600) * 3600
+                for row in drive_rows
+                if row["sort_ts"] is not None
+            }
+        )
+        months = {r["month"] for r in month_rows if r["month"]}
+
+        with self._lock, self._transaction():
+            deleted = (
+                self._conn.execute(
+                    f"DELETE FROM drives WHERE vin = ? AND drive_id IN ({placeholders})",
+                    [vin, *drive_ids],
+                ).rowcount
+                or 0
+            )
+            self._conn.execute(
+                f"DELETE FROM drive_tracks WHERE vin = ? "
+                f"AND drive_id IN ({placeholders})",
+                [vin, *drive_ids],
+            )
+            self._conn.execute(
+                f"DELETE FROM track_fills WHERE vin = ? "
+                f"AND drive_id IN ({placeholders})",
+                [vin, *drive_ids],
+            )
+            self._conn.execute(
+                f"DELETE FROM road_heat_drives WHERE vin = ? "
+                f"AND drive_id IN ({placeholders})",
+                [vin, *drive_ids],
+            )
+
+        if months:
+            tz = dt_util.get_default_time_zone()
+            with self._heat_run_lock:
+                self._rebuild_heat_months_locked(vin, tz, months)
+
+        return {"deleted": deleted, "affected_hours": affected_hours}
+
+    def delete_day(self, vin: str, tz: tzinfo, day: date) -> dict[str, Any]:
+        """Delete every drive on one local calendar day (see ``day()``'s window)."""
+        self._assert_executor_thread()
+        midnight_time = datetime.min.time()
+        start_ts = datetime.combine(day, midnight_time, tzinfo=tz).timestamp()
+        end_ts = datetime.combine(
+            day + timedelta(days=1), midnight_time, tzinfo=tz
+        ).timestamp()
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT drive_id FROM drives WHERE vin = ? AND sort_ts IS NOT NULL "
+                "AND sort_ts >= ? AND sort_ts < ?",
+                (vin, start_ts, end_ts),
+            ).fetchall()
+        drive_ids = [r["drive_id"] for r in rows]
+        return self.delete_drives(vin, drive_ids)
+
     def prune(self, vin: str, cutoff_ts: float) -> int:
         """Delete drives/vampire events older than cutoff_ts; return rows removed.
 
@@ -2076,11 +2287,450 @@ class AnalyticsDatabase:
         }
         summary["chunks"] = [c.to_dict() for c in record.chunks]
         track_payload = (
-            DriveTrack.decode(row["track_json"]).to_payload()
+            self._merge_fills_into_track(
+                vin, drive_id, DriveTrack.decode(row["track_json"])
+            )
             if row["track_json"] is not None
             else None
         )
         return {"drive": summary, "track": track_payload}
+
+    # -- calendar grouping ----------------------------------------------------
+
+    @staticmethod
+    def _aggregate_drive_rows(entries: list[dict[str, Any]]) -> dict[str, Any]:
+        """Aggregate a list of drive-like dicts into one AGG payload.
+
+        Each entry must carry ``distance_miles``, ``duration_seconds``,
+        ``energy_kwh``, ``has_track`` and ``sort_ts``. Efficiency is computed
+        the same way as ``_build_stats``/``window_stats`` (miles / kWh summed
+        across the group, None when no energy was recorded).
+        """
+        if not entries:
+            return {
+                "drives": 0,
+                "miles": 0.0,
+                "hours": 0.0,
+                "energy_kwh": 0.0,
+                "efficiency_mi_kwh": None,
+                "with_route": 0,
+                "first_ts": None,
+                "last_ts": None,
+            }
+        total_miles = sum(float(e["distance_miles"] or 0.0) for e in entries)
+        total_duration = sum(float(e["duration_seconds"] or 0.0) for e in entries)
+        total_energy = sum(float(e["energy_kwh"] or 0.0) for e in entries)
+        with_route = sum(1 for e in entries if e["has_track"])
+        sort_values = [e["sort_ts"] for e in entries]
+        efficiency = round(total_miles / total_energy, 2) if total_energy > 0 else None
+        return {
+            "drives": len(entries),
+            "miles": round(total_miles, 1),
+            "hours": round(total_duration / 3600.0, 2),
+            "energy_kwh": round(total_energy, 2),
+            "efficiency_mi_kwh": efficiency,
+            "with_route": with_route,
+            "first_ts": min(sort_values),
+            "last_ts": max(sort_values),
+        }
+
+    def calendar(
+        self,
+        vin: str | Sequence[str],
+        tz: tzinfo,
+        year: int | None = None,
+        month: int | None = None,
+        include_micro: bool = False,
+    ) -> dict[str, Any]:
+        """Group a VIN's drives into an All time -> years -> months -> days tree.
+
+        Grouping happens in Python (from one flat query, no schema change), by
+        each drive's ``sort_ts`` converted to a local calendar day in ``tz``
+        (the caller passes Home Assistant's configured zone). ``month``
+        requires ``year``. The "months" key is present only when ``year`` is
+        given, and "days" only when both ``year`` and ``month`` are given
+        (this store omits the key entirely rather than returning an empty
+        list, so callers can tell "not requested" from "requested but empty").
+
+        ``vin`` may be a sequence of VINs (``vin IN (...)``): the tree is then
+        combined and every node also carries ``by_vin: {vin: {drives, miles}}``
+        (every requested VIN listed, zeros included). A bare string keeps the
+        single-VIN payload unchanged.
+        """
+        if month is not None and year is None:
+            raise ValueError("calendar: month requires year")
+        self._assert_executor_thread()
+        multi = not isinstance(vin, str)
+        vins = list(dict.fromkeys(vin)) if multi else [vin]
+        marks = ",".join("?" for _ in vins)
+        with self._lock:
+            rows = self._conn.execute(
+                f"""
+                SELECT d.vin AS vin, d.sort_ts AS sort_ts, d.distance_miles AS distance_miles,
+                       d.duration_seconds AS duration_seconds,
+                       d.energy_kwh AS energy_kwh,
+                       (t.drive_id IS NOT NULL) AS has_track
+                  FROM drives d
+                  LEFT JOIN drive_tracks t
+                    ON t.vin = d.vin AND t.drive_id = d.drive_id
+                 WHERE d.vin IN ({marks}) AND d.sort_ts IS NOT NULL
+                   AND (? OR d.is_micro_drive = 0)
+                """,
+                (*vins, 1 if include_micro else 0),
+            ).fetchall()
+
+        entries: list[dict[str, Any]] = []
+        for row in rows:
+            local_dt = datetime.fromtimestamp(row["sort_ts"], tz)
+            entries.append(
+                {
+                    "vin": row["vin"],
+                    "sort_ts": row["sort_ts"],
+                    "distance_miles": row["distance_miles"],
+                    "duration_seconds": row["duration_seconds"],
+                    "energy_kwh": row["energy_kwh"],
+                    "has_track": bool(row["has_track"]),
+                    "year": local_dt.year,
+                    "month": local_dt.month,
+                    "day": local_dt.day,
+                }
+            )
+
+        def agg(group: list[dict[str, Any]]) -> dict[str, Any]:
+            node = self._aggregate_drive_rows(group)
+            if multi:
+                by_vin = {v: {"drives": 0, "miles": 0.0} for v in vins}
+                for e in group:
+                    slot = by_vin[e["vin"]]
+                    slot["drives"] += 1
+                    slot["miles"] += float(e["distance_miles"] or 0.0)
+                for slot in by_vin.values():
+                    slot["miles"] = round(slot["miles"], 1)
+                node["by_vin"] = by_vin
+            return node
+
+        result: dict[str, Any] = {"totals": agg(entries)}
+
+        years_map: dict[int, list[dict[str, Any]]] = {}
+        for entry in entries:
+            years_map.setdefault(entry["year"], []).append(entry)
+        result["years"] = [
+            {"key": f"{y:04d}", **agg(years_map[y])}
+            for y in sorted(years_map, reverse=True)
+        ]
+
+        if year is not None:
+            year_entries = [e for e in entries if e["year"] == year]
+            months_map: dict[int, list[dict[str, Any]]] = {}
+            for entry in year_entries:
+                months_map.setdefault(entry["month"], []).append(entry)
+            result["months"] = [
+                {
+                    "key": f"{year:04d}-{m:02d}",
+                    **agg(months_map[m]),
+                }
+                for m in sorted(months_map, reverse=True)
+            ]
+
+            if month is not None:
+                month_entries = [e for e in year_entries if e["month"] == month]
+                days_map: dict[int, list[dict[str, Any]]] = {}
+                for entry in month_entries:
+                    days_map.setdefault(entry["day"], []).append(entry)
+                result["days"] = [
+                    {
+                        "key": f"{year:04d}-{month:02d}-{d:02d}",
+                        **agg(days_map[d]),
+                    }
+                    for d in sorted(days_map, reverse=True)
+                ]
+
+        return result
+
+    def day(
+        self,
+        vin: str,
+        tz: tzinfo,
+        day: date,
+        include_micro: bool = False,
+    ) -> dict[str, Any]:
+        """Return one local calendar day's drives (segments), stops, and endpoints.
+
+        The window is ``[local midnight of day, local midnight of next day)``
+        computed in ``tz``, so it naturally stretches or shrinks on a DST
+        transition day.
+        """
+        self._assert_executor_thread()
+        midnight_time = datetime.min.time()
+        start_ts = datetime.combine(day, midnight_time, tzinfo=tz).timestamp()
+        end_ts = datetime.combine(
+            day + timedelta(days=1), midnight_time, tzinfo=tz
+        ).timestamp()
+
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT d.*, t.source AS track_source, t.detail AS track_detail,
+                       t.point_count AS track_point_count, t.track_json AS track_json
+                  FROM drives d
+                  LEFT JOIN drive_tracks t
+                    ON t.vin = d.vin AND t.drive_id = d.drive_id
+                 WHERE d.vin = :vin AND d.sort_ts IS NOT NULL
+                   AND d.sort_ts >= :start_ts AND d.sort_ts < :end_ts
+                   AND (:include_micro OR d.is_micro_drive = 0)
+                 ORDER BY d.sort_ts ASC, d.created_ts ASC, d.id ASC
+                """,
+                {
+                    "vin": vin,
+                    "start_ts": start_ts,
+                    "end_ts": end_ts,
+                    "include_micro": include_micro,
+                },
+            ).fetchall()
+
+        # Parsed once per call (not per segment) so a busy day view doesn't
+        # re-parse the stored JSON params for every drive.
+        model_params = self.get_energy_model(vin) or ENERGY_MODEL_DEFAULT_PARAMS
+
+        segments: list[dict[str, Any]] = []
+        tracks: list[DriveTrack | None] = []
+        for idx, row in enumerate(rows):
+            summary = self._row_to_drive_summary(row)
+            track: DriveTrack | None = None
+            if row["track_json"] is not None:
+                # One unreadable route must not hide the rest of the day.
+                try:
+                    track = DriveTrack.decode(row["track_json"])
+                except ValueError as err:
+                    _LOGGER.warning(
+                        "Skipping unreadable route for drive %s: %s",
+                        row["drive_id"],
+                        err,
+                    )
+            tracks.append(track)
+            model: dict[str, Any] | None = None
+            if track is not None:
+                try:
+                    model = anchored_efficiency(
+                        track,
+                        model_params,
+                        row["battery_capacity_kwh"],
+                        drive_energy_kwh=row["energy_kwh"],
+                    )
+                except Exception:
+                    _LOGGER.warning(
+                        "Anchored efficiency model failed for drive %s",
+                        row["drive_id"],
+                        exc_info=True,
+                    )
+            segments.append(
+                {
+                    "index": idx,
+                    **summary,
+                    "battery_capacity_kwh": row["battery_capacity_kwh"],
+                    # 3-minute efficiency chunks, for the day/drive charts.
+                    "chunks": self._chart_chunks(row["chunks_json"]),
+                    "track": (
+                        self._merge_fills_into_track(vin, row["drive_id"], track)
+                        if track is not None
+                        else None
+                    ),
+                    "model": model,
+                }
+            )
+
+        totals = self._aggregate_drive_rows(segments)
+
+        # Where each segment's route begins and ends: its track's first/last
+        # point, else the drive's own start/end coordinates.
+        route_starts: list[tuple[float, float, float | None] | None] = []
+        route_ends: list[tuple[float, float, float | None] | None] = []
+        for seg, track in zip(segments, tracks, strict=True):
+            if track is not None and track.points:
+                first, last = track.points[0], track.points[-1]
+                route_starts.append((first.lat, first.lon, first.t))
+                route_ends.append((last.lat, last.lon, last.t))
+                continue
+            start_ts = seg.get("start_ts")
+            if start_ts is None:
+                start_ts = seg.get("sort_ts")
+            route_starts.append(
+                (seg["start_lat"], seg["start_lon"], start_ts)
+                if seg.get("start_lat") is not None and seg.get("start_lon") is not None
+                else None
+            )
+            route_ends.append(
+                (seg["end_lat"], seg["end_lon"], seg.get("end_ts"))
+                if seg.get("end_lat") is not None and seg.get("end_lon") is not None
+                else None
+            )
+
+        def unrecorded_gap(
+            parked: tuple[float, float], resumed: tuple[float, float, Any] | None
+        ) -> float | None:
+            """Metres between a parked spot and where recording resumed, if a gap."""
+            if resumed is None:
+                return None
+            distance = haversine_m(parked[0], parked[1], resumed[0], resumed[1])
+            return distance if DAY_GAP_MIN_M < distance <= DAY_GAP_MAX_M else None
+
+        gaps: list[dict[str, Any]] = []
+        stops: list[dict[str, Any]] = []
+        for i in range(len(segments) - 1):
+            seg = segments[i]
+            nxt = segments[i + 1]
+            parked_at = route_ends[i]
+            if parked_at is None:
+                continue
+            arrive_ts = seg.get("end_ts")
+            depart_ts = nxt.get("start_ts")
+            if depart_ts is None:
+                depart_ts = nxt.get("sort_ts")
+            duration_seconds = None
+            if arrive_ts is not None and depart_ts is not None:
+                duration_seconds = max(0.0, depart_ts - arrive_ts)
+            stops.append(
+                {
+                    "after_index": i,
+                    "lat": parked_at[0],
+                    "lon": parked_at[1],
+                    "arrive_ts": arrive_ts,
+                    "depart_ts": depart_ts,
+                    "duration_seconds": duration_seconds,
+                }
+            )
+            gap = unrecorded_gap(parked_at[:2], route_starts[i + 1])
+            if gap is not None:
+                resumed = route_starts[i + 1]
+                gaps.append(
+                    {
+                        "after_index": i,
+                        "from": [parked_at[0], parked_at[1]],
+                        "to": [resumed[0], resumed[1]],
+                        "distance_m": round(gap),
+                    }
+                )
+
+        start_point: dict[str, Any] | None = None
+        end_point: dict[str, Any] | None = None
+        if segments:
+            recorded_start = route_starts[0]
+            if recorded_start is not None:
+                start_point = {
+                    "lat": recorded_start[0],
+                    "lon": recorded_start[1],
+                    "ts": recorded_start[2],
+                }
+                # The day starts where the car was parked before its first
+                # drive. The car's first reports can arrive a minute or two after
+                # it wakes and pulls away (a kilometre down the road), so start
+                # there and return the unrecorded stretch as a gap to draw.
+                with self._lock:
+                    prev = self._conn.execute(
+                        """
+                        SELECT end_lat, end_lon FROM drives
+                         WHERE vin = ? AND sort_ts IS NOT NULL AND sort_ts < ?
+                           AND end_lat IS NOT NULL AND end_lon IS NOT NULL
+                         ORDER BY sort_ts DESC, created_ts DESC, id DESC
+                         LIMIT 1
+                        """,
+                        (vin, rows[0]["sort_ts"]),
+                    ).fetchone()
+                if prev is not None:
+                    parked = (prev["end_lat"], prev["end_lon"])
+                    gap = unrecorded_gap(parked, recorded_start)
+                    if gap is not None:
+                        start_point = {
+                            "lat": parked[0],
+                            "lon": parked[1],
+                            "ts": recorded_start[2],
+                        }
+                        gaps.insert(
+                            0,
+                            {
+                                "after_index": -1,
+                                "from": [parked[0], parked[1]],
+                                "to": [recorded_start[0], recorded_start[1]],
+                                "distance_m": round(gap),
+                            },
+                        )
+            recorded_end = route_ends[-1]
+            if recorded_end is not None:
+                end_point = {
+                    "lat": recorded_end[0],
+                    "lon": recorded_end[1],
+                    "ts": recorded_end[2],
+                }
+
+        # The tail of the most recent earlier drive with a stored track, so
+        # the Efficiency chart's rolling average and 3-min chunks have
+        # context for the first minutes of the day's first drive instead of
+        # a blank start.
+        prior_tail: dict[str, Any] | None = None
+        if segments:
+            with self._lock:
+                prior_row = self._conn.execute(
+                    """
+                    SELECT d.drive_id, d.battery_capacity_kwh, t.track_json
+                      FROM drives d
+                      JOIN drive_tracks t ON t.vin = d.vin AND t.drive_id = d.drive_id
+                     WHERE d.vin = ? AND d.sort_ts IS NOT NULL AND d.sort_ts < ?
+                       AND t.track_json IS NOT NULL
+                     ORDER BY d.sort_ts DESC, d.created_ts DESC, d.id DESC
+                     LIMIT 1
+                    """,
+                    (vin, rows[0]["sort_ts"]),
+                ).fetchone()
+            if prior_row is not None:
+                prior_track: DriveTrack | None = None
+                try:
+                    prior_track = DriveTrack.decode(prior_row["track_json"])
+                except ValueError as err:
+                    _LOGGER.warning(
+                        "Skipping unreadable prior-tail route for drive %s: %s",
+                        prior_row["drive_id"],
+                        err,
+                    )
+                if prior_track is not None and prior_track.points:
+                    tail = _trim_track_tail(prior_track)
+                    prior_tail = {
+                        "track": tail.to_payload(),
+                        "battery_capacity_kwh": prior_row["battery_capacity_kwh"],
+                    }
+
+        return {
+            "date": day.isoformat(),
+            "totals": totals,
+            "segments": segments,
+            "prior_tail": prior_tail,
+            "stops": stops,
+            "gaps": gaps,
+            "start": start_point,
+            "end": end_point,
+        }
+
+    @staticmethod
+    def _chart_chunks(chunks_json: str | None) -> list[dict[str, Any]]:
+        """Return a drive's chunks as ``{start_ts, duration_seconds, efficiency_mi_kwh}``."""
+        try:
+            raw = json.loads(chunks_json or "[]")
+        except ValueError:
+            return []
+        chunks: list[dict[str, Any]] = []
+        for item in raw if isinstance(raw, list) else []:
+            if not isinstance(item, dict):
+                continue
+            start_ts = _parse_iso_to_epoch(item.get("start_time"))
+            if start_ts is None:
+                continue
+            chunks.append(
+                {
+                    "start_ts": start_ts,
+                    "duration_seconds": item.get("duration_seconds"),
+                    "efficiency_mi_kwh": item.get("efficiency_mi_kwh"),
+                }
+            )
+        return chunks
 
     def drives_missing_tracks(
         self, vin: str, since_ts: float
@@ -2103,6 +2753,263 @@ class AnalyticsDatabase:
                 (vin, since_ts),
             ).fetchall()
         return [(r["drive_id"], r["start_ts"], r["end_ts"]) for r in rows]
+
+    # -- road-snapped gap filling ------------------------------------------------
+
+    def gaps_to_snap(
+        self, vin: str, limit: int = GAPS_TO_SNAP_DEFAULT_LIMIT
+    ) -> list[tuple[str, road_snap.Gap]]:
+        """Return up to `limit` (drive_id, Gap) pairs still needing a snap attempt.
+
+        Only considers ``drive_tracks`` rows with ``gaps_scanned = 0``: a
+        route is decoded and gap-scanned here, then marked scanned
+        (``gaps_scanned = 1``) once every gap it contains has a
+        ``track_fills`` row (a real fill or a 'none' record), so a route
+        with no gaps -- the overwhelming majority -- is only ever decoded
+        once, not on every call. Replacing a track's ``track_json`` (a
+        backfill overwriting a live route, a thinning pass) resets
+        ``gaps_scanned`` back to 0.
+        """
+        self._assert_executor_thread()
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT drive_id, track_json FROM drive_tracks "
+                "WHERE vin = ? AND gaps_scanned = 0 ORDER BY sort_ts LIMIT ?",
+                (vin, max(limit, 1) * 5),
+            ).fetchall()
+
+        result: list[tuple[str, road_snap.Gap]] = []
+        fully_scanned: list[str] = []
+        for row in rows:
+            drive_id = row["drive_id"]
+            try:
+                track = DriveTrack.decode(row["track_json"])
+            except ValueError as err:
+                _LOGGER.debug(
+                    "road_snap: undecodable track for drive %s (VIN %s): %s",
+                    drive_id,
+                    vin,
+                    err,
+                )
+                fully_scanned.append(drive_id)
+                continue
+            gaps = road_snap.find_gaps(track)
+            if not gaps:
+                fully_scanned.append(drive_id)
+                continue
+            with self._lock:
+                existing_after_t = {
+                    r["after_t"]
+                    for r in self._conn.execute(
+                        "SELECT after_t FROM track_fills WHERE vin = ? AND drive_id = ?",
+                        (vin, drive_id),
+                    ).fetchall()
+                }
+            unresolved = [g for g in gaps if g.start.t not in existing_after_t]
+            if not unresolved:
+                fully_scanned.append(drive_id)
+                continue
+            for gap in unresolved:
+                if len(result) >= limit:
+                    break
+                result.append((drive_id, gap))
+            if len(result) >= limit:
+                break
+
+        if fully_scanned:
+            with self._lock, self._transaction():
+                placeholders = ",".join("?" for _ in fully_scanned)
+                self._conn.execute(
+                    "UPDATE drive_tracks SET gaps_scanned = 1 "
+                    f"WHERE vin = ? AND drive_id IN ({placeholders})",
+                    [vin, *fully_scanned],
+                )
+        return result
+
+    def get_cached_roads(self, key: str) -> list[road_snap.Way] | None:
+        """Return cached parsed OSM ways for `key`, or None if absent/stale/corrupt."""
+        self._assert_executor_thread()
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT fetched_ts, data FROM osm_roads WHERE bbox_key = ?", (key,)
+            ).fetchone()
+        if row is None:
+            return None
+        if time.time() - row["fetched_ts"] > OSM_ROADS_TTL_SECONDS:
+            return None
+        try:
+            payload = json.loads(zlib.decompress(row["data"]))
+        except (zlib.error, json.JSONDecodeError, UnicodeDecodeError, TypeError) as err:
+            _LOGGER.debug("road_snap: corrupt cached roads for key %s: %s", key, err)
+            return None
+        return road_snap.ways_from_json(payload)
+
+    def save_cached_roads(self, key: str, ways: list[road_snap.Way]) -> None:
+        """Cache parsed OSM ways for `key` (zlib-compressed JSON), reused for 90 days."""
+        self._assert_executor_thread()
+        if self.read_only:
+            _LOGGER.warning(
+                "Analytics database is read-only; save_cached_roads skipped"
+            )
+            return
+        data = zlib.compress(
+            json.dumps(road_snap.ways_to_json(ways), separators=(",", ":")).encode()
+        )
+        with self._lock, self._transaction():
+            self._conn.execute(
+                "INSERT INTO osm_roads (bbox_key, fetched_ts, data) VALUES (?, ?, ?) "
+                "ON CONFLICT(bbox_key) DO UPDATE SET "
+                "fetched_ts=excluded.fetched_ts, data=excluded.data",
+                (key, time.time(), data),
+            )
+
+    def save_track_fill(
+        self,
+        vin: str,
+        drive_id: str,
+        after_t: float,
+        points: list[TrackPoint],
+        source: str = "osm",
+    ) -> None:
+        """Save (upsert) one gap's fill; points=[] with source='none' records a tried,
+        unfillable gap so it is never retried on every scan.
+        """
+        self._assert_executor_thread()
+        if self.read_only:
+            _LOGGER.warning("Analytics database is read-only; save_track_fill skipped")
+            return
+        points_json = DriveTrack(points).to_points_json()
+        with self._lock, self._transaction():
+            self._conn.execute(
+                "INSERT INTO track_fills "
+                "(vin, drive_id, after_t, points_json, source, created_ts) "
+                "VALUES (?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(vin, drive_id, after_t) DO UPDATE SET "
+                "points_json=excluded.points_json, source=excluded.source, "
+                "created_ts=excluded.created_ts",
+                (vin, drive_id, after_t, points_json, source, time.time()),
+            )
+
+    def get_track_fills(self, vin: str, drive_id: str) -> list[dict[str, Any]]:
+        """Return this drive's track_fills rows as {after_t, points, source}, ordered."""
+        self._assert_executor_thread()
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT after_t, points_json, source FROM track_fills "
+                "WHERE vin = ? AND drive_id = ? ORDER BY after_t",
+                (vin, drive_id),
+            ).fetchall()
+        result: list[dict[str, Any]] = []
+        for row in rows:
+            try:
+                points = DriveTrack.from_points_json(row["points_json"]).points
+            except (ValueError, TypeError, json.JSONDecodeError) as err:
+                _LOGGER.debug(
+                    "road_snap: corrupt fill points for drive %s (VIN %s): %s",
+                    drive_id,
+                    vin,
+                    err,
+                )
+                points = []
+            result.append(
+                {"after_t": row["after_t"], "points": points, "source": row["source"]}
+            )
+        return result
+
+    def drives_counted_in_heat(self, vin: str, drive_ids: list[str]) -> set[str]:
+        """Return which of these drive_ids already have a road_heat_drives row."""
+        self._assert_executor_thread()
+        if not drive_ids:
+            return set()
+        with self._lock:
+            placeholders = ",".join("?" for _ in drive_ids)
+            rows = self._conn.execute(
+                "SELECT drive_id FROM road_heat_drives WHERE vin = ? "
+                f"AND drive_id IN ({placeholders})",
+                [vin, *drive_ids],
+            ).fetchall()
+        return {r["drive_id"] for r in rows}
+
+    def _merge_fills_into_track(
+        self, vin: str, drive_id: str, track: DriveTrack
+    ) -> dict[str, list]:
+        """Return `track`'s payload with any stored gap fills merged in, time-ordered.
+
+        Adds a parallel ``filled`` boolean column (True for an inserted
+        point, False for a recorded one). Omitted entirely when the track
+        has no real fills, so a payload with nothing to merge is unchanged.
+        """
+        fills = self.get_track_fills(vin, drive_id)
+        fill_points = [p for f in fills if f["points"] for p in f["points"]]
+        payload = track.to_payload()
+        if not fill_points:
+            return payload
+
+        rows: list[tuple[float, dict[str, Any], bool]] = [
+            (
+                payload["t"][i],
+                {
+                    "lat": payload["lat"][i],
+                    "lon": payload["lon"][i],
+                    "t": payload["t"][i],
+                    "speed_mps": payload["speed_mps"][i],
+                    "alt_m": payload["alt_m"][i],
+                    "soc": payload["soc"][i],
+                    "odo_m": payload["odo_m"][i],
+                },
+                False,
+            )
+            for i in range(len(payload["t"]))
+        ]
+        for point in fill_points:
+            rows.append(
+                (
+                    point.t,
+                    {
+                        "lat": round(point.lat, 5),
+                        "lon": round(point.lon, 5),
+                        "t": round(point.t, 1),
+                        "speed_mps": (
+                            round(point.speed_mps, 2)
+                            if point.speed_mps is not None
+                            else None
+                        ),
+                        "alt_m": (
+                            round(point.alt_m, 1) if point.alt_m is not None else None
+                        ),
+                        "soc": None,
+                        "odo_m": None,
+                    },
+                    True,
+                )
+            )
+        rows.sort(key=lambda item: item[0])
+        return {
+            "t": [r[1]["t"] for r in rows],
+            "lat": [r[1]["lat"] for r in rows],
+            "lon": [r[1]["lon"] for r in rows],
+            "speed_mps": [r[1]["speed_mps"] for r in rows],
+            "alt_m": [r[1]["alt_m"] for r in rows],
+            "soc": [r[1]["soc"] for r in rows],
+            "odo_m": [r[1]["odo_m"] for r in rows],
+            "filled": [r[2] for r in rows],
+        }
+
+    def _track_with_fills(
+        self, vin: str, drive_id: str, track: DriveTrack
+    ) -> DriveTrack:
+        """Return `track` with any stored gap fills merged in as real points.
+
+        Used only for road-heat counting (see ``_update_heat_locked``), so a
+        filled gap's estimated path contributes cells too, instead of the
+        straight-line gap it replaces.
+        """
+        fills = self.get_track_fills(vin, drive_id)
+        fill_points = [p for f in fills if f["points"] for p in f["points"]]
+        if not fill_points:
+            return track
+        merged = sorted([*track.points, *fill_points], key=lambda p: p.t)
+        return DriveTrack(merged)
 
     # -- live-drive checkpoint --------------------------------------------------
 
@@ -2421,6 +3328,98 @@ class AnalyticsDatabase:
             DRIVE_STATS_VERSION
         )
 
+    def fit_energy_model(
+        self,
+        vin: str,
+        window_days: int = ENERGY_MODEL_WINDOW_DAYS,
+        min_drives: int = ENERGY_MODEL_MIN_DRIVES,
+    ) -> dict[str, Any]:
+        """Refit this VIN's anchored energy-model coefficients from recent routed drives.
+
+        Gathers routed drives (``energy_kwh`` > ``MIN_DRIVE_ENERGY_KWH``,
+        ``distance_miles`` > ``MIN_DRIVE_DISTANCE_MI``) within the trailing
+        ``window_days``, decodes their tracks and computes physics features
+        outside ``self._lock`` (pure CPU work), then fits and stores the
+        result under ``meta`` key ``energy_model:<vin>``. If fewer than
+        ``min_drives`` qualify, any existing fit is left untouched and the
+        result says so instead of overwriting it with a poorly-conditioned one.
+        """
+        self._assert_executor_thread()
+        if self.read_only:
+            _LOGGER.warning("Analytics database is read-only; fit_energy_model skipped")
+            return {"fitted": False, "reason": "read_only"}
+
+        cutoff_ts = time.time() - window_days * SECONDS_PER_DAY
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT d.energy_kwh AS energy_kwh, t.track_json AS track_json
+                  FROM drives d
+                  JOIN drive_tracks t ON t.vin = d.vin AND t.drive_id = d.drive_id
+                 WHERE d.vin = ? AND d.energy_kwh > ? AND d.distance_miles > ?
+                   AND d.sort_ts IS NOT NULL AND d.sort_ts >= ?
+                """,
+                (vin, MIN_DRIVE_ENERGY_KWH, MIN_DRIVE_DISTANCE_MI, cutoff_ts),
+            ).fetchall()
+
+        drives: list[tuple[list[Any], float]] = []
+        for row in rows:
+            try:
+                track = DriveTrack.decode(row["track_json"])
+            except ValueError as err:
+                _LOGGER.warning(
+                    "Skipping unreadable route during energy-model fit for VIN %s: %s",
+                    vin,
+                    err,
+                )
+                continue
+            features = interval_features(track)
+            if features:
+                drives.append((features, row["energy_kwh"]))
+
+        if len(drives) < min_drives:
+            existing = self.get_energy_model(vin)
+            return {
+                "fitted": False,
+                "reason": "too_few_drives",
+                "n_drives": len(drives),
+                "min_drives": min_drives,
+                "has_existing": existing is not None,
+            }
+
+        params, rmse_kwh, n = fit_params(drives)
+        payload = {
+            **params.to_dict(),
+            "n_drives": n,
+            "rmse_kwh": rmse_kwh,
+            "fitted_at": time.time(),
+        }
+        with self._lock, self._transaction():
+            self._set_meta_locked(self._energy_model_meta_key(vin), json.dumps(payload))
+        return {
+            "fitted": True,
+            "n_drives": n,
+            "rmse_kwh": rmse_kwh,
+            "params": params.to_dict(),
+        }
+
+    def get_energy_model(self, vin: str) -> EnergyModelParams | None:
+        """Return this VIN's stored fitted energy-model params, or None if never fitted."""
+        self._assert_executor_thread()
+        raw = self.get_meta(self._energy_model_meta_key(vin))
+        if raw is None:
+            return None
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+        return EnergyModelParams.from_dict(data)
+
+    @staticmethod
+    def _energy_model_meta_key(vin: str) -> str:
+        """Meta key holding a VIN's fitted energy-model params (JSON)."""
+        return f"energy_model:{vin}"
+
     def storage_stats(self, vin: str) -> dict[str, Any]:
         """Return drive/track row counts and byte sizes for diagnostics."""
         self._assert_executor_thread()
@@ -2566,3 +3565,423 @@ class AnalyticsDatabase:
                         picture.fetched_ts,
                     ),
                 )
+
+    # -- road heat map ------------------------------------------------------
+
+    @staticmethod
+    def _heat_cache_key(vin: str, period: str, key: str | None) -> tuple[str, str]:
+        """Validate period/key and return the cache key for this VIN/period/key.
+
+        Raises ValueError for an unrecognized period, or a malformed year
+        (``YYYY``) or month (``YYYY-MM``) key. "all" ignores ``key`` entirely.
+        """
+        if period == "all":
+            return (vin, "all")
+        if period == "year":
+            if key is None or len(key) != 4 or not key.isdigit():
+                raise ValueError(f"road_heat: invalid year key {key!r}")
+            return (vin, key)
+        if period == "month":
+            if (
+                key is None
+                or len(key) != 7
+                or key[4] != "-"
+                or not key[:4].isdigit()
+                or not key[5:7].isdigit()
+                or not 1 <= int(key[5:7]) <= 12
+            ):
+                raise ValueError(f"road_heat: invalid month key {key!r}")
+            return (vin, key)
+        raise ValueError(f"road_heat: invalid period {period!r}")
+
+    @staticmethod
+    def _cache_owner_has(owner: str | frozenset[str], vin: str) -> bool:
+        """Whether a heat-cache key's owner (a VIN or a combined set) includes ``vin``."""
+        return owner == vin if isinstance(owner, str) else vin in owner
+
+    def _invalidate_heat_cache(self, vin: str, months: Iterable[str]) -> None:
+        """Drop cached grids for the given months, their years, and "all".
+
+        Covers this VIN's own entries and every combined (multi-VIN) entry that
+        includes it.
+        """
+        touched = [m for m in months if m]
+        if not touched:
+            return
+        periods = {"all", *touched, *(m[:4] for m in touched)}
+        with self._heat_cache_lock:
+            self._heat_generation[vin] = self._heat_generation.get(vin, 0) + 1
+            for cache_key in [
+                k
+                for k in self._heat_cache
+                if k[1] in periods and self._cache_owner_has(k[0], vin)
+            ]:
+                del self._heat_cache[cache_key]
+
+    def _invalidate_heat_cache_all(self, vin: str) -> None:
+        """Drop every cached grid (any period) that includes this VIN."""
+        with self._heat_cache_lock:
+            self._heat_generation[vin] = self._heat_generation.get(vin, 0) + 1
+            for cache_key in [
+                k for k in self._heat_cache if self._cache_owner_has(k[0], vin)
+            ]:
+                del self._heat_cache[cache_key]
+
+    def _get_heat_grid(
+        self, vin: str | Sequence[str], period: str, key: str | None
+    ) -> tuple[HeatGrid, tuple[float, float, float, float] | None, int, int]:
+        """Return (grid, bbox, scale_max, drive_count) for a period/key.
+
+        ``vin`` is one VIN, or a sequence of VINs whose grids are merged
+        cell-wise (a one-element sequence behaves like the bare VIN).
+
+        Cached (LRU, ``HEAT_CACHE_LIMIT`` entries) since bbox/scale_max are
+        O(n) over the grid's cells. A combined entry is keyed by
+        ``(frozenset(vins), period_key)`` and dropped when any member VIN's
+        heat changes.
+        """
+        vins = [vin] if isinstance(vin, str) else sorted(set(vin))
+        owner: str | frozenset[str] = vins[0] if len(vins) == 1 else frozenset(vins)
+        period_key = self._heat_cache_key(vins[0], period, key)[1]
+        cache_key = (owner, period_key)
+        with self._heat_cache_lock:
+            cached = self._heat_cache.get(cache_key)
+            if cached is not None:
+                self._heat_cache.move_to_end(cache_key)
+                return cached
+            generation = sum(self._heat_generation.get(v, 0) for v in vins)
+
+        marks = ",".join("?" for _ in vins)
+        with self._lock:
+            if period == "month":
+                rows = self._conn.execute(
+                    "SELECT data, drive_count, vin FROM road_heat "
+                    f"WHERE vin IN ({marks}) AND month = ?",
+                    (*vins, period_key),
+                ).fetchall()
+            elif period == "year":
+                rows = self._conn.execute(
+                    "SELECT data, drive_count, vin FROM road_heat "
+                    f"WHERE vin IN ({marks}) AND month LIKE ?",
+                    (*vins, f"{period_key}-%"),
+                ).fetchall()
+            else:  # "all"
+                rows = self._conn.execute(
+                    "SELECT data, drive_count, vin FROM road_heat "
+                    f"WHERE vin IN ({marks}) AND month != ''",
+                    tuple(vins),
+                ).fetchall()
+
+        heats: list[RoadHeat] = []
+        drive_total = 0
+        for row in rows:
+            try:
+                heats.append(RoadHeat.decode(row["data"]))
+            except ValueError as err:
+                _LOGGER.warning(
+                    "road_heat: corrupt grid for VIN %s, skipping: %s", row["vin"], err
+                )
+                continue
+            drive_total += row["drive_count"] or 0
+
+        # Drawn cells are the ones a drive passed through, each counting the
+        # passes within CORRIDOR_RADIUS of it (so a road's two directions and GPS
+        # drift don't split its count); tiles and the color scale use this grid.
+        grid = RoadHeat.merge(heats).display()
+        result = (grid, grid.bbox(), grid.scale_max(), drive_total)
+
+        with self._heat_cache_lock:
+            # A heat update committed while this grid was being read: return it,
+            # but don't cache what may already be stale.
+            if sum(self._heat_generation.get(v, 0) for v in vins) == generation:
+                self._heat_cache[cache_key] = result
+                self._heat_cache.move_to_end(cache_key)
+                while len(self._heat_cache) > HEAT_CACHE_LIMIT:
+                    self._heat_cache.popitem(last=False)
+
+        return result
+
+    def heat_info(
+        self, vin: str | Sequence[str], period: str, key: str | None = None
+    ) -> dict[str, Any]:
+        """Return summary info for a road-heat period: bbox, scale_max, cells, drives.
+
+        ``vin`` may be a sequence of VINs for a combined (merged) grid.
+        """
+        self._assert_executor_thread()
+        grid, bbox, scale_max, drive_total = self._get_heat_grid(vin, period, key)
+        return {
+            "period": period,
+            "key": "all" if period == "all" else key,
+            "bbox": list(bbox) if bbox else None,
+            "scale_max": scale_max,
+            "cells": len(grid),
+            "drives": drive_total,
+        }
+
+    def heat_tile(
+        self,
+        vin: str | Sequence[str],
+        period: str,
+        key: str | None,
+        z: int,
+        x: int,
+        y: int,
+        margin: int = 0,
+    ) -> dict[str, Any]:
+        """Return one XYZ tile's coarsened cells for a road-heat period, plus scale_max."""
+        self._assert_executor_thread()
+        grid, _bbox, scale_max, _drive_total = self._get_heat_grid(vin, period, key)
+        tile = grid.tile(z, x, y, margin=margin)
+        tile["scale_max"] = scale_max
+        return tile
+
+    def _update_heat_locked(self, vin: str, tz: tzinfo, batch_size: int) -> int:
+        """Count uncounted stored tracks into road_heat/road_heat_drives.
+
+        Caller must hold ``self._heat_run_lock``. Runs until no uncounted
+        rows remain, decoding tracks and computing cells outside ``self._lock``
+        (CPU-heavy), then committing one batch per transaction.
+        """
+        total_counted = 0
+        while True:
+            with self._lock:
+                rows = self._conn.execute(
+                    """
+                    SELECT t.drive_id AS drive_id, t.sort_ts AS sort_ts,
+                           t.track_json AS track_json
+                      FROM drive_tracks t
+                      LEFT JOIN road_heat_drives h
+                        ON h.vin = t.vin AND h.drive_id = t.drive_id
+                     WHERE t.vin = ? AND h.drive_id IS NULL
+                     ORDER BY t.sort_ts, t.id
+                     LIMIT ?
+                    """,
+                    (vin, batch_size),
+                ).fetchall()
+            if not rows:
+                break
+
+            by_month: dict[str, list[tuple[dict[int, int], dict[int, int]]]] = {}
+            drive_months: list[tuple[str, str]] = []
+            for row in rows:
+                drive_id = row["drive_id"]
+                month = ""
+                try:
+                    track = DriveTrack.decode(row["track_json"])
+                except ValueError as err:
+                    _LOGGER.debug(
+                        "road_heat: undecodable track for drive %s (VIN %s): %s",
+                        drive_id,
+                        vin,
+                        err,
+                    )
+                    track = None
+                if track is not None:
+                    # Merge in any stored gap fills so a filled dropout
+                    # contributes cells too, instead of a straight-line gap.
+                    # Only matters here (drives not yet counted); a drive
+                    # already counted that later gets a new fill is instead
+                    # caught by DriveStore scheduling a rebuild_heat (see
+                    # drive_storage.async_snap_gaps).
+                    track = self._track_with_fills(vin, drive_id, track)
+                    ts = row["sort_ts"]
+                    if ts is None and track.points:
+                        ts = track.points[0].t
+                    if ts is not None:
+                        local_dt = datetime.fromtimestamp(ts, tz)
+                        month = f"{local_dt.year:04d}-{local_dt.month:02d}"
+                        by_month.setdefault(month, []).append(track_passes(track))
+                    else:
+                        _LOGGER.debug(
+                            "road_heat: no timestamp for drive %s (VIN %s); "
+                            "recording without heat",
+                            drive_id,
+                            vin,
+                        )
+                drive_months.append((drive_id, month))
+
+            now_ts = time.time()
+            with self._lock, self._transaction():
+                for month, drive_passes in by_month.items():
+                    existing = self._conn.execute(
+                        "SELECT data, drive_count FROM road_heat "
+                        "WHERE vin = ? AND month = ?",
+                        (vin, month),
+                    ).fetchone()
+                    if existing is None:
+                        heat = RoadHeat.empty()
+                        prior_drive_count = 0
+                    else:
+                        try:
+                            heat = RoadHeat.decode(existing["data"])
+                        except ValueError as err:
+                            _LOGGER.warning(
+                                "road_heat: corrupt grid for VIN %s month %s, "
+                                "resetting: %s",
+                                vin,
+                                month,
+                                err,
+                            )
+                            heat = RoadHeat.empty()
+                        prior_drive_count = existing["drive_count"] or 0
+
+                    new_heat = heat.add_drives(drive_passes)
+                    self._conn.execute(
+                        "INSERT INTO road_heat (vin, month, level, version, "
+                        "cell_count, drive_count, data, updated_ts) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+                        "ON CONFLICT(vin, month) DO UPDATE SET "
+                        "level=excluded.level, version=excluded.version, "
+                        "cell_count=excluded.cell_count, "
+                        "drive_count=excluded.drive_count, data=excluded.data, "
+                        "updated_ts=excluded.updated_ts",
+                        (
+                            vin,
+                            month,
+                            BASE_LEVEL,
+                            HEAT_FORMAT_VERSION,
+                            new_heat.drawn_cells,
+                            prior_drive_count + len(drive_passes),
+                            new_heat.encode(),
+                            now_ts,
+                        ),
+                    )
+
+                for drive_id, month in drive_months:
+                    self._conn.execute(
+                        "INSERT OR IGNORE INTO road_heat_drives "
+                        "(vin, drive_id, month) VALUES (?, ?, ?)",
+                        (vin, drive_id, month),
+                    )
+
+            self._invalidate_heat_cache(vin, by_month.keys())
+            total_counted += len(rows)
+
+        return total_counted
+
+    def update_heat(
+        self, vin: str, tz: tzinfo, batch_size: int = HEAT_UPDATE_BATCH_SIZE
+    ) -> int:
+        """Count every stored route not yet counted into the road-heat map.
+
+        Idempotent: a route already recorded in ``road_heat_drives`` is
+        skipped. Returns the number of drives newly counted. Safe to call
+        after every finalize/backfill and once after setup.
+        """
+        self._assert_executor_thread()
+        if self.read_only:
+            _LOGGER.warning("Analytics database is read-only; update_heat skipped")
+            return 0
+        with self._heat_run_lock:
+            if self.get_meta(self._heat_format_meta_key(vin)) != str(
+                HEAT_FORMAT_VERSION
+            ):
+                # Heat counted by an older version (e.g. once per drive, before
+                # corridors): recount every month that still has routes, once.
+                result = self._rebuild_heat_locked(vin, tz)
+                _LOGGER.info(
+                    "Upgraded the road heat map for VIN %s to format %s: %s",
+                    vin,
+                    HEAT_FORMAT_VERSION,
+                    result,
+                )
+                return result["drives_counted"]
+            return self._update_heat_locked(vin, tz, batch_size)
+
+    @staticmethod
+    def _heat_format_meta_key(vin: str) -> str:
+        """Meta key recording the heat format a VIN's rows were counted with."""
+        return f"road_heat_format:{vin}"
+
+    def rebuild_heat(self, vin: str, tz: tzinfo) -> dict[str, Any]:
+        """Recount road heat from scratch for every month with a stored route.
+
+        For recovery after a time-zone or rasterizer change. Rebuilds the
+        local months (in ``tz``) of every stored track for the VIN, plus any
+        month recorded in ``road_heat_drives`` for a drive that still has a
+        stored track. A month with no stored routes left is never touched,
+        so its heat survives even if every drive in it was later pruned.
+        """
+        self._assert_executor_thread()
+        if self.read_only:
+            _LOGGER.warning("Analytics database is read-only; rebuild_heat skipped")
+            return {"months_rebuilt": 0, "drives_counted": 0}
+
+        with self._heat_run_lock:
+            return self._rebuild_heat_locked(vin, tz)
+
+    def _rebuild_heat_locked(self, vin: str, tz: tzinfo) -> dict[str, Any]:
+        """Rebuild heat for months with stored routes; caller holds the run lock."""
+        with self._lock:
+            track_rows = self._conn.execute(
+                "SELECT sort_ts, CASE WHEN sort_ts IS NULL THEN track_json END "
+                "AS track_json FROM drive_tracks WHERE vin = ?",
+                (vin,),
+            ).fetchall()
+            recorded_rows = self._conn.execute(
+                "SELECT DISTINCT h.month AS month FROM road_heat_drives h "
+                "JOIN drive_tracks t ON t.vin = h.vin AND t.drive_id = h.drive_id "
+                "WHERE h.vin = ?",
+                (vin,),
+            ).fetchall()
+
+        months: set[str] = {r["month"] for r in recorded_rows if r["month"]}
+        for row in track_rows:
+            ts = row["sort_ts"]
+            if ts is None:
+                # Only a track without a sort_ts needs decoding for its month.
+                try:
+                    track = DriveTrack.decode(row["track_json"])
+                except ValueError:
+                    continue
+                ts = track.points[0].t if track.points else None
+            if ts is not None:
+                local_dt = datetime.fromtimestamp(ts, tz)
+                months.add(f"{local_dt.year:04d}-{local_dt.month:02d}")
+
+        if not months:
+            self._record_heat_format(vin)
+            return {"months_rebuilt": 0, "drives_counted": 0}
+
+        result = self._rebuild_heat_months_locked(vin, tz, months)
+        self._record_heat_format(vin)
+        self._invalidate_heat_cache_all(vin)
+        return result
+
+    def _rebuild_heat_months_locked(
+        self, vin: str, tz: tzinfo, months: set[str]
+    ) -> dict[str, Any]:
+        """Recount road heat for a specific set of months only.
+
+        Caller must hold ``self._heat_run_lock``. Drops a month's
+        ``road_heat`` row entirely when no route remains in it afterward --
+        unlike ``rebuild_heat()``/``_rebuild_heat_locked()``'s full-VIN sweep,
+        which never touches a month with no stored routes. Used by
+        ``delete_drives()``, the one place a month's heat should be dropped
+        rather than kept.
+        """
+        if not months:
+            return {"months_rebuilt": 0, "drives_counted": 0}
+        placeholders = ",".join("?" for _ in months)
+        with self._lock, self._transaction():
+            self._conn.execute(
+                f"DELETE FROM road_heat WHERE vin = ? AND month IN ({placeholders})",
+                [vin, *months],
+            )
+            self._conn.execute(
+                "DELETE FROM road_heat_drives WHERE vin = ? "
+                f"AND (month IN ({placeholders}) OR month = '')",
+                [vin, *months],
+            )
+
+        drives_counted = self._update_heat_locked(vin, tz, HEAT_UPDATE_BATCH_SIZE)
+        self._invalidate_heat_cache(vin, months)
+        return {"months_rebuilt": len(months), "drives_counted": drives_counted}
+
+    def _record_heat_format(self, vin: str) -> None:
+        """Note that this VIN's heat rows use the current HEAT_FORMAT_VERSION."""
+        with self._lock, self._transaction():
+            self._set_meta_locked(
+                self._heat_format_meta_key(vin), str(HEAT_FORMAT_VERSION)
+            )

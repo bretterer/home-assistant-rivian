@@ -1896,8 +1896,9 @@ async def _async_existing_drive_intervals(
 ) -> list[tuple[float, float, str]]:
     """Return (start_ts, end_ts, drive_id) for this VIN's already-stored drives.
 
-    Paged via `async_list_drives`; capped at `_OVERLAP_MAX_PAGES` pages as a
-    safety net against an unbounded history.
+    Paged via `async_list_drives`, which already exists for the drive
+    explorer; capped at `_OVERLAP_MAX_PAGES` pages as a safety net against an
+    unbounded history.
     """
     intervals: list[tuple[float, float, str]] = []
     before_ts: float | None = None

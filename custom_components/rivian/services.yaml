@@ -75,3 +75,51 @@ set_vehicle_picture:
       example: "https://rivian.com/compimg/r1s/2.2/us/exp-lgr_ord-ad3_pkg-lch_whl-1rd@3072x2688.front.webp"
       selector:
         text:
+
+rebuild_heat_map:
+  name: Rebuild road heat map
+  description: Recounts the road heat map from the stored routes. Months whose routes are no longer stored keep their heat. Only needed after changing Home Assistant's time zone.
+  fields:
+    vin:
+      name: Vehicle VIN
+      description: Specific vehicle VIN to rebuild (leave blank for all configured vehicles).
+      required: false
+      example: "7PDSGABA8NN000000"
+      selector:
+        text:
+
+recompute_drive_stats:
+  name: Recompute drive summary stats
+  description: Recomputes each drive's Strava-style summary stats (moving/stopped time, stop count, climb/descent, robust max speed, highway share, regen) from its stored GPS route. Live vehicle context (range, drive modes, trailer, driver) is never touched. Thinned routes (older ones simplified to save space) give slightly less accurate stop/climb numbers than a full-detail route.
+  fields:
+    vin:
+      name: Vehicle VIN
+      description: Specific vehicle VIN to recompute (leave blank for all configured vehicles).
+      required: false
+      example: "7PDSGABA8NN000000"
+      selector:
+        text:
+
+fit_energy_model:
+  name: Fit energy model
+  description: Refits the anchored energy model (aerodynamic drag, rolling resistance, auxiliary power, regen efficiency) from recent routed drives; each drive's measured SoC-drop energy re-anchors the model's shape. If too few qualifying drives exist in the fitting window, any existing fit is left untouched.
+  fields:
+    vin:
+      name: Vehicle VIN
+      description: Specific vehicle VIN to refit (leave blank for all configured vehicles).
+      required: false
+      example: "7PDSGABA8NN000000"
+      selector:
+        text:
+
+snap_route_gaps:
+  name: Snap route gaps to roads
+  description: Fills recorded GPS dropouts (a stretch where the live stream went quiet mid-drive) by snapping the gap onto the local OpenStreetMap road network, replacing the straight line the map otherwise draws. Uses the public Overpass API, rate-limited and cached per area; a gap that can't be matched to a road within about 50 m is left unfilled.
+  fields:
+    vin:
+      name: Vehicle VIN
+      description: Specific vehicle VIN to process (leave blank for all configured vehicles).
+      required: false
+      example: "7PDSGABA8NN000000"
+      selector:
+        text:

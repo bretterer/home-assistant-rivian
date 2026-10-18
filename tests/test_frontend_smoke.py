@@ -1,4 +1,4 @@
-"""Runs the Node smoke test for the Rivian cards' pure JS helpers.
+"""Runs the Node smoke test for the drive-explorer card's pure JS helpers.
 
 Skipped entirely when `node` isn't on PATH (it isn't a project dependency,
 just a nicety for contributors who have it). `node --test <directory>` is

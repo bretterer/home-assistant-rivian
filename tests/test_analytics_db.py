@@ -9,7 +9,7 @@ SQLite (the executor-thread guard's whole reason to exist).
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 import json
 import os
 import sqlite3
@@ -17,9 +17,11 @@ import threading
 import time
 from typing import Any
 from unittest.mock import MagicMock
+from zoneinfo import ZoneInfo
 
 import pytest
 
+from custom_components.rivian import analytics_db as analytics_db_module, road_snap
 from custom_components.rivian.analytics_db import (
     SCHEMA_VERSION,
     ActiveCheckpoint,
@@ -30,6 +32,7 @@ from custom_components.rivian.drive_models import (
     STANDARD_SPEED_BINS,
     ChargingSample,
     ChargingSessionRecord,
+    DriveChunk,
     DriveRecord,
     SpeedBinData,
     VampireDrainRecord,
@@ -37,6 +40,15 @@ from custom_components.rivian.drive_models import (
 from custom_components.rivian.drive_storage import DriveStore
 from custom_components.rivian.drive_track import DriveTrack, TrackPoint
 from custom_components.rivian.history_backfill import reconstruct_drives_from_sqlite
+from custom_components.rivian.road_heat import (
+    BASE_LEVEL,
+    HEAT_FORMAT_VERSION,
+    HeatGrid,
+    RoadHeat,
+    split_key,
+    track_cells,
+    track_passes,
+)
 from custom_components.rivian.sensor import RivianDriveSensorEntity
 
 TEST_VIN = "7PDSGABA8NN000000"
@@ -885,6 +897,7 @@ class _PoisonedAnalyticsDatabase(AnalyticsDatabase):
     merge_vampire_events = _boom
     upsert_dcfc_sessions = _boom
     migrate_legacy_json = _boom
+    delete_vin = _boom
     prune = _boom
     window_stats = _boom
     build_cache = _boom
@@ -1856,6 +1869,861 @@ class TestListDrivesAndDetail:
         assert analytics_db.get_drive_detail(TEST_VIN, "does-not-exist") is None
 
 
+class TestTrackFillsMerge:
+    """Gap fills merge into day()/get_drive_detail() payloads with a `filled` column."""
+
+    def test_get_drive_detail_merges_fill_in_time_order(
+        self, analytics_db: Any
+    ) -> None:
+        record = _make_drive(
+            "d1", 8.0, 3.0, "2026-08-20T14:30:00Z", "2026-08-20T15:00:00Z"
+        )
+        track = _make_track(n=3, start_t=1_700_000_000.0, step=0.001)
+        analytics_db.finalize_drive(TEST_VIN, record, track)
+        # A fill point landing strictly between the track's 2nd and 3rd points.
+        fill_point = TrackPoint(t=1_700_000_015.0, lat=37.0015, lon=-121.9985)
+        analytics_db.save_track_fill(
+            TEST_VIN, "d1", after_t=track.points[1].t, points=[fill_point]
+        )
+
+        detail = analytics_db.get_drive_detail(TEST_VIN, "d1")
+        payload = detail["track"]
+        assert payload["t"] == sorted(payload["t"])
+        assert payload["filled"] == [False, False, True, False]
+        assert payload["t"].index(fill_point.t) == 2
+
+    def test_day_merges_fill_in_time_order(self, analytics_db: Any) -> None:
+        d1_start = datetime(2026, 9, 10, 8, 0, tzinfo=CHICAGO)
+        record = _make_drive("d1", 8.0, 3.0, d1_start.isoformat(), d1_start.isoformat())
+        track = _make_track(n=3, start_t=d1_start.timestamp(), step=0.001)
+        analytics_db.finalize_drive(TEST_VIN, record, track)
+        fill_point = TrackPoint(t=track.points[0].t + 5.0, lat=37.0005, lon=-121.9995)
+        analytics_db.save_track_fill(
+            TEST_VIN, "d1", after_t=track.points[0].t, points=[fill_point]
+        )
+
+        day_payload = analytics_db.day(TEST_VIN, CHICAGO, date(2026, 9, 10))
+        track_payload = day_payload["segments"][0]["track"]
+        assert track_payload["filled"] == [False, True, False, False]
+
+    def test_track_without_fills_has_no_filled_key(self, analytics_db: Any) -> None:
+        record = _make_drive(
+            "d1", 8.0, 3.0, "2026-08-20T14:30:00Z", "2026-08-20T15:00:00Z"
+        )
+        analytics_db.finalize_drive(TEST_VIN, record, _make_track(n=3))
+        detail = analytics_db.get_drive_detail(TEST_VIN, "d1")
+        assert "filled" not in detail["track"]
+
+    def test_none_source_fill_is_not_merged(self, analytics_db: Any) -> None:
+        record = _make_drive(
+            "d1", 8.0, 3.0, "2026-08-20T14:30:00Z", "2026-08-20T15:00:00Z"
+        )
+        track = _make_track(n=3)
+        analytics_db.finalize_drive(TEST_VIN, record, track)
+        analytics_db.save_track_fill(
+            TEST_VIN, "d1", after_t=track.points[0].t, points=[], source="none"
+        )
+        detail = analytics_db.get_drive_detail(TEST_VIN, "d1")
+        assert "filled" not in detail["track"]
+
+
+class TestRoadSnapStorage:
+    """gaps_to_snap, the OSM road cache, track_fills, and their cascading deletes."""
+
+    def test_gaps_to_snap_returns_unresolved_gaps_then_marks_scanned(
+        self, analytics_db: Any
+    ) -> None:
+        record = _make_drive(
+            "d1", 8.0, 3.0, "2026-08-20T14:30:00Z", "2026-08-20T15:00:00Z"
+        )
+        track = DriveTrack()
+        track.append(TrackPoint(t=1_700_000_000.0, lat=37.0, lon=-122.0))
+        track.append(
+            TrackPoint(t=1_700_000_100.0, lat=37.01, lon=-122.0)
+        )  # ~1.1km/100s
+        analytics_db.finalize_drive(TEST_VIN, record, track)
+
+        pending = analytics_db.gaps_to_snap(TEST_VIN, limit=10)
+        assert len(pending) == 1
+        drive_id, gap = pending[0]
+        assert drive_id == "d1"
+
+        # Still unresolved (no track_fills row yet): a second call returns it again.
+        assert len(analytics_db.gaps_to_snap(TEST_VIN, limit=10)) == 1
+
+        analytics_db.save_track_fill(TEST_VIN, drive_id, gap.start.t, [], "none")
+        # Now resolved: the drive is marked scanned and no longer returned.
+        assert analytics_db.gaps_to_snap(TEST_VIN, limit=10) == []
+        with analytics_db._lock:
+            scanned = analytics_db._conn.execute(
+                "SELECT gaps_scanned FROM drive_tracks WHERE vin = ? AND drive_id = ?",
+                (TEST_VIN, "d1"),
+            ).fetchone()["gaps_scanned"]
+        assert scanned == 1
+
+    def test_gapless_track_is_marked_scanned_without_any_fill_rows(
+        self, analytics_db: Any
+    ) -> None:
+        record = _make_drive(
+            "d1", 8.0, 3.0, "2026-08-20T14:30:00Z", "2026-08-20T15:00:00Z"
+        )
+        analytics_db.finalize_drive(TEST_VIN, record, _make_track(n=3))
+        assert analytics_db.gaps_to_snap(TEST_VIN, limit=10) == []
+        assert analytics_db.get_track_fills(TEST_VIN, "d1") == []
+
+    def test_replacing_a_track_resets_gaps_scanned(self, analytics_db: Any) -> None:
+        record = _make_drive(
+            "d1", 8.0, 3.0, "2026-08-20T14:30:00Z", "2026-08-20T15:00:00Z"
+        )
+        analytics_db.finalize_drive(TEST_VIN, record, _make_track(n=3))
+        analytics_db.gaps_to_snap(TEST_VIN, limit=10)  # marks it scanned
+        analytics_db.upsert_tracks(TEST_VIN, [("d1", _make_track(n=5))], source="live")
+        with analytics_db._lock:
+            scanned = analytics_db._conn.execute(
+                "SELECT gaps_scanned FROM drive_tracks WHERE vin = ? AND drive_id = ?",
+                (TEST_VIN, "d1"),
+            ).fetchone()["gaps_scanned"]
+        assert scanned == 0
+
+    def test_cached_roads_roundtrip_and_ttl_expiry(self, analytics_db: Any) -> None:
+        ways = [road_snap.Way(nodes=[(37.0, -122.0), (37.001, -122.0)], oneway=False)]
+        analytics_db.save_cached_roads("k1", ways)
+        cached = analytics_db.get_cached_roads("k1")
+        assert cached is not None
+        assert cached[0].nodes == ways[0].nodes
+
+        # Expire it by rewinding fetched_ts past the TTL.
+        with analytics_db._lock:
+            analytics_db._conn.execute(
+                "UPDATE osm_roads SET fetched_ts = 0 WHERE bbox_key = 'k1'"
+            )
+        assert analytics_db.get_cached_roads("k1") is None
+
+    def test_get_cached_roads_missing_key_returns_none(self, analytics_db: Any) -> None:
+        assert analytics_db.get_cached_roads("does-not-exist") is None
+
+    def test_delete_vin_removes_track_fills(self, analytics_db: Any) -> None:
+        record = _make_drive(
+            "d1", 8.0, 3.0, "2026-08-20T14:30:00Z", "2026-08-20T15:00:00Z"
+        )
+        track = _make_track(n=3)
+        analytics_db.finalize_drive(TEST_VIN, record, track)
+        analytics_db.save_track_fill(TEST_VIN, "d1", track.points[0].t, [], "none")
+        analytics_db.delete_vin(TEST_VIN)
+        assert analytics_db.get_track_fills(TEST_VIN, "d1") == []
+
+    def test_prune_tracks_removes_fills_of_deleted_tracks(
+        self, analytics_db: Any
+    ) -> None:
+        old_time = datetime(2020, 1, 1, tzinfo=UTC)
+        record = _make_drive(
+            "old", 8.0, 3.0, old_time.isoformat(), old_time.isoformat()
+        )
+        track = _make_track(n=3, start_t=old_time.timestamp())
+        analytics_db.finalize_drive(TEST_VIN, record, track)
+        analytics_db.save_track_fill(TEST_VIN, "old", track.points[0].t, [], "none")
+
+        cutoff = datetime(2025, 1, 1, tzinfo=UTC).timestamp()
+        analytics_db.prune_tracks(
+            TEST_VIN, delete_before_ts=cutoff, thin_before_ts=None
+        )
+
+        assert analytics_db.get_track_fills(TEST_VIN, "old") == []
+
+
+CHICAGO = ZoneInfo("America/Chicago")
+
+
+class TestCalendar:
+    """AnalyticsDatabase.calendar(): the All time -> years -> months -> days tree."""
+
+    def test_groups_by_local_calendar_day_across_a_1h_gap(
+        self, analytics_db: Any
+    ) -> None:
+        """23:30 and 00:30 local, 1 hour apart, land on different calendar days."""
+        late = datetime(2026, 9, 23, 23, 30, tzinfo=CHICAGO)
+        early = datetime(2026, 9, 24, 0, 30, tzinfo=CHICAGO)
+        analytics_db.upsert_drives(
+            TEST_VIN,
+            [
+                _make_drive("late", 10.0, 4.0, late.isoformat(), late.isoformat()),
+                _make_drive("early", 12.0, 5.0, early.isoformat(), early.isoformat()),
+            ],
+        )
+        cal = analytics_db.calendar(TEST_VIN, CHICAGO, year=2026, month=9)
+        days = {d["key"]: d for d in cal["days"]}
+        assert days["2026-09-23"]["drives"] == 1
+        assert days["2026-09-24"]["drives"] == 1
+
+    def test_drive_crossing_midnight_belongs_to_start_day(
+        self, analytics_db: Any
+    ) -> None:
+        start = datetime(2026, 9, 23, 23, 50, tzinfo=CHICAGO)
+        end = datetime(2026, 9, 24, 0, 20, tzinfo=CHICAGO)
+        analytics_db.upsert_drives(
+            TEST_VIN,
+            [_make_drive("d1", 5.0, 2.0, start.isoformat(), end.isoformat())],
+        )
+        cal = analytics_db.calendar(TEST_VIN, CHICAGO, year=2026, month=9)
+        assert [d["key"] for d in cal["days"]] == ["2026-09-23"]
+
+    def test_dst_spring_forward_day_groups_both_times(self, analytics_db: Any) -> None:
+        """2026-03-08 (spring forward): 00:30 and 23:30 local both land on it."""
+        early = datetime(2026, 3, 8, 0, 30, tzinfo=CHICAGO)
+        late = datetime(2026, 3, 8, 23, 30, tzinfo=CHICAGO)
+        analytics_db.upsert_drives(
+            TEST_VIN,
+            [
+                _make_drive("a", 3.0, 1.0, early.isoformat(), early.isoformat()),
+                _make_drive("b", 4.0, 1.5, late.isoformat(), late.isoformat()),
+            ],
+        )
+        cal = analytics_db.calendar(TEST_VIN, CHICAGO, year=2026, month=3)
+        assert [d["key"] for d in cal["days"]] == ["2026-03-08"]
+        assert cal["days"][0]["drives"] == 2
+
+    def test_dst_fall_back_day_groups_both_times(self, analytics_db: Any) -> None:
+        """2026-11-01 (fall back): 00:30 and 23:30 local both land on it."""
+        early = datetime(2026, 11, 1, 0, 30, tzinfo=CHICAGO)
+        late = datetime(2026, 11, 1, 23, 30, tzinfo=CHICAGO)
+        analytics_db.upsert_drives(
+            TEST_VIN,
+            [
+                _make_drive("a", 3.0, 1.0, early.isoformat(), early.isoformat()),
+                _make_drive("b", 4.0, 1.5, late.isoformat(), late.isoformat()),
+            ],
+        )
+        cal = analytics_db.calendar(TEST_VIN, CHICAGO, year=2026, month=11)
+        assert [d["key"] for d in cal["days"]] == ["2026-11-01"]
+        assert cal["days"][0]["drives"] == 2
+
+    def test_year_month_day_aggregates_equal_sum_of_drives(
+        self, analytics_db: Any
+    ) -> None:
+        base = datetime(2026, 9, 1, 12, 0, tzinfo=CHICAGO)
+        drives = [
+            _make_drive(
+                f"d{i}",
+                10.0 + i,
+                4.0 + i,
+                (base + timedelta(days=i)).isoformat(),
+                (base + timedelta(days=i)).isoformat(),
+            )
+            for i in range(3)
+        ]
+        analytics_db.upsert_drives(TEST_VIN, drives)
+        cal = analytics_db.calendar(TEST_VIN, CHICAGO, year=2026, month=9)
+
+        assert cal["totals"]["drives"] == 3
+        assert cal["totals"]["miles"] == round(sum(10.0 + i for i in range(3)), 1)
+        assert cal["years"][0]["drives"] == 3
+        assert cal["months"][0]["drives"] == 3
+        assert sum(d["drives"] for d in cal["days"]) == 3
+        assert sum(d["miles"] for d in cal["days"]) == cal["months"][0]["miles"]
+
+    def test_months_and_days_ordered_newest_first(self, analytics_db: Any) -> None:
+        drives = []
+        for month in (6, 7, 9):
+            dt_ = datetime(2026, month, 5, 10, 0, tzinfo=CHICAGO)
+            drives.append(
+                _make_drive(f"m{month}", 5.0, 2.0, dt_.isoformat(), dt_.isoformat())
+            )
+        for day in (2, 15, 20):
+            dt_ = datetime(2026, 9, day, 10, 0, tzinfo=CHICAGO)
+            drives.append(
+                _make_drive(f"d{day}", 5.0, 2.0, dt_.isoformat(), dt_.isoformat())
+            )
+        analytics_db.upsert_drives(TEST_VIN, drives)
+
+        cal_year = analytics_db.calendar(TEST_VIN, CHICAGO, year=2026)
+        assert [m["key"] for m in cal_year["months"]] == [
+            "2026-09",
+            "2026-07",
+            "2026-06",
+        ]
+
+        cal_month = analytics_db.calendar(TEST_VIN, CHICAGO, year=2026, month=9)
+        assert [d["key"] for d in cal_month["days"]] == [
+            "2026-09-20",
+            "2026-09-15",
+            "2026-09-05",
+            "2026-09-02",
+        ]
+
+    def test_micro_drives_excluded_unless_requested(self, analytics_db: Any) -> None:
+        dt_ = datetime(2026, 9, 10, 10, 0, tzinfo=CHICAGO)
+        normal = _make_drive("normal", 5.0, 2.0, dt_.isoformat(), dt_.isoformat())
+        micro = _make_drive(
+            "micro", 0.2, 0.1, dt_.isoformat(), dt_.isoformat(), is_micro_drive=True
+        )
+        analytics_db.upsert_drives(TEST_VIN, [normal, micro])
+
+        default_cal = analytics_db.calendar(TEST_VIN, CHICAGO, year=2026, month=9)
+        assert default_cal["totals"]["drives"] == 1
+
+        with_micro_cal = analytics_db.calendar(
+            TEST_VIN, CHICAGO, year=2026, month=9, include_micro=True
+        )
+        assert with_micro_cal["totals"]["drives"] == 2
+
+    def test_with_route_counts_only_drives_with_a_stored_track(
+        self, analytics_db: Any
+    ) -> None:
+        dt1 = datetime(2026, 9, 10, 9, 0, tzinfo=CHICAGO)
+        dt2 = datetime(2026, 9, 10, 15, 0, tzinfo=CHICAGO)
+        analytics_db.upsert_drives(
+            TEST_VIN,
+            [
+                _make_drive("has_track", 5.0, 2.0, dt1.isoformat(), dt1.isoformat()),
+                _make_drive("no_track", 6.0, 2.5, dt2.isoformat(), dt2.isoformat()),
+            ],
+        )
+        analytics_db.upsert_tracks(TEST_VIN, [("has_track", _make_track(n=3))])
+
+        cal = analytics_db.calendar(TEST_VIN, CHICAGO, year=2026, month=9)
+        assert cal["totals"]["with_route"] == 1
+        assert cal["days"][0]["with_route"] == 1
+
+    def test_month_without_year_raises(self, analytics_db: Any) -> None:
+        with pytest.raises(ValueError, match="year"):
+            analytics_db.calendar(TEST_VIN, CHICAGO, month=9)
+
+    def test_months_and_days_omitted_when_not_requested(
+        self, analytics_db: Any
+    ) -> None:
+        dt_ = datetime(2026, 9, 10, 10, 0, tzinfo=CHICAGO)
+        analytics_db.upsert_drives(
+            TEST_VIN, [_make_drive("d1", 5.0, 2.0, dt_.isoformat(), dt_.isoformat())]
+        )
+        totals_only = analytics_db.calendar(TEST_VIN, CHICAGO)
+        assert "months" not in totals_only
+        assert "days" not in totals_only
+
+        year_only = analytics_db.calendar(TEST_VIN, CHICAGO, year=2026)
+        assert "months" in year_only
+        assert "days" not in year_only
+
+    def test_efficiency_none_when_no_energy(self, analytics_db: Any) -> None:
+        dt_ = datetime(2026, 9, 10, 10, 0, tzinfo=CHICAGO)
+        analytics_db.upsert_drives(
+            TEST_VIN, [_make_drive("d1", 5.0, 0.0, dt_.isoformat(), dt_.isoformat())]
+        )
+        cal = analytics_db.calendar(TEST_VIN, CHICAGO, year=2026, month=9)
+        assert cal["totals"]["efficiency_mi_kwh"] is None
+
+
+class TestDay:
+    """AnalyticsDatabase.day(): one local calendar day's segments, stops, endpoints."""
+
+    def test_empty_day_shape(self, analytics_db: Any) -> None:
+        payload = analytics_db.day(TEST_VIN, CHICAGO, date(2026, 9, 10))
+        assert payload["date"] == "2026-09-10"
+        assert payload["segments"] == []
+        assert payload["stops"] == []
+        assert payload["start"] is None
+        assert payload["end"] is None
+        assert payload["totals"]["drives"] == 0
+        assert payload["totals"]["efficiency_mi_kwh"] is None
+
+    def test_segments_carry_chunks_and_battery_capacity_for_charts(
+        self, analytics_db: Any
+    ) -> None:
+        d1_start = datetime(2026, 9, 10, 8, 0, tzinfo=CHICAGO)
+        d2_start = datetime(2026, 9, 10, 12, 0, tzinfo=CHICAGO)
+        with_chunks = _make_drive(
+            "d1", 3.0, 1.0, d1_start.isoformat(), d1_start.isoformat()
+        )
+        with_chunks.battery_capacity_kwh = 135.0
+        with_chunks.chunks = [
+            DriveChunk(
+                start_time=d1_start.isoformat(),
+                duration_seconds=180.0,
+                distance_miles=1.5,
+                energy_kwh=0.6,
+                efficiency_mi_kwh=2.5,
+                avg_speed_mph=30.0,
+                speed_bin="30-39",
+            )
+        ]
+        without = _make_drive(
+            "d2", 3.0, 1.0, d2_start.isoformat(), d2_start.isoformat()
+        )
+        analytics_db.upsert_drives(TEST_VIN, [with_chunks, without])
+
+        segments = analytics_db.day(TEST_VIN, CHICAGO, date(2026, 9, 10))["segments"]
+
+        assert segments[0]["battery_capacity_kwh"] == 135.0
+        assert segments[0]["chunks"] == [
+            {
+                "start_ts": pytest.approx(d1_start.timestamp()),
+                "duration_seconds": 180.0,
+                "efficiency_mi_kwh": 2.5,
+            }
+        ]
+        assert segments[1]["chunks"] == []
+
+    def test_unreadable_route_does_not_hide_the_day(self, analytics_db: Any) -> None:
+        d1_start = datetime(2026, 9, 10, 8, 0, tzinfo=CHICAGO)
+        d2_start = datetime(2026, 9, 10, 12, 0, tzinfo=CHICAGO)
+        analytics_db.upsert_drives(
+            TEST_VIN,
+            [
+                _make_drive("d1", 3.0, 1.0, d1_start.isoformat(), d1_start.isoformat()),
+                _make_drive("d2", 5.0, 2.0, d2_start.isoformat(), d2_start.isoformat()),
+            ],
+        )
+        analytics_db.upsert_tracks(
+            TEST_VIN, [("d1", _make_track(n=3)), ("d2", _make_track(n=3))]
+        )
+        with analytics_db._lock:
+            analytics_db._conn.execute(
+                "UPDATE drive_tracks SET track_json = 'not json' WHERE drive_id = 'd1'"
+            )
+            analytics_db._conn.commit()
+
+        payload = analytics_db.day(TEST_VIN, CHICAGO, date(2026, 9, 10))
+
+        assert [s["drive_id"] for s in payload["segments"]] == ["d1", "d2"]
+        assert payload["segments"][0]["track"] is None
+        assert payload["segments"][1]["track"] is not None
+
+    def test_segments_chronological_with_index_and_tracks(
+        self, analytics_db: Any
+    ) -> None:
+        d1_start = datetime(2026, 9, 10, 8, 0, tzinfo=CHICAGO)
+        d2_start = datetime(2026, 9, 10, 12, 0, tzinfo=CHICAGO)
+        analytics_db.upsert_drives(
+            TEST_VIN,
+            [
+                _make_drive("d2", 5.0, 2.0, d2_start.isoformat(), d2_start.isoformat()),
+                _make_drive("d1", 3.0, 1.0, d1_start.isoformat(), d1_start.isoformat()),
+            ],
+        )
+        analytics_db.upsert_tracks(TEST_VIN, [("d1", _make_track(n=3))])
+
+        payload = analytics_db.day(TEST_VIN, CHICAGO, date(2026, 9, 10))
+        segments = payload["segments"]
+        assert [s["drive_id"] for s in segments] == ["d1", "d2"]
+        assert [s["index"] for s in segments] == [0, 1]
+        assert segments[0]["track"] is not None
+        assert len(segments[0]["track"]["lat"]) == 3
+        assert segments[1]["track"] is None
+        assert payload["totals"]["drives"] == 2
+
+    def test_stops_between_segments_track_and_fallback(self, analytics_db: Any) -> None:
+        d1_start = datetime(2026, 9, 10, 8, 0, tzinfo=CHICAGO)
+        d1_end = datetime(2026, 9, 10, 8, 30, tzinfo=CHICAGO)
+        d2_start = datetime(2026, 9, 10, 9, 0, tzinfo=CHICAGO)
+        d2_end = datetime(2026, 9, 10, 9, 30, tzinfo=CHICAGO)
+        d3_start = datetime(2026, 9, 10, 10, 0, tzinfo=CHICAGO)
+        d3_end = datetime(2026, 9, 10, 10, 30, tzinfo=CHICAGO)
+        drive1 = _make_drive("d1", 3.0, 1.0, d1_start.isoformat(), d1_end.isoformat())
+        drive1.start_lat, drive1.start_lon = 40.0, -105.0
+        drive1.end_lat, drive1.end_lon = 40.5, -105.5
+        drive2 = _make_drive("d2", 3.0, 1.0, d2_start.isoformat(), d2_end.isoformat())
+        drive2.end_lat, drive2.end_lon = 41.0, -106.0
+        drive3 = _make_drive("d3", 3.0, 1.0, d3_start.isoformat(), d3_end.isoformat())
+        analytics_db.upsert_drives(TEST_VIN, [drive1, drive2, drive3])
+        track1 = _make_track(n=3, lat0=42.0, lon0=-107.0)
+        analytics_db.upsert_tracks(TEST_VIN, [("d1", track1)])
+
+        payload = analytics_db.day(TEST_VIN, CHICAGO, date(2026, 9, 10))
+        stops = payload["stops"]
+        assert len(stops) == 2
+
+        # d1 has a track: the stop after it sits at the track's last point.
+        stop0 = stops[0]
+        assert stop0["after_index"] == 0
+        assert stop0["lat"] == track1.points[-1].lat
+        assert stop0["lon"] == track1.points[-1].lon
+        assert stop0["arrive_ts"] == pytest.approx(d1_end.timestamp())
+        assert stop0["depart_ts"] == pytest.approx(d2_start.timestamp())
+        assert stop0["duration_seconds"] == pytest.approx(
+            d2_start.timestamp() - d1_end.timestamp()
+        )
+
+        # d2 has no track: the stop after it falls back to end_lat/end_lon.
+        stop1 = stops[1]
+        assert stop1["after_index"] == 1
+        assert stop1["lat"] == 41.0
+        assert stop1["lon"] == -106.0
+
+    @staticmethod
+    def _drive_between(
+        drive_id: str,
+        start: datetime,
+        start_pos: tuple[float, float],
+        end_pos: tuple[float, float],
+    ) -> DriveRecord:
+        end = start + timedelta(minutes=20)
+        drive = _make_drive(drive_id, 3.0, 1.0, start.isoformat(), end.isoformat())
+        drive.start_lat, drive.start_lon = start_pos
+        drive.end_lat, drive.end_lon = end_pos
+        return drive
+
+    def test_day_starts_where_the_car_was_parked_with_the_unrecorded_gap(
+        self, analytics_db: Any
+    ) -> None:
+        """The car's first report arrives ~1.2 km from home: start at home anyway."""
+        home, first_fix, work = (
+            (39.6785, -104.9085),
+            (39.6861, -104.9192),
+            (39.7242, -104.9880),
+        )
+        analytics_db.upsert_drives(
+            TEST_VIN,
+            [
+                self._drive_between(
+                    "prev", datetime(2026, 9, 9, 18, 0, tzinfo=CHICAGO), work, home
+                ),
+                self._drive_between(
+                    "d1", datetime(2026, 9, 10, 7, 27, tzinfo=CHICAGO), first_fix, work
+                ),
+            ],
+        )
+
+        payload = analytics_db.day(TEST_VIN, CHICAGO, date(2026, 9, 10))
+
+        assert (payload["start"]["lat"], payload["start"]["lon"]) == home
+        assert payload["gaps"] == [
+            {
+                "after_index": -1,
+                "from": [home[0], home[1]],
+                "to": [first_fix[0], first_fix[1]],
+                "distance_m": pytest.approx(1246, abs=15),  # metres at ~39.7 N,
+            }
+        ]
+
+    def test_no_gap_for_parking_drift_or_an_implausibly_long_jump(
+        self, analytics_db: Any
+    ) -> None:
+        home = (39.6785, -104.9085)
+        near_home = (39.6792, -104.9085)  # ~80 m: GPS drift at a parking spot
+        far_away = (39.8242, -105.1880)  # ~27 km: straight line would mislead
+        analytics_db.upsert_drives(
+            TEST_VIN,
+            [
+                self._drive_between(
+                    "prev", datetime(2026, 9, 9, 18, 0, tzinfo=CHICAGO), far_away, home
+                ),
+                self._drive_between(
+                    "d1",
+                    datetime(2026, 9, 10, 8, 0, tzinfo=CHICAGO),
+                    near_home,
+                    far_away,
+                ),
+                self._drive_between(
+                    "d2", datetime(2026, 9, 10, 12, 0, tzinfo=CHICAGO), home, home
+                ),
+            ],
+        )
+
+        payload = analytics_db.day(TEST_VIN, CHICAGO, date(2026, 9, 10))
+
+        assert payload["gaps"] == []
+        assert (payload["start"]["lat"], payload["start"]["lon"]) == near_home
+
+    def test_gap_between_segments_when_the_next_drive_resumes_elsewhere(
+        self, analytics_db: Any
+    ) -> None:
+        a, b, c = (
+            (39.6742, -104.9080),
+            (39.7242, -104.9880),
+            (39.7292, -104.9980),
+        )  # b->c ~0.9 km
+        analytics_db.upsert_drives(
+            TEST_VIN,
+            [
+                self._drive_between(
+                    "d1", datetime(2026, 9, 10, 8, 0, tzinfo=CHICAGO), a, b
+                ),
+                self._drive_between(
+                    "d2", datetime(2026, 9, 10, 12, 0, tzinfo=CHICAGO), c, a
+                ),
+            ],
+        )
+
+        payload = analytics_db.day(TEST_VIN, CHICAGO, date(2026, 9, 10))
+
+        assert [g["after_index"] for g in payload["gaps"]] == [0]
+        assert payload["gaps"][0]["from"] == [b[0], b[1]]
+        assert payload["gaps"][0]["to"] == [c[0], c[1]]
+        assert payload["stops"][0]["lat"] == b[0]
+
+    def test_start_end_from_track_points_and_lat_lon_fallback(
+        self, analytics_db: Any
+    ) -> None:
+        d1_start = datetime(2026, 9, 10, 8, 0, tzinfo=CHICAGO)
+        d2_start = datetime(2026, 9, 10, 12, 0, tzinfo=CHICAGO)
+        drive1 = _make_drive("d1", 3.0, 1.0, d1_start.isoformat(), d1_start.isoformat())
+        drive2 = _make_drive("d2", 3.0, 1.0, d2_start.isoformat(), d2_start.isoformat())
+        drive2.end_lat, drive2.end_lon = 44.0, -108.0
+        analytics_db.upsert_drives(TEST_VIN, [drive1, drive2])
+        track1 = _make_track(n=3, lat0=50.0, lon0=-110.0)
+        analytics_db.upsert_tracks(TEST_VIN, [("d1", track1)])
+
+        payload = analytics_db.day(TEST_VIN, CHICAGO, date(2026, 9, 10))
+        assert payload["start"]["lat"] == track1.points[0].lat
+        assert payload["start"]["lon"] == track1.points[0].lon
+        assert payload["start"]["ts"] == track1.points[0].t
+        # d2 (last segment) has no track: falls back to end_lat/end_lon/end_ts.
+        assert payload["end"]["lat"] == 44.0
+        assert payload["end"]["lon"] == -108.0
+
+    def test_excludes_drive_from_adjacent_day(self, analytics_db: Any) -> None:
+        in_day = datetime(2026, 9, 10, 12, 0, tzinfo=CHICAGO)
+        next_day = datetime(2026, 9, 11, 0, 30, tzinfo=CHICAGO)
+        prev_day = datetime(2026, 9, 9, 23, 30, tzinfo=CHICAGO)
+        analytics_db.upsert_drives(
+            TEST_VIN,
+            [
+                _make_drive("in", 5.0, 2.0, in_day.isoformat(), in_day.isoformat()),
+                _make_drive(
+                    "next", 5.0, 2.0, next_day.isoformat(), next_day.isoformat()
+                ),
+                _make_drive(
+                    "prev", 5.0, 2.0, prev_day.isoformat(), prev_day.isoformat()
+                ),
+            ],
+        )
+        payload = analytics_db.day(TEST_VIN, CHICAGO, date(2026, 9, 10))
+        assert [s["drive_id"] for s in payload["segments"]] == ["in"]
+
+    def test_fall_back_25h_day_includes_late_local_drive(
+        self, analytics_db: Any
+    ) -> None:
+        """2026-11-01 fall-back day is 25h long; a 23:30 local drive is inside it."""
+        late = datetime(2026, 11, 1, 23, 30, tzinfo=CHICAGO)
+        analytics_db.upsert_drives(
+            TEST_VIN,
+            [_make_drive("late", 5.0, 2.0, late.isoformat(), late.isoformat())],
+        )
+        payload = analytics_db.day(TEST_VIN, CHICAGO, date(2026, 11, 1))
+        assert [s["drive_id"] for s in payload["segments"]] == ["late"]
+
+    def test_micro_drives_excluded_unless_requested(self, analytics_db: Any) -> None:
+        dt_ = datetime(2026, 9, 10, 10, 0, tzinfo=CHICAGO)
+        analytics_db.upsert_drives(
+            TEST_VIN,
+            [
+                _make_drive("normal", 5.0, 2.0, dt_.isoformat(), dt_.isoformat()),
+                _make_drive(
+                    "micro",
+                    0.2,
+                    0.1,
+                    dt_.isoformat(),
+                    dt_.isoformat(),
+                    is_micro_drive=True,
+                ),
+            ],
+        )
+        default_payload = analytics_db.day(TEST_VIN, CHICAGO, date(2026, 9, 10))
+        assert [s["drive_id"] for s in default_payload["segments"]] == ["normal"]
+
+        with_micro_payload = analytics_db.day(
+            TEST_VIN, CHICAGO, date(2026, 9, 10), include_micro=True
+        )
+        assert {s["drive_id"] for s in with_micro_payload["segments"]} == {
+            "normal",
+            "micro",
+        }
+
+    def test_segments_with_a_track_include_the_anchored_model(
+        self, analytics_db: Any
+    ) -> None:
+        d1_start = datetime(2026, 9, 10, 8, 0, tzinfo=CHICAGO)
+        drive = _make_drive("d1", 5.0, 2.0, d1_start.isoformat(), d1_start.isoformat())
+        analytics_db.upsert_drives(TEST_VIN, [drive])
+        track = DriveTrack(
+            [
+                TrackPoint(
+                    t=d1_start.timestamp() + i * 10,
+                    lat=40.0 + i * 0.001,
+                    lon=-105.0,
+                    speed_mps=15.0,
+                )
+                for i in range(20)
+            ]
+        )
+        analytics_db.upsert_tracks(TEST_VIN, [("d1", track)])
+
+        segments = analytics_db.day(TEST_VIN, CHICAGO, date(2026, 9, 10))["segments"]
+        model = segments[0]["model"]
+        assert model is not None
+        assert len(model["eff"]) == 20
+        assert isinstance(model["points"], list)
+
+    def test_segments_without_a_track_have_no_model(self, analytics_db: Any) -> None:
+        d1_start = datetime(2026, 9, 10, 8, 0, tzinfo=CHICAGO)
+        analytics_db.upsert_drives(
+            TEST_VIN,
+            [_make_drive("d1", 3.0, 1.0, d1_start.isoformat(), d1_start.isoformat())],
+        )
+        segments = analytics_db.day(TEST_VIN, CHICAGO, date(2026, 9, 10))["segments"]
+        assert segments[0]["model"] is None
+
+    def test_prior_tail_none_without_an_earlier_drive(self, analytics_db: Any) -> None:
+        d1_start = datetime(2026, 9, 10, 8, 0, tzinfo=CHICAGO)
+        analytics_db.upsert_drives(
+            TEST_VIN,
+            [_make_drive("d1", 3.0, 1.0, d1_start.isoformat(), d1_start.isoformat())],
+        )
+        payload = analytics_db.day(TEST_VIN, CHICAGO, date(2026, 9, 10))
+        assert payload["prior_tail"] is None
+
+    def test_prior_tail_none_when_earlier_drive_has_no_track(
+        self, analytics_db: Any
+    ) -> None:
+        prior_start = datetime(2026, 9, 9, 22, 0, tzinfo=CHICAGO)
+        d1_start = datetime(2026, 9, 10, 8, 0, tzinfo=CHICAGO)
+        analytics_db.upsert_drives(
+            TEST_VIN,
+            [
+                _make_drive(
+                    "d0", 3.0, 1.0, prior_start.isoformat(), prior_start.isoformat()
+                ),
+                _make_drive("d1", 3.0, 1.0, d1_start.isoformat(), d1_start.isoformat()),
+            ],
+        )
+        payload = analytics_db.day(TEST_VIN, CHICAGO, date(2026, 9, 10))
+        assert payload["prior_tail"] is None
+
+    def test_prior_tail_trims_to_the_soc_drop_and_carries_its_own_capacity(
+        self, analytics_db: Any
+    ) -> None:
+        prior_start = datetime(2026, 9, 9, 22, 0, tzinfo=CHICAGO)
+        d1_start = datetime(2026, 9, 10, 8, 0, tzinfo=CHICAGO)
+        prior = _make_drive(
+            "d0", 3.0, 1.0, prior_start.isoformat(), prior_start.isoformat()
+        )
+        prior.battery_capacity_kwh = 100.0
+        today = _make_drive("d1", 3.0, 1.0, d1_start.isoformat(), d1_start.isoformat())
+        today.battery_capacity_kwh = 135.0
+        analytics_db.upsert_drives(TEST_VIN, [prior, today])
+        # Five points, 1.0-point SoC drop per step (small distance apart), so
+        # the trim stops one point before the last -- the tail should be a
+        # strict subset of the stored track, not the whole thing.
+        track = DriveTrack(
+            [
+                TrackPoint(
+                    t=prior_start.timestamp() + i * 10,
+                    lat=40.0 + i * 0.0001,
+                    lon=-105.0,
+                    soc=80.0 - i,
+                )
+                for i in range(5)
+            ]
+        )
+        analytics_db.upsert_tracks(TEST_VIN, [("d0", track)])
+
+        payload = analytics_db.day(TEST_VIN, CHICAGO, date(2026, 9, 10))
+        prior_tail = payload["prior_tail"]
+        assert prior_tail is not None
+        assert prior_tail["battery_capacity_kwh"] == 100.0
+        tail_track = prior_tail["track"]
+        assert 0 < len(tail_track["t"]) < 5
+        # Ends at the earlier drive's own last point.
+        assert tail_track["soc"][-1] == 76.0
+
+
+class TestEnergyModel:
+    """AnalyticsDatabase.fit_energy_model()/get_energy_model(): the anchored energy model."""
+
+    @staticmethod
+    def _routed_drive(drive_id: str, when: datetime) -> tuple[DriveRecord, DriveTrack]:
+        """A drive record + a track long enough to qualify for fitting."""
+        drive = _make_drive(
+            drive_id,
+            5.0,
+            2.0,
+            when.isoformat(),
+            (when + timedelta(minutes=15)).isoformat(),
+        )
+        track = DriveTrack(
+            [
+                TrackPoint(
+                    t=when.timestamp() + i * 10,
+                    lat=40.0 + i * 0.001,
+                    lon=-105.0,
+                    speed_mps=20.0,
+                    alt_m=1600.0,
+                )
+                for i in range(80)
+            ]
+        )
+        return drive, track
+
+    def _seed_routed_drives(self, analytics_db: Any, count: int) -> None:
+        now = datetime.now(UTC)
+        for i in range(count):
+            when = now - timedelta(days=i + 1, hours=1)
+            drive, track = self._routed_drive(f"e{i}", when)
+            analytics_db.upsert_drives(TEST_VIN, [drive])
+            analytics_db.upsert_tracks(TEST_VIN, [(f"e{i}", track)])
+
+    def test_get_energy_model_none_when_unset(self, analytics_db: Any) -> None:
+        assert analytics_db.get_energy_model(TEST_VIN) is None
+
+    def test_fit_energy_model_stores_meta_and_is_retrievable(
+        self, analytics_db: Any
+    ) -> None:
+        self._seed_routed_drives(analytics_db, 6)
+        result = analytics_db.fit_energy_model(TEST_VIN, window_days=90, min_drives=5)
+        assert result["fitted"] is True
+        assert result["n_drives"] == 6
+        params = analytics_db.get_energy_model(TEST_VIN)
+        assert params is not None
+        assert params.cda_m2 == result["params"]["cda_m2"]
+
+    def test_fit_energy_model_too_few_drives_keeps_existing(
+        self, analytics_db: Any
+    ) -> None:
+        self._seed_routed_drives(analytics_db, 2)
+        first = analytics_db.fit_energy_model(TEST_VIN, window_days=90, min_drives=1)
+        assert first["fitted"] is True
+        existing = analytics_db.get_energy_model(TEST_VIN)
+        assert existing is not None
+
+        result = analytics_db.fit_energy_model(TEST_VIN, window_days=90, min_drives=10)
+        assert result == {
+            "fitted": False,
+            "reason": "too_few_drives",
+            "n_drives": 2,
+            "min_drives": 10,
+            "has_existing": True,
+        }
+        assert analytics_db.get_energy_model(TEST_VIN) == existing
+
+    def test_fit_energy_model_no_drives_and_no_existing(
+        self, analytics_db: Any
+    ) -> None:
+        result = analytics_db.fit_energy_model(TEST_VIN, window_days=90, min_drives=1)
+        assert result == {
+            "fitted": False,
+            "reason": "too_few_drives",
+            "n_drives": 0,
+            "min_drives": 1,
+            "has_existing": False,
+        }
+
+    def test_fit_energy_model_ignores_drives_outside_window(
+        self, analytics_db: Any
+    ) -> None:
+        old = datetime.now(UTC) - timedelta(days=200)
+        drive, track = self._routed_drive("old", old)
+        analytics_db.upsert_drives(TEST_VIN, [drive])
+        analytics_db.upsert_tracks(TEST_VIN, [("old", track)])
+        result = analytics_db.fit_energy_model(TEST_VIN, window_days=90, min_drives=1)
+        assert result["fitted"] is False
+        assert result["n_drives"] == 0
+
+    def test_fit_energy_model_read_only_skips(self, analytics_db: Any) -> None:
+        self._seed_routed_drives(analytics_db, 6)
+        analytics_db.read_only = True
+        result = analytics_db.fit_energy_model(TEST_VIN, window_days=90, min_drives=1)
+        assert result == {"fitted": False, "reason": "read_only"}
+
+
 class TestTrackPreviewsAndMissing:
     """get_track_previews and drives_missing_tracks."""
 
@@ -1898,7 +2766,7 @@ class TestTrackPreviewsAndMissing:
 
 
 class TestPruneWithTracks:
-    """prune() removes orphan tracks."""
+    """prune() removes orphan tracks; delete_vin clears tracks and checkpoints."""
 
     def test_prune_removes_orphan_tracks(self, analytics_db: Any) -> None:
         old = _make_drive(
@@ -1916,6 +2784,28 @@ class TestPruneWithTracks:
                 (TEST_VIN, "old"),
             ).fetchone()
         assert row is None
+
+    def test_delete_vin_removes_tracks_and_checkpoints(self, analytics_db: Any) -> None:
+        analytics_db.upsert_drives(
+            TEST_VIN,
+            [
+                _make_drive(
+                    "d1", 5.0, 2.0, "2026-08-20T10:00:00Z", "2026-08-20T10:10:00Z"
+                )
+            ],
+        )
+        analytics_db.upsert_tracks(TEST_VIN, [("d1", _make_track(n=3))])
+        analytics_db.save_active_checkpoint(TEST_VIN, "d2", {}, _make_track(n=2), 0)
+
+        analytics_db.delete_vin(TEST_VIN)
+
+        assert analytics_db.get_track(TEST_VIN, "d1") is None
+        assert analytics_db.load_active_checkpoint(TEST_VIN) is None
+        with analytics_db._lock:
+            remaining = analytics_db._conn.execute(
+                "SELECT COUNT(*) AS c FROM drive_tracks WHERE vin = ?", (TEST_VIN,)
+            ).fetchone()["c"]
+        assert remaining == 0
 
 
 class TestPruneTracks:
@@ -2271,3 +3161,631 @@ class TestVehiclePicture:
         db._loop_thread_id = threading.get_ident()
         with pytest.raises(RuntimeError):
             db.get_vehicle_picture(TEST_VIN)
+
+
+class TestRoadHeat:
+    """update_heat/rebuild_heat/heat_info/heat_tile: counting, caching, retention."""
+
+    def test_update_heat_counts_each_track_once(self, analytics_db: Any) -> None:
+        analytics_db.upsert_tracks(TEST_VIN, [("d1", _make_track(n=5))])
+        assert analytics_db.update_heat(TEST_VIN, UTC) == 1
+        assert analytics_db.update_heat(TEST_VIN, UTC) == 0
+
+    def test_update_heat_counts_new_track_incrementally(
+        self, analytics_db: Any
+    ) -> None:
+        analytics_db.upsert_tracks(TEST_VIN, [("d1", _make_track(n=5))])
+        assert analytics_db.update_heat(TEST_VIN, UTC) == 1
+        analytics_db.upsert_tracks(TEST_VIN, [("d2", _make_track(n=5, lat0=40.0))])
+        assert analytics_db.update_heat(TEST_VIN, UTC) == 1
+
+    def test_month_assignment_uses_local_zone_across_a_utc_day_boundary(
+        self, analytics_db: Any
+    ) -> None:
+        """23:30 local on Aug 31 in America/Denver is already Sep 1 in UTC."""
+        tz = ZoneInfo("America/Denver")
+        local_dt = datetime(2026, 8, 31, 23, 30, tzinfo=tz)
+        assert local_dt.astimezone(UTC).month == 9  # sanity: UTC disagrees
+
+        track = DriveTrack()
+        track.append(TrackPoint(t=local_dt.timestamp(), lat=40.0, lon=-105.0))
+        track.append(TrackPoint(t=local_dt.timestamp() + 10, lat=40.001, lon=-105.001))
+        analytics_db.upsert_tracks(TEST_VIN, [("d1", track)])
+        analytics_db.update_heat(TEST_VIN, tz)
+
+        with analytics_db._lock:
+            row = analytics_db._conn.execute(
+                "SELECT month FROM road_heat_drives WHERE vin = ? AND drive_id = ?",
+                (TEST_VIN, "d1"),
+            ).fetchone()
+        assert row["month"] == "2026-08"
+
+    def test_undecodable_track_is_recorded_and_not_retried(
+        self, analytics_db: Any
+    ) -> None:
+        analytics_db.upsert_tracks(TEST_VIN, [("d1", _make_track(n=3))])
+        with analytics_db._lock, analytics_db._transaction():
+            analytics_db._conn.execute(
+                "UPDATE drive_tracks SET track_json = 'not json' "
+                "WHERE vin = ? AND drive_id = ?",
+                (TEST_VIN, "d1"),
+            )
+
+        assert analytics_db.update_heat(TEST_VIN, UTC) == 1
+        with analytics_db._lock:
+            row = analytics_db._conn.execute(
+                "SELECT month FROM road_heat_drives WHERE vin = ? AND drive_id = ?",
+                (TEST_VIN, "d1"),
+            ).fetchone()
+        assert row["month"] == ""
+        # Never retried: the second call finds nothing left to count.
+        assert analytics_db.update_heat(TEST_VIN, UTC) == 0
+
+    def test_update_heat_read_only_returns_zero(
+        self, mock_hass: Any, analytics_db_path: str
+    ) -> None:
+        db = AnalyticsDatabase(mock_hass, db_path=analytics_db_path)
+        db.setup()
+        try:
+            db.upsert_tracks(TEST_VIN, [("d1", _make_track(n=3))])
+            db.read_only = True
+            assert db.update_heat(TEST_VIN, UTC) == 0
+        finally:
+            db.close()
+
+    def test_heat_methods_reject_the_loop_thread(
+        self, mock_hass: Any, analytics_db_path: str
+    ) -> None:
+        db = AnalyticsDatabase(mock_hass, db_path=analytics_db_path)
+        db._loop_thread_id = threading.get_ident()
+        with pytest.raises(RuntimeError):
+            db.update_heat(TEST_VIN, UTC)
+        with pytest.raises(RuntimeError):
+            db.heat_info(TEST_VIN, "all")
+        with pytest.raises(RuntimeError):
+            db.rebuild_heat(TEST_VIN, UTC)
+
+    def test_year_and_all_sum_their_months(self, analytics_db: Any) -> None:
+        tz = UTC
+
+        def track_at(dt: datetime, lat0: float) -> DriveTrack:
+            track = DriveTrack()
+            track.append(TrackPoint(t=dt.timestamp(), lat=lat0, lon=-100.0))
+            track.append(
+                TrackPoint(t=dt.timestamp() + 10, lat=lat0 + 0.01, lon=-100.01)
+            )
+            return track
+
+        analytics_db.upsert_tracks(
+            TEST_VIN,
+            [
+                ("jan1", track_at(datetime(2026, 1, 15, tzinfo=tz), 10.0)),
+                ("feb1", track_at(datetime(2026, 2, 15, tzinfo=tz), 20.0)),
+                ("old1", track_at(datetime(2025, 1, 15, tzinfo=tz), 30.0)),
+            ],
+        )
+        analytics_db.update_heat(TEST_VIN, tz)
+
+        year_info = analytics_db.heat_info(TEST_VIN, "year", "2026")
+        all_info = analytics_db.heat_info(TEST_VIN, "all")
+        assert year_info["drives"] == 2
+        assert all_info["drives"] == 3
+
+        jan_grid, *_ = analytics_db._get_heat_grid(TEST_VIN, "month", "2026-01")
+        feb_grid, *_ = analytics_db._get_heat_grid(TEST_VIN, "month", "2026-02")
+        old_grid, *_ = analytics_db._get_heat_grid(TEST_VIN, "month", "2025-01")
+        year_grid, *_ = analytics_db._get_heat_grid(TEST_VIN, "year", "2026")
+        all_grid, *_ = analytics_db._get_heat_grid(TEST_VIN, "all", None)
+
+        assert year_grid.to_counts() == HeatGrid.merge([jan_grid, feb_grid]).to_counts()
+        assert (
+            all_grid.to_counts()
+            == HeatGrid.merge([jan_grid, feb_grid, old_grid]).to_counts()
+        )
+
+    def test_heat_info_shape(self, analytics_db: Any) -> None:
+        analytics_db.upsert_tracks(TEST_VIN, [("d1", _make_track(n=5))])
+        analytics_db.update_heat(TEST_VIN, UTC)
+        info = analytics_db.heat_info(TEST_VIN, "all")
+        assert info["period"] == "all"
+        assert info["drives"] == 1
+        assert info["cells"] > 0
+        assert info["bbox"] is not None and len(info["bbox"]) == 4
+        assert info["scale_max"] >= 1
+
+    def test_heat_tile_cells_within_tile_and_carry_scale_max(
+        self, analytics_db: Any
+    ) -> None:
+        analytics_db.upsert_tracks(TEST_VIN, [("d1", _make_track(n=5))])
+        analytics_db.update_heat(TEST_VIN, UTC)
+        grid, *_ = analytics_db._get_heat_grid(TEST_VIN, "all", None)
+        cx, cy = split_key(next(iter(grid.to_counts())))
+
+        tile = analytics_db.heat_tile(TEST_VIN, "all", None, BASE_LEVEL, cx, cy)
+        assert tile["scale_max"] >= 1
+        assert len(tile["cells"]) >= 1
+        for count in (c[2] for c in tile["cells"]):
+            assert count >= 1
+
+    def test_unknown_period_key_returns_empty_not_an_error(
+        self, analytics_db: Any
+    ) -> None:
+        info = analytics_db.heat_info(TEST_VIN, "month", "2099-01")
+        assert info == {
+            "period": "month",
+            "key": "2099-01",
+            "bbox": None,
+            "scale_max": 2,
+            "cells": 0,
+            "drives": 0,
+        }
+        tile = analytics_db.heat_tile(TEST_VIN, "month", "2099-01", 5, 10, 10)
+        assert tile["cells"] == []
+
+    @pytest.mark.parametrize(
+        ("period", "key"),
+        [
+            ("bogus", None),
+            ("year", "abcd"),
+            ("year", None),
+            ("month", "2026-13"),
+            ("month", "not-a-month"),
+            ("month", None),
+        ],
+    )
+    def test_bad_period_or_key_raises(
+        self, analytics_db: Any, period: str, key: str | None
+    ) -> None:
+        with pytest.raises(ValueError):
+            analytics_db.heat_info(TEST_VIN, period, key)
+
+    def test_heat_survives_prune_and_prune_tracks(self, analytics_db: Any) -> None:
+        tz = UTC
+        old_time = datetime(2020, 1, 1, tzinfo=tz)
+        analytics_db.upsert_drives(
+            TEST_VIN,
+            [_make_drive("old1", 5.0, 2.0, old_time.isoformat(), old_time.isoformat())],
+        )
+        analytics_db.upsert_tracks(
+            TEST_VIN, [("old1", _make_track(n=5, start_t=old_time.timestamp()))]
+        )
+        analytics_db.update_heat(TEST_VIN, tz)
+        before = analytics_db.heat_info(TEST_VIN, "all")
+        assert before["drives"] == 1
+
+        cutoff = datetime(2026, 1, 1, tzinfo=tz).timestamp()
+        analytics_db.prune(TEST_VIN, cutoff)
+        assert analytics_db.heat_info(TEST_VIN, "all") == before
+
+        analytics_db.prune_tracks(
+            TEST_VIN, delete_before_ts=None, thin_before_ts=cutoff
+        )
+        assert analytics_db.heat_info(TEST_VIN, "all") == before
+
+    def test_delete_vin_removes_heat(self, analytics_db: Any) -> None:
+        analytics_db.upsert_tracks(TEST_VIN, [("d1", _make_track(n=5))])
+        analytics_db.update_heat(TEST_VIN, UTC)
+        assert analytics_db.heat_info(TEST_VIN, "all")["drives"] == 1
+
+        analytics_db.delete_vin(TEST_VIN)
+        info = analytics_db.heat_info(TEST_VIN, "all")
+        assert info["drives"] == 0
+        assert info["cells"] == 0
+
+    def test_rebuild_reproduces_the_same_grid(self, analytics_db: Any) -> None:
+        tz = UTC
+        analytics_db.upsert_tracks(
+            TEST_VIN,
+            [
+                ("d1", _make_track(n=5, lat0=10.0)),
+                ("d2", _make_track(n=5, lat0=20.0)),
+            ],
+        )
+        analytics_db.update_heat(TEST_VIN, tz)
+        before, *_ = analytics_db._get_heat_grid(TEST_VIN, "all", None)
+        before_counts = before.to_counts()
+
+        result = analytics_db.rebuild_heat(TEST_VIN, tz)
+        assert result["drives_counted"] == 2
+        assert result["months_rebuilt"] >= 1
+
+        after, *_ = analytics_db._get_heat_grid(TEST_VIN, "all", None)
+        assert after.to_counts() == before_counts
+
+    def test_rebuild_keeps_heat_for_a_month_whose_tracks_were_all_pruned(
+        self, analytics_db: Any
+    ) -> None:
+        tz = UTC
+        analytics_db.upsert_tracks(TEST_VIN, [("d1", _make_track(n=5))])
+        analytics_db.update_heat(TEST_VIN, tz)
+        before, *_ = analytics_db._get_heat_grid(TEST_VIN, "all", None)
+        assert len(before) > 0
+
+        # Prune the only stored track entirely.
+        analytics_db.prune_tracks(
+            TEST_VIN, delete_before_ts=time.time() + 86400, thin_before_ts=None
+        )
+
+        result = analytics_db.rebuild_heat(TEST_VIN, tz)
+        assert result == {"months_rebuilt": 0, "drives_counted": 0}
+        after, *_ = analytics_db._get_heat_grid(TEST_VIN, "all", None)
+        assert after.to_counts() == before.to_counts()
+
+    def test_rebuild_drops_heat_for_a_drive_whose_track_was_pruned_in_rebuilt_month(
+        self, analytics_db: Any
+    ) -> None:
+        tz = UTC
+        keep_track = _make_track(n=5, lat0=10.0)
+        analytics_db.upsert_tracks(
+            TEST_VIN,
+            [("keep", keep_track), ("gone", _make_track(n=5, lat0=50.0))],
+        )
+        analytics_db.update_heat(TEST_VIN, tz)
+
+        with analytics_db._lock, analytics_db._transaction():
+            analytics_db._conn.execute(
+                "DELETE FROM drive_tracks WHERE vin = ? AND drive_id = ?",
+                (TEST_VIN, "gone"),
+            )
+
+        result = analytics_db.rebuild_heat(TEST_VIN, tz)
+        assert result == {"months_rebuilt": 1, "drives_counted": 1}
+
+        grid, *_ = analytics_db._get_heat_grid(TEST_VIN, "all", None)
+        expected = RoadHeat.empty().add_drives([track_passes(keep_track)]).display()
+        assert grid.to_counts() == expected.to_counts()
+
+    def test_heat_counted_by_an_older_format_is_recounted_once(
+        self, analytics_db: Any
+    ) -> None:
+        """Rows from before corridor/pass counting are rebuilt on the next update."""
+        tz = UTC
+        track = _make_track(n=5)
+        analytics_db.upsert_tracks(TEST_VIN, [("d1", track)])
+        month = datetime.fromtimestamp(track.points[0].t, tz).strftime("%Y-%m")
+        old_grid = HeatGrid.empty().add_drive(track_cells(track))
+        with analytics_db._lock, analytics_db._transaction():
+            analytics_db._conn.execute(
+                "INSERT INTO road_heat (vin, month, level, version, cell_count, "
+                "drive_count, data, updated_ts) VALUES (?, ?, ?, 1, ?, 1, ?, 0)",
+                (TEST_VIN, month, BASE_LEVEL, len(old_grid), old_grid.encode()),
+            )
+            analytics_db._conn.execute(
+                "INSERT INTO road_heat_drives (vin, drive_id, month) VALUES (?, ?, ?)",
+                (TEST_VIN, "d1", month),
+            )
+
+        assert analytics_db.update_heat(TEST_VIN, tz) == 1
+        with analytics_db._lock:
+            row = analytics_db._conn.execute(
+                "SELECT version, drive_count FROM road_heat WHERE vin = ?", (TEST_VIN,)
+            ).fetchone()
+        assert (row["version"], row["drive_count"]) == (HEAT_FORMAT_VERSION, 1)
+        # Recorded as upgraded: later updates count only new routes.
+        assert analytics_db.update_heat(TEST_VIN, tz) == 0
+
+    def test_cache_invalidation_after_update_heat_adds_a_drive(
+        self, analytics_db: Any
+    ) -> None:
+        tz = UTC
+        analytics_db.upsert_tracks(TEST_VIN, [("d1", _make_track(n=5))])
+        analytics_db.update_heat(TEST_VIN, tz)
+
+        with analytics_db._lock:
+            row = analytics_db._conn.execute(
+                "SELECT month FROM road_heat_drives WHERE vin = ? AND drive_id = ?",
+                (TEST_VIN, "d1"),
+            ).fetchone()
+        month_key = row["month"]
+        year_key = month_key[:4]
+
+        assert analytics_db.heat_info(TEST_VIN, "month", month_key)["drives"] == 1
+        assert analytics_db.heat_info(TEST_VIN, "year", year_key)["drives"] == 1
+        assert analytics_db.heat_info(TEST_VIN, "all")["drives"] == 1
+
+        analytics_db.upsert_tracks(TEST_VIN, [("d2", _make_track(n=5, lat0=60.0))])
+        analytics_db.update_heat(TEST_VIN, tz)
+
+        assert analytics_db.heat_info(TEST_VIN, "month", month_key)["drives"] == 2
+        assert analytics_db.heat_info(TEST_VIN, "year", year_key)["drives"] == 2
+        assert analytics_db.heat_info(TEST_VIN, "all")["drives"] == 2
+
+    def test_grid_read_during_a_concurrent_update_is_not_cached(
+        self, analytics_db: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An update committing mid-read must not leave the stale grid cached."""
+        tz = UTC
+        analytics_db.upsert_tracks(TEST_VIN, [("d1", _make_track(n=5))])
+        analytics_db.update_heat(TEST_VIN, tz)
+
+        real_merge = analytics_db_module.RoadHeat.merge
+
+        def merge_then_invalidate(heats):
+            # Stands in for update_heat committing on another thread while this
+            # read is between its DB query and storing the result.
+            analytics_db._invalidate_heat_cache_all(TEST_VIN)
+            return real_merge(heats)
+
+        monkeypatch.setattr(
+            analytics_db_module.RoadHeat, "merge", staticmethod(merge_then_invalidate)
+        )
+        assert analytics_db.heat_info(TEST_VIN, "all")["drives"] == 1
+        assert (TEST_VIN, "all") not in analytics_db._heat_cache
+
+        monkeypatch.setattr(
+            analytics_db_module.RoadHeat, "merge", staticmethod(real_merge)
+        )
+        analytics_db.heat_info(TEST_VIN, "all")
+        assert (TEST_VIN, "all") in analytics_db._heat_cache
+
+
+OTHER_VIN = "7PDSGABA8NN999999"
+
+
+class TestMultiVinReads:
+    """calendar()/_get_heat_grid() over several VINs (`vin IN (...)`)."""
+
+    def test_calendar_combines_vins_with_by_vin_on_every_node(
+        self, analytics_db: Any
+    ) -> None:
+        when = datetime(2026, 9, 23, 9, 0, tzinfo=CHICAGO).isoformat()
+        other = _make_drive("o1", 7.0, 2.0, when, when)
+        other.vin = OTHER_VIN
+        analytics_db.upsert_drives(
+            TEST_VIN,
+            [
+                _make_drive("a1", 10.0, 4.0, when, when),
+                _make_drive("a2", 5.0, 2.0, when, when),
+            ],
+        )
+        analytics_db.upsert_drives(OTHER_VIN, [other])
+
+        cal = analytics_db.calendar([TEST_VIN, OTHER_VIN], CHICAGO, year=2026, month=9)
+
+        assert cal["totals"]["drives"] == 3
+        assert cal["totals"]["miles"] == 22.0
+        assert cal["totals"]["by_vin"] == {
+            TEST_VIN: {"drives": 2, "miles": 15.0},
+            OTHER_VIN: {"drives": 1, "miles": 7.0},
+        }
+        for node in (cal["years"][0], cal["months"][0], cal["days"][0]):
+            assert node["drives"] == 3
+            assert node["by_vin"][OTHER_VIN] == {"drives": 1, "miles": 7.0}
+
+    def test_calendar_lists_requested_vins_with_no_drives_as_zero(
+        self, analytics_db: Any
+    ) -> None:
+        when = datetime(2026, 9, 23, 9, 0, tzinfo=CHICAGO).isoformat()
+        analytics_db.upsert_drives(TEST_VIN, [_make_drive("a1", 10.0, 4.0, when, when)])
+        cal = analytics_db.calendar([TEST_VIN, OTHER_VIN], CHICAGO)
+        assert cal["totals"]["by_vin"][OTHER_VIN] == {"drives": 0, "miles": 0.0}
+
+    def test_single_vin_calendar_has_no_by_vin(self, analytics_db: Any) -> None:
+        when = datetime(2026, 9, 23, 9, 0, tzinfo=CHICAGO).isoformat()
+        analytics_db.upsert_drives(TEST_VIN, [_make_drive("a1", 10.0, 4.0, when, when)])
+        assert "by_vin" not in analytics_db.calendar(TEST_VIN, CHICAGO)["totals"]
+
+    def test_combined_heat_is_the_cell_wise_sum(self, analytics_db: Any) -> None:
+        tz = UTC
+        shared = _make_track(n=5)
+        analytics_db.upsert_tracks(TEST_VIN, [("d1", shared)])
+        analytics_db.upsert_tracks(
+            OTHER_VIN, [("d1", shared), ("d2", _make_track(n=5, lat0=45.0))]
+        )
+        analytics_db.update_heat(TEST_VIN, tz)
+        analytics_db.update_heat(OTHER_VIN, tz)
+
+        a, *_ = analytics_db._get_heat_grid(TEST_VIN, "all", None)
+        b, *_ = analytics_db._get_heat_grid(OTHER_VIN, "all", None)
+        both, _bbox, _scale, drives = analytics_db._get_heat_grid(
+            [TEST_VIN, OTHER_VIN], "all", None
+        )
+
+        expected: dict[int, int] = dict(a.to_counts())
+        for key, count in b.to_counts().items():
+            expected[key] = expected.get(key, 0) + count
+        assert both.to_counts() == expected
+        assert drives == 3
+        assert analytics_db.heat_info([TEST_VIN, OTHER_VIN], "all")["drives"] == 3
+
+    def test_updating_one_vin_drops_combined_cache_entries_containing_it(
+        self, analytics_db: Any
+    ) -> None:
+        tz = UTC
+        analytics_db.upsert_tracks(TEST_VIN, [("d1", _make_track(n=5))])
+        analytics_db.upsert_tracks(OTHER_VIN, [("d1", _make_track(n=5, lat0=45.0))])
+        analytics_db.update_heat(TEST_VIN, tz)
+        analytics_db.update_heat(OTHER_VIN, tz)
+
+        pair = [TEST_VIN, OTHER_VIN]
+        assert analytics_db.heat_info(pair, "all")["drives"] == 2
+        combined_key = (frozenset(pair), "all")
+        assert combined_key in analytics_db._heat_cache
+
+        analytics_db.upsert_tracks(OTHER_VIN, [("d2", _make_track(n=5, lat0=50.0))])
+        analytics_db.update_heat(OTHER_VIN, tz)
+
+        assert combined_key not in analytics_db._heat_cache
+        assert analytics_db.heat_info(pair, "all")["drives"] == 3
+
+    def test_unrelated_vin_update_keeps_the_combined_entry(
+        self, analytics_db: Any
+    ) -> None:
+        tz = UTC
+        analytics_db.upsert_tracks(TEST_VIN, [("d1", _make_track(n=5))])
+        analytics_db.upsert_tracks(OTHER_VIN, [("d1", _make_track(n=5, lat0=45.0))])
+        analytics_db.update_heat(TEST_VIN, tz)
+        analytics_db.update_heat(OTHER_VIN, tz)
+        analytics_db.heat_info([TEST_VIN, OTHER_VIN], "all")
+        third = "7PDSGABA8NN555555"
+        analytics_db.upsert_tracks(third, [("d1", _make_track(n=5, lat0=50.0))])
+        analytics_db.update_heat(third, tz)
+
+        assert (frozenset([TEST_VIN, OTHER_VIN]), "all") in analytics_db._heat_cache
+
+
+HOME = (37.0, -122.0)
+WORK = (37.5, -122.5)
+
+
+def _timed(base: str, hour: int, minute: int = 0) -> str:
+    return f"{base}T{hour:02d}:{minute:02d}:00Z"
+
+
+class TestDeleteDrivesAndDay:
+    """delete_drives/delete_day, and delete_vin's cleanup."""
+
+    def test_delete_drives_removes_rows_and_tracks(self, analytics_db: Any) -> None:
+        drives = [
+            _make_drive(
+                f"keep{i}",
+                5.0,
+                2.0,
+                _timed(f"2026-02-0{i}", 8),
+                _timed(f"2026-02-0{i}", 8, 15),
+                start_lat=HOME[0],
+                start_lon=HOME[1],
+                end_lat=WORK[0],
+                end_lon=WORK[1],
+            )
+            for i in range(1, 4)
+        ]
+        drives.append(
+            _make_drive(
+                "gone",
+                5.0,
+                2.0,
+                _timed("2026-02-09", 8),
+                _timed("2026-02-09", 8, 15),
+                start_lat=HOME[0],
+                start_lon=HOME[1],
+                end_lat=WORK[0],
+                end_lon=WORK[1],
+            )
+        )
+        analytics_db.upsert_drives(TEST_VIN, drives)
+        analytics_db.upsert_tracks(
+            TEST_VIN,
+            [
+                *((f"keep{i}", _make_track(n=5, lat0=10.0 + i)) for i in range(1, 4)),
+                ("gone", _make_track(n=5, lat0=20.0)),
+            ],
+        )
+        analytics_db.update_heat(TEST_VIN, UTC)
+        assert analytics_db.heat_info(TEST_VIN, "all")["drives"] == 4
+
+        result = analytics_db.delete_drives(TEST_VIN, ["gone"])
+        assert result["deleted"] == 1
+        assert len(result["affected_hours"]) == 1
+
+        with analytics_db._lock:
+            drive_count = analytics_db._conn.execute(
+                "SELECT COUNT(*) FROM drives WHERE vin = ? AND drive_id = ?",
+                (TEST_VIN, "gone"),
+            ).fetchone()[0]
+            track_count = analytics_db._conn.execute(
+                "SELECT COUNT(*) FROM drive_tracks WHERE vin = ? AND drive_id = ?",
+                (TEST_VIN, "gone"),
+            ).fetchone()[0]
+        assert drive_count == 0
+        assert track_count == 0
+        assert analytics_db.heat_info(TEST_VIN, "all")["drives"] == 3
+
+    def test_delete_drives_drops_month_heat_when_no_route_left(
+        self, analytics_db: Any
+    ) -> None:
+        analytics_db.upsert_drives(
+            TEST_VIN,
+            [
+                _make_drive(
+                    "only",
+                    5.0,
+                    2.0,
+                    _timed("2026-02-01", 8),
+                    _timed("2026-02-01", 8, 15),
+                )
+            ],
+        )
+        analytics_db.upsert_tracks(TEST_VIN, [("only", _make_track(n=5))])
+        analytics_db.update_heat(TEST_VIN, UTC)
+        assert analytics_db.heat_info(TEST_VIN, "all")["drives"] == 1
+
+        analytics_db.delete_drives(TEST_VIN, ["only"])
+
+        info = analytics_db.heat_info(TEST_VIN, "all")
+        assert info["drives"] == 0
+        assert info["cells"] == 0
+        with analytics_db._lock:
+            count = analytics_db._conn.execute(
+                "SELECT COUNT(*) FROM road_heat WHERE vin = ?", (TEST_VIN,)
+            ).fetchone()[0]
+        assert count == 0
+
+    def test_delete_drives_empty_list_is_a_noop(self, analytics_db: Any) -> None:
+        assert analytics_db.delete_drives(TEST_VIN, []) == {
+            "deleted": 0,
+            "affected_hours": [],
+        }
+
+    def test_delete_day_uses_local_day_window(self, analytics_db: Any) -> None:
+        tz = ZoneInfo("America/Denver")
+        # Just after local midnight on day 1, and on day 2.
+        day1_early = datetime(2026, 2, 1, 0, 10, tzinfo=tz)
+        day2 = datetime(2026, 2, 2, 8, 0, tzinfo=tz)
+        analytics_db.upsert_drives(
+            TEST_VIN,
+            [
+                _make_drive(
+                    "day1",
+                    5.0,
+                    2.0,
+                    day1_early.isoformat(),
+                    (day1_early + timedelta(minutes=10)).isoformat(),
+                ),
+                _make_drive(
+                    "day2",
+                    5.0,
+                    2.0,
+                    day2.isoformat(),
+                    (day2 + timedelta(minutes=10)).isoformat(),
+                ),
+            ],
+        )
+        result = analytics_db.delete_day(TEST_VIN, tz, date(2026, 2, 1))
+        assert result["deleted"] == 1
+        with analytics_db._lock:
+            remaining = {
+                r["drive_id"]
+                for r in analytics_db._conn.execute(
+                    "SELECT drive_id FROM drives WHERE vin = ?", (TEST_VIN,)
+                ).fetchall()
+            }
+        assert remaining == {"day2"}
+
+    def test_delete_vin_clears_pictures_and_meta(self, analytics_db: Any) -> None:
+        from custom_components.rivian.analytics_db import VehiclePicture
+
+        analytics_db.save_vehicle_picture(
+            TEST_VIN,
+            VehiclePicture(
+                status="ok",
+                content_type="image/png",
+                image=b"fake",
+                source_url="https://example.com/x.png",
+                options=[],
+                fetched_ts=time.time(),
+            ),
+        )
+        meta_keys = [
+            f"drive_stats_version:{TEST_VIN}",
+            f"energy_model:{TEST_VIN}",
+            f"road_heat_format:{TEST_VIN}",
+        ]
+        for key in meta_keys:
+            analytics_db.set_meta(key, "1")
+
+        analytics_db.delete_vin(TEST_VIN)
+
+        assert analytics_db.get_vehicle_picture(TEST_VIN) is None
+        for key in meta_keys:
+            assert analytics_db.get_meta(key) is None

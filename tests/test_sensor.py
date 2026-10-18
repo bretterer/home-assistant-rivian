@@ -26,6 +26,7 @@ from custom_components.rivian.const import (
     DOMAIN,
     DRIVE_SENSORS,
     MPGE_CONVERSION_FACTOR,
+    RIVIAN_ANALYTICS_UPDATED_EVENT,
 )
 from custom_components.rivian.drive_models import (
     ChargingSample,
@@ -43,6 +44,7 @@ from custom_components.rivian.sensor import (
 )
 from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
 from homeassistant.const import UnitOfEnergyDistance, UnitOfLength
+from homeassistant.exceptions import HomeAssistantError
 
 TEST_VIN = "7PDSGABA8NN000000"
 TEST_VEHICLE_ID = "01894b9f-0000-0000-0000-000000000000"
@@ -236,6 +238,9 @@ class TestTranslationFiles:
         for svc in (
             "backfill_drive_history",
             "create_efficiency_dashboard",
+            "rebuild_heat_map",
+            "recompute_drive_stats",
+            "fit_energy_model",
         ):
             assert svc in strings_services, f"Missing service {svc} in strings.json"
             assert svc in en_services, f"Missing service {svc} in en.json"
@@ -1183,6 +1188,275 @@ class TestIntegrationLifecycle:
             # state (services, AnalyticsDatabase connection), so DOMAIN itself
             # may no longer be present in hass.data at all.
             assert mock_config_entry.entry_id not in mock_hass.data.get(DOMAIN, {})
+
+    @pytest.mark.asyncio
+    async def test_rebuild_heat_map_service_for_one_vin_and_all_and_unknown_vin(
+        self,
+        mock_hass: Any,
+        analytics_db: Any,
+        mock_vehicle_info: dict[str, Any],
+        mock_config_entry: MagicMock,
+    ) -> None:
+        """rivian.rebuild_heat_map recounts for one VIN or all, and errors on an unknown VIN."""
+        mock_api = AsyncMock()
+        mock_api.create_csrf_token = AsyncMock()
+        mock_api.close = AsyncMock()
+
+        mock_user_coordinator = MagicMock()
+        mock_user_coordinator.async_config_entry_first_refresh = AsyncMock()
+        mock_user_coordinator.data = {"registrationChannels": []}
+        mock_user_coordinator.get_vehicles = MagicMock(
+            return_value={TEST_VEHICLE_ID: mock_vehicle_info}
+        )
+
+        mock_vehicle_coordinator = MockVehicleCoordinator()
+        mock_vehicle_coordinator.async_config_entry_first_refresh = AsyncMock()
+
+        mock_wallbox_coordinator = MagicMock()
+        mock_wallbox_coordinator.async_config_entry_first_refresh = AsyncMock()
+
+        mock_hass.config_entries = MagicMock()
+        mock_hass.config_entries.async_forward_entry_setups = AsyncMock()
+        mock_hass.config_entries.async_unload_platforms = AsyncMock(return_value=True)
+
+        def _drive_store_factory(
+            *, hass: Any, vin: str, db: Any = None, weather_lookups: bool = True
+        ) -> DriveStore:
+            return DriveStore(hass, vin, analytics_db)
+
+        with (
+            patch(
+                "custom_components.rivian.get_rivian_api_from_entry",
+                return_value=mock_api,
+            ),
+            patch(
+                "custom_components.rivian.UserCoordinator",
+                return_value=mock_user_coordinator,
+            ),
+            patch(
+                "custom_components.rivian.VehicleCoordinator",
+                return_value=mock_vehicle_coordinator,
+            ),
+            patch(
+                "custom_components.rivian.WallboxCoordinator",
+                return_value=mock_wallbox_coordinator,
+            ),
+            patch(
+                "custom_components.rivian.DriveStore",
+                side_effect=_drive_store_factory,
+            ),
+            patch(
+                "custom_components.rivian.AnalyticsDatabase",
+                return_value=analytics_db,
+            ),
+        ):
+            assert await integration_async_setup_entry(mock_hass, mock_config_entry)
+
+            store: DriveStore = mock_hass.data[DOMAIN][mock_config_entry.entry_id][
+                ATTR_DRIVE_STORE
+            ][TEST_VEHICLE_ID]
+            vin = store.vin
+
+            assert mock_hass.services.has_service(DOMAIN, "rebuild_heat_map")
+
+            # Explicit VIN.
+            await mock_hass.services.async_call(
+                DOMAIN, "rebuild_heat_map", {"vin": vin}
+            )
+            # Open Drives cards are told to redraw the heat map.
+            mock_hass.bus.async_fire.assert_any_call(
+                RIVIAN_ANALYTICS_UPDATED_EVENT, {"vin": vin}
+            )
+            # No VIN -- every configured vehicle.
+            await mock_hass.services.async_call(DOMAIN, "rebuild_heat_map", {})
+
+            # An unknown VIN raises rather than silently doing nothing.
+            with pytest.raises(HomeAssistantError):
+                await mock_hass.services.async_call(
+                    DOMAIN, "rebuild_heat_map", {"vin": "not-a-real-vin"}
+                )
+
+            await integration_async_unload_entry(mock_hass, mock_config_entry)
+            assert not mock_hass.services.has_service(DOMAIN, "rebuild_heat_map")
+
+    @pytest.mark.asyncio
+    async def test_recompute_drive_stats_service_for_one_vin_and_all_and_unknown_vin(
+        self,
+        mock_hass: Any,
+        analytics_db: Any,
+        mock_vehicle_info: dict[str, Any],
+        mock_config_entry: MagicMock,
+    ) -> None:
+        """rivian.recompute_drive_stats recomputes for one VIN or all, and errors on an unknown VIN."""
+        mock_api = AsyncMock()
+        mock_api.create_csrf_token = AsyncMock()
+        mock_api.close = AsyncMock()
+
+        mock_user_coordinator = MagicMock()
+        mock_user_coordinator.async_config_entry_first_refresh = AsyncMock()
+        mock_user_coordinator.data = {"registrationChannels": []}
+        mock_user_coordinator.get_vehicles = MagicMock(
+            return_value={TEST_VEHICLE_ID: mock_vehicle_info}
+        )
+
+        mock_vehicle_coordinator = MockVehicleCoordinator()
+        mock_vehicle_coordinator.async_config_entry_first_refresh = AsyncMock()
+
+        mock_wallbox_coordinator = MagicMock()
+        mock_wallbox_coordinator.async_config_entry_first_refresh = AsyncMock()
+
+        mock_hass.config_entries = MagicMock()
+        mock_hass.config_entries.async_forward_entry_setups = AsyncMock()
+        mock_hass.config_entries.async_unload_platforms = AsyncMock(return_value=True)
+
+        def _drive_store_factory(
+            *, hass: Any, vin: str, db: Any = None, weather_lookups: bool = True
+        ) -> DriveStore:
+            return DriveStore(hass, vin, analytics_db)
+
+        with (
+            patch(
+                "custom_components.rivian.get_rivian_api_from_entry",
+                return_value=mock_api,
+            ),
+            patch(
+                "custom_components.rivian.UserCoordinator",
+                return_value=mock_user_coordinator,
+            ),
+            patch(
+                "custom_components.rivian.VehicleCoordinator",
+                return_value=mock_vehicle_coordinator,
+            ),
+            patch(
+                "custom_components.rivian.WallboxCoordinator",
+                return_value=mock_wallbox_coordinator,
+            ),
+            patch(
+                "custom_components.rivian.DriveStore",
+                side_effect=_drive_store_factory,
+            ),
+            patch(
+                "custom_components.rivian.AnalyticsDatabase",
+                return_value=analytics_db,
+            ),
+        ):
+            assert await integration_async_setup_entry(mock_hass, mock_config_entry)
+
+            store: DriveStore = mock_hass.data[DOMAIN][mock_config_entry.entry_id][
+                ATTR_DRIVE_STORE
+            ][TEST_VEHICLE_ID]
+            vin = store.vin
+
+            assert mock_hass.services.has_service(DOMAIN, "recompute_drive_stats")
+
+            # Explicit VIN.
+            await mock_hass.services.async_call(
+                DOMAIN, "recompute_drive_stats", {"vin": vin}
+            )
+            mock_hass.bus.async_fire.assert_any_call(
+                RIVIAN_ANALYTICS_UPDATED_EVENT, {"vin": vin}
+            )
+            # No VIN -- every configured vehicle.
+            await mock_hass.services.async_call(DOMAIN, "recompute_drive_stats", {})
+
+            # An unknown VIN raises rather than silently doing nothing.
+            with pytest.raises(HomeAssistantError):
+                await mock_hass.services.async_call(
+                    DOMAIN, "recompute_drive_stats", {"vin": "not-a-real-vin"}
+                )
+
+            await integration_async_unload_entry(mock_hass, mock_config_entry)
+            assert not mock_hass.services.has_service(DOMAIN, "recompute_drive_stats")
+
+    @pytest.mark.asyncio
+    async def test_fit_energy_model_service_for_one_vin_and_all_and_unknown_vin(
+        self,
+        mock_hass: Any,
+        analytics_db: Any,
+        mock_vehicle_info: dict[str, Any],
+        mock_config_entry: MagicMock,
+    ) -> None:
+        """rivian.fit_energy_model refits for one VIN or all, and errors on an unknown VIN."""
+        mock_api = AsyncMock()
+        mock_api.create_csrf_token = AsyncMock()
+        mock_api.close = AsyncMock()
+
+        mock_user_coordinator = MagicMock()
+        mock_user_coordinator.async_config_entry_first_refresh = AsyncMock()
+        mock_user_coordinator.data = {"registrationChannels": []}
+        mock_user_coordinator.get_vehicles = MagicMock(
+            return_value={TEST_VEHICLE_ID: mock_vehicle_info}
+        )
+
+        mock_vehicle_coordinator = MockVehicleCoordinator()
+        mock_vehicle_coordinator.async_config_entry_first_refresh = AsyncMock()
+
+        mock_wallbox_coordinator = MagicMock()
+        mock_wallbox_coordinator.async_config_entry_first_refresh = AsyncMock()
+
+        mock_hass.config_entries = MagicMock()
+        mock_hass.config_entries.async_forward_entry_setups = AsyncMock()
+        mock_hass.config_entries.async_unload_platforms = AsyncMock(return_value=True)
+
+        def _drive_store_factory(
+            *, hass: Any, vin: str, db: Any = None, weather_lookups: bool = True
+        ) -> DriveStore:
+            return DriveStore(hass, vin, analytics_db)
+
+        with (
+            patch(
+                "custom_components.rivian.get_rivian_api_from_entry",
+                return_value=mock_api,
+            ),
+            patch(
+                "custom_components.rivian.UserCoordinator",
+                return_value=mock_user_coordinator,
+            ),
+            patch(
+                "custom_components.rivian.VehicleCoordinator",
+                return_value=mock_vehicle_coordinator,
+            ),
+            patch(
+                "custom_components.rivian.WallboxCoordinator",
+                return_value=mock_wallbox_coordinator,
+            ),
+            patch(
+                "custom_components.rivian.DriveStore",
+                side_effect=_drive_store_factory,
+            ),
+            patch(
+                "custom_components.rivian.AnalyticsDatabase",
+                return_value=analytics_db,
+            ),
+        ):
+            assert await integration_async_setup_entry(mock_hass, mock_config_entry)
+
+            store: DriveStore = mock_hass.data[DOMAIN][mock_config_entry.entry_id][
+                ATTR_DRIVE_STORE
+            ][TEST_VEHICLE_ID]
+            vin = store.vin
+
+            assert mock_hass.services.has_service(DOMAIN, "fit_energy_model")
+
+            # Explicit VIN -- too few drives, so no existing fit is created,
+            # but the call still succeeds and fires the update event.
+            await mock_hass.services.async_call(
+                DOMAIN, "fit_energy_model", {"vin": vin}
+            )
+            mock_hass.bus.async_fire.assert_any_call(
+                RIVIAN_ANALYTICS_UPDATED_EVENT, {"vin": vin}
+            )
+            # No VIN -- every configured vehicle.
+            await mock_hass.services.async_call(DOMAIN, "fit_energy_model", {})
+
+            # An unknown VIN raises rather than silently doing nothing.
+            with pytest.raises(HomeAssistantError):
+                await mock_hass.services.async_call(
+                    DOMAIN, "fit_energy_model", {"vin": "not-a-real-vin"}
+                )
+
+            await integration_async_unload_entry(mock_hass, mock_config_entry)
+            assert not mock_hass.services.has_service(DOMAIN, "fit_energy_model")
 
     @pytest.mark.asyncio
     async def test_create_dashboard_service_rechecks_staleness_afterward(

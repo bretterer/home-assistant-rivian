@@ -173,6 +173,7 @@ def _build_overview_view(
     vehicles_with_entry: list[tuple[str, str, str, str]],
     entities_by_vin: dict[str, dict[str, str]],
     vehicle_models: dict[str, str],
+    url_path: str,
 ) -> dict[str, Any]:
     """Build the Overview tab: one `rivian-overview-card` listing every vehicle.
 
@@ -208,9 +209,50 @@ def _build_overview_view(
             {
                 "type": "custom:rivian-overview-card",
                 "vehicles": vehicles_payload,
+                "drives_path": f"/{url_path}/drives",
             }
         ],
     }
+
+
+def _has_vin(vehicles: list[tuple[str, str, str]]) -> bool:
+    return any(vin for (_name, _prefix, vin) in vehicles)
+
+
+def _build_panel_view(
+    vehicles: list[tuple[str, str, str]],
+    *,
+    title: str,
+    path: str,
+    icon: str,
+    card_type: str,
+) -> dict[str, Any]:
+    """Build a panel-mode tab holding ONE card for every vehicle.
+
+    The card follows the shared vehicle selection (the vehicle bar is drawn
+    inside the card's header); its optional ``vins`` config would pin a fixed
+    set instead. Without any resolved VIN there is nothing to show.
+    """
+    return {
+        "title": title,
+        "path": path,
+        "icon": icon,
+        # Tabs show their icon AND name (HA otherwise shows only the icon).
+        "show_icon_and_title": True,
+        "panel": True,
+        "cards": [{"type": card_type}] if _has_vin(vehicles) else [],
+    }
+
+
+def _build_drives_view(vehicles: list[tuple[str, str, str]]) -> dict[str, Any]:
+    """Build the panel-mode Drives tab: one drive-explorer card."""
+    return _build_panel_view(
+        vehicles,
+        title="Drives",
+        path="drives",
+        icon="mdi:map-marker-path",
+        card_type="custom:rivian-drive-explorer-card",
+    )
 
 
 async def async_discover_vehicle_prefixes(
@@ -286,9 +328,10 @@ async def async_create_efficiency_dashboard(
 ) -> bool:
     """Create or update the turnkey, tabbed Rivian dashboard in Home Assistant.
 
-    The only tab is Overview: a single `rivian-overview-card` listing every
-    vehicle (see `_build_overview_view`). There is no picker or conditional
-    card anywhere.
+    Views/tabs are generated in order: Overview and Drives (panel). The
+    Overview tab is a single `rivian-overview-card` listing every vehicle (see
+    `_build_overview_view`). Drives holds ONE card that follows the shared
+    vehicle selection. There is no picker or conditional card anywhere.
     """
     dashboard_id = url_path.replace("-", "_")
     vehicles_with_entry = await async_discover_vehicle_prefixes(hass)
@@ -302,8 +345,8 @@ async def async_create_efficiency_dashboard(
     for vehicle_name, _prefix, vin, _entry_id in vehicles_with_entry:
         if not vin:
             _LOGGER.warning(
-                "No VIN resolved for %s; analytics charts "
-                "will be omitted for it. Re-run this service once "
+                "No VIN resolved for %s; analytics charts and the drive "
+                "explorer will be omitted for it. Re-run this service once "
                 "the vehicle's entities are fully registered",
                 vehicle_name,
             )
@@ -319,11 +362,13 @@ async def async_create_efficiency_dashboard(
     vehicle_models = _collect_vehicle_models(hass)
 
     overview_view = _build_overview_view(
-        vehicles_with_entry, entities_by_vin, vehicle_models
+        vehicles_with_entry, entities_by_vin, vehicle_models, url_path
     )
+    drives_view = _build_drives_view(vehicles)
 
     views: list[dict[str, Any]] = [
         overview_view,
+        drives_view,
         # No vehicle status/controls tab for now; a redesigned one is planned.
     ]
 

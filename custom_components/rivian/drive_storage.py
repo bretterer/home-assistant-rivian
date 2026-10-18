@@ -10,13 +10,22 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, tzinfo
 import logging
 from typing import TYPE_CHECKING, Any, Final
 
 from homeassistant.helpers.storage import Store
+from homeassistant.util import dt as dt_util
 
-from .analytics_db import ActiveCheckpoint, AnalyticsDatabase, HotCache, VehiclePicture
+from . import road_snap
+from .analytics_db import (
+    ENERGY_MODEL_MIN_DRIVES,
+    ENERGY_MODEL_WINDOW_DAYS,
+    ActiveCheckpoint,
+    AnalyticsDatabase,
+    HotCache,
+    VehiclePicture,
+)
 from .const import RIVIAN_ANALYTICS_UPDATED_EVENT
 from .drive_models import (
     AggregatedDriveStats,
@@ -25,6 +34,8 @@ from .drive_models import (
     VampireDrainRecord,
 )
 from .drive_track import DriveTrack
+from .energy_model import EnergyModelParams
+from .statistics import async_clear_statistics, async_rewrite_statistics
 from .weather import OpenMeteoWeatherClient
 
 if TYPE_CHECKING:
@@ -35,6 +46,7 @@ _LOGGER = logging.getLogger(__name__)
 LEGACY_STORAGE_KEY_PREFIX: Final[str] = "rivian_drives"
 LEGACY_STORAGE_VERSION: Final[int] = 1
 LEGACY_STORAGE_MINOR_VERSION: Final[int] = 1
+SNAP_GAPS_BATCH_LIMIT: Final[int] = 20
 
 
 def _empty_cache() -> HotCache:
@@ -83,7 +95,10 @@ class DriveStore:
         self._loaded = False
         self._revision = 0
         self._cache: HotCache = _empty_cache()
+        self._heat_seeded = False
         self._stats_recompute_seeded = False
+        self._energy_model_seeded = False
+        self._gap_snap_seeded = False
 
     # -- sync, cache-only accessors (never touch SQLite) ---------------------
 
@@ -156,12 +171,16 @@ class DriveStore:
                     await self._async_import_legacy_json()
                 self._loaded = True
         await self.async_refresh_cache()
+        self._async_seed_heat_once()
         self._async_maybe_recompute_stats_once()
+        self._async_maybe_fit_energy_model_once()
+        self._async_seed_snap_gaps_once()
 
     def _async_maybe_recompute_stats_once(self) -> None:
         """Schedule a one-time background stats recompute if any drive needs it.
 
-        Guarded so it only ever runs once per store instance. A drive needs this right after the v6
+        Guarded so it only ever runs once per store instance; mirrors
+        ``_async_seed_heat_once``. A drive needs this right after the v6
         schema migration (new track-derived columns start out NULL) -- the
         cheap existence check means a normal restart with nothing to do is a
         no-op.
@@ -191,6 +210,71 @@ class DriveStore:
                 "Post-migration drive stats recompute failed for VIN %s (non-fatal)",
                 self.vin,
             )
+
+    def _async_maybe_fit_energy_model_once(self) -> None:
+        """Schedule a one-time background energy-model fit if none exists yet.
+
+        Guarded so it only ever runs once per store instance, like
+        ``_async_seed_heat_once``/``_async_maybe_recompute_stats_once``. The
+        daily retention-prune timer in ``__init__.py`` refits unconditionally
+        once a day; this just means a fresh install doesn't wait a full day
+        for its first fit.
+        """
+        if self._energy_model_seeded:
+            return
+        self._energy_model_seeded = True
+        self.hass.async_create_background_task(
+            self._async_fit_energy_model_if_needed(),
+            name=f"rivian energy model seed {self.vin}",
+        )
+
+    async def _async_fit_energy_model_if_needed(self) -> None:
+        """Best-effort: fit the energy model if this VIN has no stored fit yet."""
+        try:
+            existing = await self.async_get_energy_model()
+            if existing is not None:
+                return
+            result = await self.async_fit_energy_model()
+            _LOGGER.info("Initial energy-model fit for VIN %s: %s", self.vin, result)
+        except Exception:
+            _LOGGER.exception(
+                "Initial energy-model fit failed for VIN %s (non-fatal)", self.vin
+            )
+
+    async def async_get_energy_model(self) -> EnergyModelParams | None:
+        """Return this VIN's stored fitted energy-model params, or None if never fitted."""
+        if not self._loaded:
+            await self.async_load()
+        return await self.hass.async_add_executor_job(
+            self._db.get_energy_model, self.vin
+        )
+
+    async def async_fit_energy_model(
+        self,
+        window_days: int = ENERGY_MODEL_WINDOW_DAYS,
+        min_drives: int = ENERGY_MODEL_MIN_DRIVES,
+    ) -> dict[str, Any]:
+        """Refit this VIN's anchored energy-model coefficients; see AnalyticsDatabase.fit_energy_model."""
+        if not self._loaded:
+            await self.async_load()
+        return await self.hass.async_add_executor_job(
+            self._db.fit_energy_model, self.vin, window_days, min_drives
+        )
+
+    def _async_seed_heat_once(self) -> None:
+        """Schedule a one-time background road-heat catch-up after this store first loads.
+
+        Seeds heat for any routes already stored (e.g. before this feature
+        existed) without blocking setup; guarded so it only ever runs once
+        per store instance.
+        """
+        if self._heat_seeded:
+            return
+        self._heat_seeded = True
+        self.hass.async_create_background_task(
+            self._async_update_heat_safe(),
+            name=f"rivian heat seed {self.vin}",
+        )
 
     # -- weather ---------------------------------------------------------------
 
@@ -345,6 +429,14 @@ class DriveStore:
             self._db.charging_session_intervals, self.vin
         )
 
+    async def async_reset(self) -> None:
+        """Delete all analytics rows for this VIN and reset the hot cache."""
+        await self.hass.async_add_executor_job(self._db.delete_vin, self.vin)
+        self._cache = _empty_cache()
+        self._revision += 1
+        self._loaded = True
+        _LOGGER.info("Reset analytics storage for VIN %s", self.vin)
+
     # -- GPS drive tracks -----------------------------------------------------
 
     async def async_finalize_drive(
@@ -357,6 +449,18 @@ class DriveStore:
             self._db.finalize_drive, self.vin, record, track
         )
         await self.async_refresh_cache()
+        # Counted in the background: a heat run already in progress (e.g. the
+        # startup seed over a long history) must not delay finishing the drive.
+        # It fires its own update event once the heat map includes this drive.
+        self.hass.async_create_background_task(
+            self._async_update_heat_safe(),
+            name=f"rivian heat update {self.vin}",
+        )
+        if track is not None:
+            self.hass.async_create_background_task(
+                self._async_snap_gaps_safe(),
+                name=f"rivian gap snap {self.vin}",
+            )
         return is_new
 
     async def async_upsert_tracks(
@@ -369,6 +473,12 @@ class DriveStore:
             self._db.upsert_tracks, self.vin, items, source
         )
         await self.async_refresh_cache()
+        if written:
+            await self._async_update_heat_safe()
+            self.hass.async_create_background_task(
+                self._async_snap_gaps_safe(),
+                name=f"rivian gap snap {self.vin}",
+            )
         return written
 
     async def async_get_track(self, drive_id: str) -> DriveTrack | None:
@@ -408,6 +518,40 @@ class DriveStore:
             await self.async_load()
         return await self.hass.async_add_executor_job(
             self._db.get_drive_detail, self.vin, drive_id
+        )
+
+    async def async_calendar(
+        self,
+        tz: tzinfo,
+        year: int | None = None,
+        month: int | None = None,
+        include_micro: bool = False,
+        vins: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Return the All time -> years -> months -> days grouping for this VIN.
+
+        ``vins`` (which must include this store's VIN; the database is shared)
+        returns the combined tree with a ``by_vin`` breakdown on every node.
+        """
+        if not self._loaded:
+            await self.async_load()
+        return await self.hass.async_add_executor_job(
+            self._db.calendar,
+            vins if vins is not None else self.vin,
+            tz,
+            year,
+            month,
+            include_micro,
+        )
+
+    async def async_day(
+        self, tz: tzinfo, day: date, include_micro: bool = False
+    ) -> dict[str, Any]:
+        """Return one local calendar day's drives (segments), stops, and endpoints."""
+        if not self._loaded:
+            await self.async_load()
+        return await self.hass.async_add_executor_job(
+            self._db.day, self.vin, tz, day, include_micro
         )
 
     async def async_drives_missing_tracks(
@@ -536,7 +680,7 @@ class DriveStore:
     async def async_recompute_stats(self) -> dict[str, int]:
         """Recompute track-derived summary stats for every drive with a stored track.
 
-        Used by the history backfill (after it writes routes) and by the
+        Used by the ``rivian.recompute_drive_stats`` service and by the
         one-time post-migration catch-up. Never touches the live-only
         vehicle-context columns (range, drive modes, trailer, driver).
         """
@@ -547,6 +691,258 @@ class DriveStore:
         )
         await self.async_refresh_cache()
         return result
+
+    # -- road heat map -----------------------------------------------------------
+
+    async def async_heat_info(
+        self, period: str, key: str | None = None, vins: list[str] | None = None
+    ) -> dict[str, Any]:
+        """Return road-heat summary info (bbox/scale_max/cells/drives) for a period.
+
+        ``vins`` returns the merged grid of those vehicles (database is shared).
+        """
+        if not self._loaded:
+            await self.async_load()
+        return await self.hass.async_add_executor_job(
+            self._db.heat_info, vins if vins is not None else self.vin, period, key
+        )
+
+    async def async_heat_tile(
+        self,
+        period: str,
+        key: str | None,
+        z: int,
+        x: int,
+        y: int,
+        margin: int = 0,
+        vins: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Return one XYZ tile's road-heat cells (plus scale_max) for a period."""
+        if not self._loaded:
+            await self.async_load()
+        return await self.hass.async_add_executor_job(
+            self._db.heat_tile,
+            vins if vins is not None else self.vin,
+            period,
+            key,
+            z,
+            x,
+            y,
+            margin,
+        )
+
+    async def async_update_heat(self) -> int:
+        """Count every stored route not yet counted into this VIN's road-heat map."""
+        if not self._loaded:
+            await self.async_load()
+        tz = dt_util.get_default_time_zone()
+        return await self.hass.async_add_executor_job(
+            self._db.update_heat, self.vin, tz
+        )
+
+    async def async_rebuild_heat(self) -> dict[str, Any]:
+        """Recount road heat from scratch (recovery after a time-zone change)."""
+        if not self._loaded:
+            await self.async_load()
+        tz = dt_util.get_default_time_zone()
+        return await self.hass.async_add_executor_job(
+            self._db.rebuild_heat, self.vin, tz
+        )
+
+    async def _async_update_heat_safe(self, fire_event: bool = True) -> int:
+        """Best-effort road-heat catch-up: a failure here must never propagate.
+
+        Called after a drive finalizes, after a backfill writes tracks, and
+        once as a background task after this store first loads. Fires
+        ``RIVIAN_ANALYTICS_UPDATED_EVENT`` only when it actually counted a
+        drive, and only when the caller hasn't already fired (or isn't about
+        to fire) that event itself for this same change.
+        """
+        try:
+            counted = await self.async_update_heat()
+        except Exception:
+            _LOGGER.exception(
+                "Road heat map update failed for VIN %s (non-fatal)", self.vin
+            )
+            return 0
+        if counted and fire_event:
+            self.hass.bus.async_fire(RIVIAN_ANALYTICS_UPDATED_EVENT, {"vin": self.vin})
+        return counted
+
+    # -- road-snapped gap filling -------------------------------------------------
+
+    def _async_seed_snap_gaps_once(self) -> None:
+        """Schedule a one-time background gap-snap catch-up after this store first loads.
+
+        Mirrors ``_async_seed_heat_once``: guarded so it only ever runs once
+        per store instance, and covers routes stored before this feature
+        existed without blocking setup.
+        """
+        if self._gap_snap_seeded:
+            return
+        self._gap_snap_seeded = True
+        self.hass.async_create_background_task(
+            self._async_snap_gaps_safe(seed=True),
+            name=f"rivian gap snap seed {self.vin}",
+        )
+
+    async def _async_snap_gaps_safe(self, seed: bool = False) -> None:
+        """Best-effort: snap this VIN's unresolved GPS gaps; never raises.
+
+        When `seed` is set (the once-after-load catch-up only) and any fill
+        landed on a drive whose heat was already counted, a plain
+        ``update_heat()`` would skip that drive (it only counts drives not
+        yet in road_heat_drives), so its month is recounted from scratch
+        once here instead of on every future seed run.
+        """
+        try:
+            result = await self.async_snap_gaps()
+            if seed and result.get("heat_stale_drives"):
+                await self.async_rebuild_heat()
+            if result.get("added"):
+                self.hass.bus.async_fire(
+                    RIVIAN_ANALYTICS_UPDATED_EVENT, {"vin": self.vin}
+                )
+        except Exception:
+            _LOGGER.exception(
+                "Road gap snapping failed for VIN %s (non-fatal)", self.vin
+            )
+
+    async def async_snap_gaps(self) -> dict[str, Any]:
+        """Fill recorded GPS gaps by snapping them onto OSM roads via Overpass.
+
+        Processes ``gaps_to_snap`` in batches: for each gap, a bbox is
+        computed and its OSM road data is fetched (or reused from cache),
+        then the gap is snapped in the executor (pure CPU). A successful
+        snap is saved as a fill; a definitive no-path result is saved as a
+        'none' record so it isn't retried forever; a network/parse failure
+        from Overpass leaves the gap unresolved entirely (retried on the
+        next pass, live or seeded). Returns ``{"added": <fills written>,
+        "heat_stale_drives": <drive_ids already counted in road heat that got
+        a new fill>}``. Callers decide whether/when to fire
+        ``RIVIAN_ANALYTICS_UPDATED_EVENT`` and rebuild heat for stale drives.
+        """
+        if not self._loaded:
+            await self.async_load()
+        added = 0
+        heat_stale: set[str] = set()
+        # A gap left unresolved by a network/parse failure (see below) keeps
+        # no track_fills row, so gaps_to_snap would return it again on every
+        # pass -- track what this call has already attempted so it can't
+        # loop forever on a persistently-unreachable Overpass instance.
+        attempted: set[tuple[str, float]] = set()
+        while True:
+            raw_batch = await self.hass.async_add_executor_job(
+                self._db.gaps_to_snap, self.vin, SNAP_GAPS_BATCH_LIMIT
+            )
+            batch = [
+                (drive_id, gap)
+                for drive_id, gap in raw_batch
+                if (drive_id, gap.start.t) not in attempted
+            ]
+            if not batch:
+                break
+            for drive_id, gap in batch:
+                attempted.add((drive_id, gap.start.t))
+            drive_ids = list({drive_id for drive_id, _gap in batch})
+            already_counted = await self.hass.async_add_executor_job(
+                self._db.drives_counted_in_heat, self.vin, drive_ids
+            )
+            for drive_id, gap in batch:
+                bbox = road_snap.gap_bbox(gap)
+                if road_snap.bbox_area_m2(bbox) > road_snap.MAX_BBOX_AREA_M2:
+                    await self.hass.async_add_executor_job(
+                        self._db.save_track_fill,
+                        self.vin,
+                        drive_id,
+                        gap.start.t,
+                        [],
+                        "none",
+                    )
+                    continue
+
+                key = road_snap.bbox_key(bbox)
+                ways = await self.hass.async_add_executor_job(
+                    self._db.get_cached_roads, key
+                )
+                if ways is None:
+                    ways = await road_snap.async_fetch_roads(self.hass, bbox)
+                    if ways is None:
+                        # Network/parse failure: not a definitive "no road
+                        # here", so leave it unresolved rather than record
+                        # 'none' -- the next pass will try again.
+                        continue
+                    await self.hass.async_add_executor_job(
+                        self._db.save_cached_roads, key, ways
+                    )
+
+                points = await self.hass.async_add_executor_job(
+                    road_snap.snap_gap, gap, ways
+                )
+                if points:
+                    await self.hass.async_add_executor_job(
+                        self._db.save_track_fill,
+                        self.vin,
+                        drive_id,
+                        gap.start.t,
+                        points,
+                        "osm",
+                    )
+                    added += 1
+                    if drive_id in already_counted:
+                        heat_stale.add(drive_id)
+                else:
+                    await self.hass.async_add_executor_job(
+                        self._db.save_track_fill,
+                        self.vin,
+                        drive_id,
+                        gap.start.t,
+                        [],
+                        "none",
+                    )
+        return {"added": added, "heat_stale_drives": sorted(heat_stale)}
+
+    # -- delete, with confirmation (caller asks first; see the frontend cards) ----
+
+    async def async_delete_drive(self, drive_id: str) -> dict[str, Any]:
+        """Delete one drive and everything derived from it; rewrite statistics."""
+        if not self._loaded:
+            await self.async_load()
+        result = await self.hass.async_add_executor_job(
+            self._db.delete_drives, self.vin, [drive_id]
+        )
+        await self._async_post_delete(result)
+        return result
+
+    async def async_delete_day(self, tz: tzinfo, day: date) -> dict[str, Any]:
+        """Delete every drive on one local calendar day; rewrite statistics."""
+        if not self._loaded:
+            await self.async_load()
+        result = await self.hass.async_add_executor_job(
+            self._db.delete_day, self.vin, tz, day
+        )
+        await self._async_post_delete(result)
+        return result
+
+    async def _async_post_delete(self, result: dict[str, Any]) -> None:
+        """Shared tail of a drive/day delete: rewrite statistics, refresh, fire event."""
+        affected_hours = result.get("affected_hours") or []
+        if affected_hours:
+            await async_rewrite_statistics(self.hass, self, min(affected_hours))
+        await self.async_refresh_cache()
+        self.hass.bus.async_fire(RIVIAN_ANALYTICS_UPDATED_EVENT, {"vin": self.vin})
+
+    async def async_delete_vehicle_history(self) -> None:
+        """Delete all analytics data for this VIN and clear its long-term statistics.
+
+        Used by the Overview tab's "Delete vehicle history" action. The
+        vehicle keeps recording new drives afterward.
+        """
+        if not self._loaded:
+            await self.async_load()
+        await self.async_reset()
+        async_clear_statistics(self.hass, self.vin)
+        self.hass.bus.async_fire(RIVIAN_ANALYTICS_UPDATED_EVENT, {"vin": self.vin})
 
     # -- diagnostics / test surface -----------------------------------------------
 

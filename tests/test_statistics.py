@@ -1,4 +1,4 @@
-"""Unit tests for long-term statistics writing and rewriting."""
+"""Unit tests for long-term statistics writing, rewriting and clearing."""
 
 from __future__ import annotations
 
@@ -174,6 +174,23 @@ class TestAsyncRewriteStatistics:
         store = _FakeStore(TEST_VIN, [])
         # Must return cleanly without touching recorder.get_instance at all.
         await statistics_mod.async_rewrite_statistics(mock_hass, store, 0.0)
+
+
+class TestAsyncClearStatistics:
+    """async_clear_statistics: clears the VIN's four stat ids, or skips without recorder."""
+
+    def test_clears_the_vins_four_stat_ids(
+        self, hass_with_recorder: Any, fake_recorder: _FakeRecorderInstance
+    ) -> None:
+        statistics_mod.async_clear_statistics(hass_with_recorder, TEST_VIN)
+        assert len(fake_recorder.cleared) == 1
+        ids = statistics_mod._stat_ids(TEST_VIN)
+        assert set(fake_recorder.cleared[0]) == set(ids.as_tuple())
+
+    def test_skips_when_recorder_not_loaded(self, mock_hass: Any) -> None:
+        mock_hass.config.components = []
+        # Must not raise, and must not touch recorder.get_instance.
+        statistics_mod.async_clear_statistics(mock_hass, TEST_VIN)
 
 
 def test_half_hour_offset_start_buckets_by_utc_hour() -> None:

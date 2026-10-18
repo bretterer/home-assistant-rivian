@@ -900,6 +900,7 @@ class TestServiceRegistration:
 
         assert mock_hass.services.has_service(DOMAIN, "backfill_drive_history")
         assert mock_hass.services.has_service(DOMAIN, "create_efficiency_dashboard")
+        assert mock_hass.services.has_service(DOMAIN, "recompute_drive_stats")
 
         # Test calling service with default dry_run (should default to True)
         with patch(
@@ -952,6 +953,7 @@ class TestServiceRegistration:
 
         assert not mock_hass.services.has_service(DOMAIN, "backfill_drive_history")
         assert not mock_hass.services.has_service(DOMAIN, "create_efficiency_dashboard")
+        assert not mock_hass.services.has_service(DOMAIN, "recompute_drive_stats")
 
 
 class TestVampireEventReconstruction:

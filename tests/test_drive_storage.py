@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 import os
 from typing import Any
 from unittest.mock import AsyncMock
+from zoneinfo import ZoneInfo
 
 import pytest
 
+from custom_components.rivian import road_snap
 from custom_components.rivian.analytics_db import SCHEMA_VERSION
+from custom_components.rivian.const import RIVIAN_ANALYTICS_UPDATED_EVENT
 from custom_components.rivian.drive_models import (
     MPGE_FACTOR,
     AggregatedDriveStats,
@@ -26,6 +29,7 @@ from custom_components.rivian.drive_storage import DriveStore
 from custom_components.rivian.drive_track import DriveTrack, TrackPoint
 
 TEST_VIN = "7PDSGABA8NN000000"
+OTHER_VIN = "7PDSGABA8NN999999"
 
 
 def _create_sample_drive(
@@ -421,6 +425,36 @@ class TestDriveStore:
         )  # 2.83 mi/kWh * 33.705 ~= 95.4 MPGe
         assert stats.total_micro_drives == 4
 
+    @pytest.mark.asyncio
+    async def test_async_reset_cleans_storage(
+        self, mock_hass: Any, analytics_db: Any
+    ) -> None:
+        """Test reset removes storage for one VIN while a second VIN's rows survive."""
+        store = DriveStore(mock_hass, TEST_VIN, analytics_db)
+        other_store = DriveStore(mock_hass, OTHER_VIN, analytics_db)
+
+        await store.async_save_drive(_create_sample_drive())
+        await other_store.async_save_drive(
+            _create_sample_drive(drive_id="other_vin_drive")
+        )
+        assert store.drive_count == 1
+        assert other_store.drive_count == 1
+
+        await store.async_reset()
+        assert store.drive_count == 0
+        assert store.last_drive is None
+
+        # Reloading after reset returns empty state for the reset VIN
+        await store.async_load()
+        assert store.drive_count == 0
+
+        # The other VIN's rows were not touched by the reset
+        assert other_store.drive_count == 1
+        await other_store.async_refresh_cache()
+        assert other_store.drive_count == 1
+        assert other_store.last_drive is not None
+        assert other_store.last_drive.drive_id == "other_vin_drive"
+
     def test_store_metadata_and_key(
         self, analytics_db: Any, analytics_db_path: str
     ) -> None:
@@ -531,7 +565,7 @@ class TestDriveStore:
     async def test_vampire_events_storage_persistence(
         self, mock_hass: Any, analytics_db: Any
     ) -> None:
-        """Test saving, appending and loading vampire events in DriveStore."""
+        """Test saving, appending, loading, and resetting vampire events in DriveStore."""
         store = DriveStore(mock_hass, TEST_VIN, analytics_db)
         rec1 = VampireDrainRecord(
             start_time="2026-08-25T14:00:00Z",
@@ -570,6 +604,10 @@ class TestDriveStore:
         assert len(new_store.recent_vampire_events) == 2
         assert new_store.recent_vampire_events[0].drain_kwh == 0.14
         assert new_store.recent_vampire_events[1].drain_kwh == 0.58
+
+        # Test reset
+        await new_store.async_reset()
+        assert new_store.recent_vampire_events == []
 
     @pytest.mark.asyncio
     async def test_multi_period_stats_and_retention_pruning(
@@ -872,6 +910,196 @@ class TestDriveStoreTrackWrappers:
         await store.async_clear_checkpoint()
         assert (await store.async_load_checkpoint()) is None
 
+    @pytest.mark.asyncio
+    async def test_async_calendar_and_day_go_through_the_executor(
+        self, mock_hass: Any, analytics_db: Any
+    ) -> None:
+        """async_calendar/async_day round-trip through AnalyticsDatabase.calendar/day."""
+        tz = ZoneInfo("America/Chicago")
+        store = DriveStore(mock_hass, TEST_VIN, analytics_db)
+        await store.async_save_drives_batch(
+            [
+                _create_sample_drive(
+                    drive_id="cal_1",
+                    start_time="2026-09-10T15:00:00Z",
+                    end_time="2026-09-10T15:25:00Z",
+                )
+            ]
+        )
+
+        calendar = await store.async_calendar(tz, year=2026, month=9)
+        assert calendar["totals"]["drives"] == 1
+        assert [d["key"] for d in calendar["days"]] == ["2026-09-10"]
+
+        day_payload = await store.async_day(tz, date(2026, 9, 10))
+        assert [s["drive_id"] for s in day_payload["segments"]] == ["cal_1"]
+
+    @pytest.mark.asyncio
+    async def test_async_day_empty_when_no_drives(
+        self, mock_hass: Any, analytics_db: Any
+    ) -> None:
+        tz = ZoneInfo("America/Chicago")
+        store = DriveStore(mock_hass, TEST_VIN, analytics_db)
+        day_payload = await store.async_day(tz, date(2026, 9, 10))
+        assert day_payload["segments"] == []
+        assert day_payload["totals"]["drives"] == 0
+
+
+class TestDriveStoreRoadHeat:
+    """DriveStore's road-heat wrappers: finalize/backfill hooks, seeding, safety."""
+
+    @staticmethod
+    def _capture_background_tasks(
+        mock_hass: Any, monkeypatch: Any
+    ) -> list[tuple[str, Any]]:
+        """Record the (name, task) pairs the store starts, so a test can wait for them.
+
+        A store now starts up to three background tasks on first load/finalize
+        (the heat seed, the one-time stats recompute check, and finalize's own
+        heat update), so callers that care about one specific task should
+        filter this list by name rather than assuming every captured task
+        behaves the same way.
+        """
+        tasks: list[tuple[str, Any]] = []
+        original = mock_hass.async_create_background_task
+
+        def capture(target: Any, *args: Any, **kwargs: Any) -> Any:
+            task = original(target, *args, **kwargs)
+            tasks.append((kwargs.get("name", ""), task))
+            return task
+
+        monkeypatch.setattr(mock_hass, "async_create_background_task", capture)
+        return tasks
+
+    @pytest.mark.asyncio
+    async def test_finalize_drive_counts_heat_in_the_background_and_fires_once(
+        self, mock_hass: Any, analytics_db: Any, monkeypatch: Any
+    ) -> None:
+        tasks = self._capture_background_tasks(mock_hass, monkeypatch)
+        store = DriveStore(mock_hass, TEST_VIN, analytics_db)
+        # Disable the one-time background seed/recompute so only the
+        # finalize update runs.
+        store._heat_seeded = True
+        store._stats_recompute_seeded = True
+        record = _create_sample_drive(drive_id="heat_finalize_1")
+
+        await store.async_finalize_drive(record, _make_track(n=4))
+        await asyncio.gather(*(task for _name, task in tasks))
+
+        info = await store.async_heat_info("all")
+        assert info["drives"] == 1
+        mock_hass.bus.async_fire.assert_called_once_with(
+            RIVIAN_ANALYTICS_UPDATED_EVENT, {"vin": TEST_VIN}
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_failing_heat_update_is_logged_and_does_not_raise_out_of_finalize(
+        self, mock_hass: Any, analytics_db: Any, monkeypatch: Any
+    ) -> None:
+        tasks = self._capture_background_tasks(mock_hass, monkeypatch)
+        store = DriveStore(mock_hass, TEST_VIN, analytics_db)
+        # Disable the one-time stats recompute check: it's unrelated to this
+        # test's failure injection and its task doesn't return an int.
+        store._stats_recompute_seeded = True
+        monkeypatch.setattr(
+            store, "async_update_heat", AsyncMock(side_effect=RuntimeError("boom"))
+        )
+
+        is_new = await store.async_finalize_drive(
+            _create_sample_drive(drive_id="heat_failure_1"), _make_track(n=3)
+        )
+        heat_results = await asyncio.gather(
+            *(task for name, task in tasks if "heat" in name)
+        )
+
+        assert is_new is True
+        assert all(result == 0 for result in heat_results)
+        mock_hass.bus.async_fire.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_upsert_tracks_triggers_a_heat_update_and_fires_the_event(
+        self, mock_hass: Any, analytics_db: Any
+    ) -> None:
+        store = DriveStore(mock_hass, TEST_VIN, analytics_db)
+        written = await store.async_upsert_tracks(
+            [("heat_backfill_1", _make_track(n=4))], source="backfill"
+        )
+        assert written == 1
+
+        info = await store.async_heat_info("all")
+        assert info["drives"] == 1
+        mock_hass.bus.async_fire.assert_called_once()
+        args, _kwargs = mock_hass.bus.async_fire.call_args
+        assert args[0] == "rivian_analytics_updated"
+        assert args[1] == {"vin": TEST_VIN}
+
+    @pytest.mark.asyncio
+    async def test_upsert_tracks_with_nothing_written_skips_heat_update(
+        self, mock_hass: Any, analytics_db: Any, monkeypatch: Any
+    ) -> None:
+        store = DriveStore(mock_hass, TEST_VIN, analytics_db)
+        store._heat_seeded = True
+        heat_update = AsyncMock(return_value=0)
+        monkeypatch.setattr(store, "async_update_heat", heat_update)
+
+        # A track with < 2 points is skipped by upsert_tracks itself.
+        written = await store.async_upsert_tracks([("short", DriveTrack())])
+        assert written == 0
+        heat_update.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_heat_seed_runs_once_per_store_instance(
+        self, mock_hass: Any, analytics_db: Any, monkeypatch: Any
+    ) -> None:
+        store = DriveStore(mock_hass, TEST_VIN, analytics_db)
+        seed_calls: list[Any] = []
+        real_create = mock_hass.async_create_background_task
+
+        def _tracking_create(target: Any, *args: Any, **kwargs: Any) -> Any:
+            seed_calls.append(kwargs.get("name"))
+            return real_create(target, *args, **kwargs)
+
+        monkeypatch.setattr(mock_hass, "async_create_background_task", _tracking_create)
+
+        await store.async_load()
+        await store.async_load()
+        await store.async_save_drive(_create_sample_drive(drive_id="seed_1"))
+
+        heat_seed_calls = [
+            name for name in seed_calls if name.startswith("rivian heat seed")
+        ]
+        assert heat_seed_calls == [f"rivian heat seed {TEST_VIN}"]
+
+    @pytest.mark.asyncio
+    async def test_async_heat_info_and_heat_tile_round_trip(
+        self, mock_hass: Any, analytics_db: Any
+    ) -> None:
+        store = DriveStore(mock_hass, TEST_VIN, analytics_db)
+        await store.async_upsert_tracks([("tile_1", _make_track(n=5))])
+
+        info = await store.async_heat_info("all")
+        assert info["cells"] > 0
+
+        from custom_components.rivian.road_heat import split_key
+
+        grid, *_ = analytics_db._get_heat_grid(TEST_VIN, "all", None)
+        cx, cy = split_key(next(iter(grid.to_counts())))
+        tile = await store.async_heat_tile("all", None, 21, cx, cy)
+        assert tile["cells"]
+        assert tile["scale_max"] >= 1
+
+    @pytest.mark.asyncio
+    async def test_async_rebuild_heat_resolves_the_configured_time_zone(
+        self, mock_hass: Any, analytics_db: Any
+    ) -> None:
+        store = DriveStore(mock_hass, TEST_VIN, analytics_db)
+        await store.async_upsert_tracks([("rebuild_1", _make_track(n=4))])
+        await store.async_update_heat()
+
+        result = await store.async_rebuild_heat()
+        assert result["drives_counted"] == 1
+        assert result["months_rebuilt"] >= 1
+
 
 class TestDriveStoreStatsRecompute:
     """DriveStore's drive-summary-stats recompute wrapper and one-time seed."""
@@ -922,3 +1150,130 @@ class TestDriveStoreStatsRecompute:
         monkeypatch.setattr(store, "async_recompute_stats", recompute_spy)
         await store._async_recompute_stats_if_needed()
         recompute_spy.assert_not_called()
+
+
+def _make_gap_track() -> DriveTrack:
+    """A 2-point track with one real gap: ~668m apart, 100s apart."""
+    track = DriveTrack()
+    track.append(TrackPoint(t=1_700_000_000.0, lat=37.0, lon=-122.0))
+    track.append(TrackPoint(t=1_700_000_100.0, lat=37.006, lon=-122.0))
+    return track
+
+
+class TestDriveStoreSnapGaps:
+    """DriveStore.async_snap_gaps: the bbox-area guard, Overpass failure, and caching."""
+
+    @staticmethod
+    def _capture_background_tasks(mock_hass: Any, monkeypatch: Any) -> list[Any]:
+        tasks: list[Any] = []
+        original = mock_hass.async_create_background_task
+
+        def capture(target: Any, *args: Any, **kwargs: Any) -> Any:
+            task = original(target, *args, **kwargs)
+            tasks.append(task)
+            return task
+
+        monkeypatch.setattr(mock_hass, "async_create_background_task", capture)
+        return tasks
+
+    @staticmethod
+    def _disable_other_seeds(store: DriveStore) -> None:
+        store._heat_seeded = True
+        store._stats_recompute_seeded = True
+        store._energy_model_seeded = True
+        store._gap_snap_seeded = True
+
+    @pytest.mark.asyncio
+    async def test_bbox_too_large_is_skipped_and_recorded_as_none(
+        self, mock_hass: Any, analytics_db: Any, monkeypatch: Any
+    ) -> None:
+        store = DriveStore(mock_hass, TEST_VIN, analytics_db)
+        self._disable_other_seeds(store)
+
+        fetch_mock = AsyncMock()
+        monkeypatch.setattr(road_snap, "async_fetch_roads", fetch_mock)
+        monkeypatch.setattr(road_snap, "gap_bbox", lambda gap: (0.0, 0.0, 1.0, 1.0))
+
+        tasks = self._capture_background_tasks(mock_hass, monkeypatch)
+        await store.async_finalize_drive(
+            _create_sample_drive(drive_id="huge_gap"), _make_gap_track()
+        )
+        await asyncio.gather(*tasks)
+
+        fetch_mock.assert_not_called()
+        fills = analytics_db.get_track_fills(TEST_VIN, "huge_gap")
+        assert len(fills) == 1
+        assert fills[0]["source"] == "none"
+
+    @pytest.mark.asyncio
+    async def test_overpass_failure_leaves_the_gap_unresolved(
+        self, mock_hass: Any, analytics_db: Any, monkeypatch: Any
+    ) -> None:
+        store = DriveStore(mock_hass, TEST_VIN, analytics_db)
+        self._disable_other_seeds(store)
+
+        monkeypatch.setattr(
+            road_snap, "async_fetch_roads", AsyncMock(return_value=None)
+        )
+
+        tasks = self._capture_background_tasks(mock_hass, monkeypatch)
+        await store.async_finalize_drive(
+            _create_sample_drive(drive_id="network_fail"), _make_gap_track()
+        )
+        await asyncio.gather(*tasks)
+
+        assert analytics_db.get_track_fills(TEST_VIN, "network_fail") == []
+        pending = analytics_db.gaps_to_snap(TEST_VIN, limit=10)
+        assert any(drive_id == "network_fail" for drive_id, _gap in pending)
+
+    @pytest.mark.asyncio
+    async def test_second_gap_in_the_same_area_reuses_the_cached_roads(
+        self, mock_hass: Any, analytics_db: Any, monkeypatch: Any
+    ) -> None:
+        store = DriveStore(mock_hass, TEST_VIN, analytics_db)
+        self._disable_other_seeds(store)
+
+        ways = [road_snap.Way(nodes=[(37.0, -122.0), (37.006, -122.0)], oneway=False)]
+        fetch_mock = AsyncMock(return_value=ways)
+        monkeypatch.setattr(road_snap, "async_fetch_roads", fetch_mock)
+
+        tasks_a = self._capture_background_tasks(mock_hass, monkeypatch)
+        await store.async_finalize_drive(
+            _create_sample_drive(drive_id="gap_a"), _make_gap_track()
+        )
+        await asyncio.gather(*tasks_a)
+
+        tasks_b = self._capture_background_tasks(mock_hass, monkeypatch)
+        await store.async_finalize_drive(
+            _create_sample_drive(
+                drive_id="gap_b",
+                start_time="2026-08-20T15:30:00Z",
+                end_time="2026-08-20T15:55:00Z",
+            ),
+            _make_gap_track(),
+        )
+        await asyncio.gather(*tasks_b)
+
+        assert fetch_mock.call_count == 1
+        assert analytics_db.get_track_fills(TEST_VIN, "gap_a")[0]["source"] == "osm"
+        assert analytics_db.get_track_fills(TEST_VIN, "gap_b")[0]["source"] == "osm"
+
+    @pytest.mark.asyncio
+    async def test_snap_gaps_fires_event_only_when_fills_added(
+        self, mock_hass: Any, analytics_db: Any, monkeypatch: Any
+    ) -> None:
+        store = DriveStore(mock_hass, TEST_VIN, analytics_db)
+        self._disable_other_seeds(store)
+        monkeypatch.setattr(
+            road_snap, "async_fetch_roads", AsyncMock(return_value=None)
+        )
+
+        tasks = self._capture_background_tasks(mock_hass, monkeypatch)
+        await store.async_finalize_drive(
+            _create_sample_drive(drive_id="no_fill"), _make_gap_track()
+        )
+        await asyncio.gather(*tasks)
+
+        # A network failure resolved nothing, so no gap-snap fire; the
+        # finalize heat update still fires once for the new drive itself.
+        assert mock_hass.bus.async_fire.call_count == 1

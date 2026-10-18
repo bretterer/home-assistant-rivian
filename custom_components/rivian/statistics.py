@@ -512,3 +512,18 @@ async def async_rewrite_statistics(
         _LOGGER.warning(
             "Failed to rewrite long-term statistics for VIN %s: %s", vin, err
         )
+
+
+def async_clear_statistics(hass: HomeAssistant, vin: str) -> None:
+    """Clear all long-term statistics for a VIN (whole-vehicle delete).
+
+    Fire-and-forget: ``async_clear_statistics`` queues the recorder work and
+    returns immediately. Never raises.
+    """
+    if "recorder" not in hass.config.components:
+        return
+    try:
+        ids = _stat_ids(vin)
+        recorder.get_instance(hass).async_clear_statistics(list(ids.as_tuple()))
+    except Exception as err:  # noqa: BLE001 - statistics must never break a delete
+        _LOGGER.warning("Failed to clear long-term statistics for VIN %s: %s", vin, err)

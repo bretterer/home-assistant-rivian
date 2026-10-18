@@ -25,7 +25,7 @@ recorder's 16 KiB attribute limit and the state DB are irrelevant here.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
+from datetime import date, datetime
 import json
 import logging
 from typing import Any, Final
@@ -35,6 +35,7 @@ import voluptuous as vol
 from homeassistant.components import websocket_api
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
+from homeassistant.util import dt as dt_util
 
 from .const import (
     ATTR_DRIVE_STORE,
@@ -58,7 +59,17 @@ WS_TYPE_ANALYTICS_SERIES: Final[str] = "rivian/analytics/series"
 WS_TYPE_ANALYTICS_DRIVES: Final[str] = "rivian/analytics/drives"
 WS_TYPE_ANALYTICS_DRIVE: Final[str] = "rivian/analytics/drive"
 WS_TYPE_ANALYTICS_SUMMARY: Final[str] = "rivian/analytics/summary"
+WS_TYPE_ANALYTICS_CALENDAR: Final[str] = "rivian/analytics/calendar"
+WS_TYPE_ANALYTICS_DAY: Final[str] = "rivian/analytics/day"
+WS_TYPE_ANALYTICS_HEAT: Final[str] = "rivian/analytics/heat"
+WS_TYPE_ANALYTICS_HEAT_TILE: Final[str] = "rivian/analytics/heat_tile"
 WS_TYPE_ANALYTICS_SUBSCRIBE: Final[str] = "rivian/analytics/subscribe"
+WS_TYPE_ANALYTICS_DELETE_DRIVE: Final[str] = "rivian/analytics/delete_drive"
+WS_TYPE_ANALYTICS_DELETE_DAY: Final[str] = "rivian/analytics/delete_day"
+WS_TYPE_ANALYTICS_DELETE_VEHICLE_HISTORY: Final[str] = (
+    "rivian/analytics/delete_vehicle_history"
+)
+VALID_HEAT_PERIODS: Final[tuple[str, ...]] = ("all", "year", "month")
 SUMMARY_WINDOWS: Final[tuple[tuple[str, int | None], ...]] = (
     ("7d", 7),
     ("30d", 30),
@@ -655,6 +666,171 @@ async def _websocket_analytics_summary(
     )
 
 
+@websocket_api.async_response
+async def _websocket_analytics_calendar(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Handle the ``rivian/analytics/calendar`` WebSocket command.
+
+    Groups the drives into an All time -> years -> months -> days tree,
+    by local calendar day in Home Assistant's configured time zone. With
+    ``vins`` the tree is combined and every node (``totals`` and each
+    year/month/day) also has ``by_vin: {vin: {drives, miles}}``.
+    """
+    resolved = _resolve_stores(hass, connection, msg)
+    if resolved is None:
+        return
+    stores, multi = resolved
+
+    year = msg.get("year")
+    month = msg.get("month")
+    if month is not None and year is None:
+        connection.send_error(msg["id"], "invalid_format", "'month' requires 'year'")
+        return
+
+    tz = dt_util.get_default_time_zone()
+    extra: dict[str, Any] = {"vins": [s.vin for s in stores]} if multi else {}
+    payload = await stores[0].async_calendar(
+        tz, year, month, msg.get("include_micro", False), **extra
+    )
+    connection.send_result(msg["id"], payload)
+
+
+def _combine_day_totals(totals: list[dict[str, Any]]) -> dict[str, Any]:
+    """Combine per-vehicle day totals (miles/kWh summed, efficiency recomputed)."""
+    miles = sum(float(t.get("miles") or 0.0) for t in totals)
+    energy = sum(float(t.get("energy_kwh") or 0.0) for t in totals)
+    firsts = [t["first_ts"] for t in totals if t.get("first_ts") is not None]
+    lasts = [t["last_ts"] for t in totals if t.get("last_ts") is not None]
+    return {
+        "drives": sum(int(t.get("drives") or 0) for t in totals),
+        "miles": round(miles, 1),
+        "hours": round(sum(float(t.get("hours") or 0.0) for t in totals), 2),
+        "energy_kwh": round(energy, 2),
+        "efficiency_mi_kwh": round(miles / energy, 2) if energy > 0 else None,
+        "with_route": sum(int(t.get("with_route") or 0) for t in totals),
+        "first_ts": min(firsts) if firsts else None,
+        "last_ts": max(lasts) if lasts else None,
+    }
+
+
+@websocket_api.async_response
+async def _websocket_analytics_day(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Handle the ``rivian/analytics/day`` WebSocket command (one calendar day).
+
+    With ``vins``: ``{date, totals (combined), segments (all vehicles merged,
+    time-sorted, each tagged "vin"), vehicles: {vin: {start, end, stops, gaps,
+    prior_tail, totals}}}``. Stops, gaps and prior_tail stay per vehicle.
+    """
+    resolved = _resolve_stores(hass, connection, msg)
+    if resolved is None:
+        return
+    stores, multi = resolved
+
+    try:
+        day = date.fromisoformat(msg["date"])
+    except ValueError:
+        connection.send_error(
+            msg["id"], "invalid_format", f"Invalid date {msg['date']!r}"
+        )
+        return
+
+    tz = dt_util.get_default_time_zone()
+    include_micro = msg.get("include_micro", False)
+    payloads = [await store.async_day(tz, day, include_micro) for store in stores]
+    if not multi:
+        payload = payloads[0]
+        for segment in payload["segments"]:
+            segment.pop("sort_ts", None)
+        connection.send_result(msg["id"], payload)
+        return
+
+    segments: list[dict[str, Any]] = []
+    vehicles: dict[str, Any] = {}
+    for store, payload in zip(stores, payloads, strict=True):
+        for segment in payload["segments"]:
+            segment["vin"] = store.vin
+            segments.append(segment)
+        vehicles[store.vin] = {
+            key: payload.get(key)
+            for key in ("start", "end", "stops", "gaps", "prior_tail", "totals")
+        }
+    segments.sort(key=lambda seg: seg.get("sort_ts") or 0.0)
+    for segment in segments:
+        segment.pop("sort_ts", None)
+    connection.send_result(
+        msg["id"],
+        {
+            "date": day.isoformat(),
+            "totals": _combine_day_totals([p["totals"] for p in payloads]),
+            "segments": segments,
+            "vehicles": vehicles,
+        },
+    )
+
+
+@websocket_api.async_response
+async def _websocket_analytics_heat(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Handle the ``rivian/analytics/heat`` WebSocket command (road-heat summary).
+
+    With ``vins`` the result describes the cell-wise merged grid (bbox union,
+    summed drive count); the payload shape is unchanged.
+    """
+    resolved = _resolve_stores(hass, connection, msg)
+    if resolved is None:
+        return
+    stores, multi = resolved
+
+    try:
+        extra: dict[str, Any] = {"vins": [s.vin for s in stores]} if multi else {}
+        payload = await stores[0].async_heat_info(
+            msg["period"], msg.get("key"), **extra
+        )
+    except ValueError as err:
+        connection.send_error(msg["id"], "invalid_format", str(err))
+        return
+    connection.send_result(msg["id"], payload)
+
+
+@websocket_api.async_response
+async def _websocket_analytics_heat_tile(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Handle the ``rivian/analytics/heat_tile`` WebSocket command (one XYZ tile)."""
+    resolved = _resolve_stores(hass, connection, msg)
+    if resolved is None:
+        return
+    stores, multi = resolved
+
+    extra: dict[str, Any] = {"vins": [s.vin for s in stores]} if multi else {}
+    try:
+        payload = await stores[0].async_heat_tile(
+            msg["period"],
+            msg.get("key"),
+            msg["z"],
+            msg["x"],
+            msg["y"],
+            msg.get("margin", 0),
+            **extra,
+        )
+    except ValueError as err:
+        connection.send_error(msg["id"], "invalid_format", str(err))
+        return
+    connection.send_result(msg["id"], payload)
+
+
 @callback
 def _websocket_analytics_subscribe(
     hass: HomeAssistant,
@@ -738,6 +914,65 @@ async def _websocket_vehicles_list(
     connection.send_result(msg["id"], entries)
 
 
+@websocket_api.require_admin
+@websocket_api.async_response
+async def _websocket_analytics_delete_drive(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Handle the ``rivian/analytics/delete_drive`` WebSocket command. Admin only."""
+    vin: str = msg["vin"]
+    store = _find_store(hass, vin)
+    if store is None:
+        _not_found(connection, msg["id"], vin)
+        return
+    result = await store.async_delete_drive(msg["drive_id"])
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.require_admin
+@websocket_api.async_response
+async def _websocket_analytics_delete_day(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Handle the ``rivian/analytics/delete_day`` WebSocket command. Admin only."""
+    vin: str = msg["vin"]
+    store = _find_store(hass, vin)
+    if store is None:
+        _not_found(connection, msg["id"], vin)
+        return
+    try:
+        day = date.fromisoformat(msg["date"])
+    except ValueError:
+        connection.send_error(
+            msg["id"], "invalid_format", f"Invalid date {msg['date']!r}"
+        )
+        return
+    tz = dt_util.get_default_time_zone()
+    result = await store.async_delete_day(tz, day)
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.require_admin
+@websocket_api.async_response
+async def _websocket_analytics_delete_vehicle_history(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Handle the ``rivian/analytics/delete_vehicle_history`` WebSocket command. Admin only."""
+    vin: str = msg["vin"]
+    store = _find_store(hass, vin)
+    if store is None:
+        _not_found(connection, msg["id"], vin)
+        return
+    await store.async_delete_vehicle_history()
+    connection.send_result(msg["id"])
+
+
 def async_register_websocket_api(hass: HomeAssistant) -> None:
     """Register the Rivian analytics WebSocket API commands.
 
@@ -808,11 +1043,103 @@ def async_register_websocket_api(hass: HomeAssistant) -> None:
     )
     websocket_api.async_register_command(
         hass,
+        WS_TYPE_ANALYTICS_CALENDAR,
+        _websocket_analytics_calendar,
+        _multi_vin_schema(
+            {
+                vol.Required("type"): WS_TYPE_ANALYTICS_CALENDAR,
+                vol.Optional("year"): int,
+                vol.Optional("month"): vol.All(vol.Coerce(int), vol.Range(1, 12)),
+                vol.Optional("include_micro", default=False): bool,
+            }
+        ),
+    )
+    websocket_api.async_register_command(
+        hass,
+        WS_TYPE_ANALYTICS_DAY,
+        _websocket_analytics_day,
+        _multi_vin_schema(
+            {
+                vol.Required("type"): WS_TYPE_ANALYTICS_DAY,
+                vol.Required("date"): str,
+                vol.Optional("include_micro", default=False): bool,
+            }
+        ),
+    )
+    websocket_api.async_register_command(
+        hass,
+        WS_TYPE_ANALYTICS_HEAT,
+        _websocket_analytics_heat,
+        _multi_vin_schema(
+            {
+                vol.Required("type"): WS_TYPE_ANALYTICS_HEAT,
+                vol.Required("period"): vol.In(VALID_HEAT_PERIODS),
+                vol.Optional("key"): vol.Any(str, None),
+            }
+        ),
+    )
+    websocket_api.async_register_command(
+        hass,
+        WS_TYPE_ANALYTICS_HEAT_TILE,
+        _websocket_analytics_heat_tile,
+        _multi_vin_schema(
+            {
+                vol.Required("type"): WS_TYPE_ANALYTICS_HEAT_TILE,
+                vol.Required("period"): vol.In(VALID_HEAT_PERIODS),
+                vol.Optional("key"): vol.Any(str, None),
+                vol.Required("z"): vol.All(vol.Coerce(int), vol.Range(0, 22)),
+                vol.Required("x"): vol.All(vol.Coerce(int), vol.Range(min=0)),
+                vol.Required("y"): vol.All(vol.Coerce(int), vol.Range(min=0)),
+                # Extra display cells around the tile, so drawn lines can join
+                # up across tile edges.
+                vol.Optional("margin", default=0): vol.All(
+                    vol.Coerce(int), vol.Range(0, 2)
+                ),
+            }
+        ),
+    )
+    websocket_api.async_register_command(
+        hass,
         WS_TYPE_ANALYTICS_SUBSCRIBE,
         _websocket_analytics_subscribe,
         _multi_vin_schema(
             {
                 vol.Required("type"): WS_TYPE_ANALYTICS_SUBSCRIBE,
+            }
+        ),
+    )
+    websocket_api.async_register_command(
+        hass,
+        WS_TYPE_ANALYTICS_DELETE_DRIVE,
+        _websocket_analytics_delete_drive,
+        websocket_api.BASE_COMMAND_MESSAGE_SCHEMA.extend(
+            {
+                vol.Required("type"): WS_TYPE_ANALYTICS_DELETE_DRIVE,
+                vol.Required("vin"): str,
+                vol.Required("drive_id"): str,
+            }
+        ),
+    )
+    websocket_api.async_register_command(
+        hass,
+        WS_TYPE_ANALYTICS_DELETE_DAY,
+        _websocket_analytics_delete_day,
+        websocket_api.BASE_COMMAND_MESSAGE_SCHEMA.extend(
+            {
+                vol.Required("type"): WS_TYPE_ANALYTICS_DELETE_DAY,
+                vol.Required("vin"): str,
+                vol.Required("date"): str,
+            }
+        ),
+    )
+    websocket_api.async_register_command(
+        hass,
+        WS_TYPE_ANALYTICS_DELETE_VEHICLE_HISTORY,
+        _websocket_analytics_delete_vehicle_history,
+        websocket_api.BASE_COMMAND_MESSAGE_SCHEMA.extend(
+            {
+                vol.Required("type"): WS_TYPE_ANALYTICS_DELETE_VEHICLE_HISTORY,
+                vol.Required("vin"): str,
             }
         ),
     )
