@@ -40,6 +40,7 @@ from .const import (
     DEFAULT_CHARGING_SCHEDULE,
     DEFAULT_VEHICLE_STATE,
     DOMAIN,
+    GRAPHQL_FAST_FIELD_FRESHNESS,
     INVALID_SENSOR_STATES,
     ISSUE_RATE_LIMITED,
     PARALLAX_IGNORED_RVMS,
@@ -48,6 +49,7 @@ from .const import (
     PARALLAX_RVM_DEFAULTS,
     PARALLAX_UNDEFINED_IS_VALID,
     VEHICLE_STATE_API_FIELDS,
+    VEHICLE_STATE_FAST_FIELDS,
 )
 from .helpers import redact
 
@@ -83,6 +85,14 @@ GNSS_FIX_FIELDS = ("gnssLocation", "gnssSpeed", "gnssBearing")
 # newly reported data (the vehicle sends a location fix about once a minute;
 # resent snapshots keep their original timestamps)
 UPDATES_STALE_AFTER = timedelta(minutes=10)
+
+
+def _at_or_above(entry: dict[str, Any] | None, value: Any) -> bool:
+    """Return whether a stored numeric value is at least ``value``."""
+    try:
+        return float(entry["value"]) >= float(value)  # type: ignore[index]
+    except (KeyError, TypeError, ValueError):
+        return False
 
 
 class RivianDataUpdateCoordinator(DataUpdateCoordinator[T], ABC, Generic[T]):
@@ -362,6 +372,8 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         # When any message last arrived, and the newest time the vehicle reported
         self._last_message: datetime | None = None
         self._last_report: datetime | None = None
+        # When GraphQL last sent each of VEHICLE_STATE_FAST_FIELDS
+        self._graphql_fast_seen: dict[str, datetime] = {}
         # When subscribing first failed for a rate limit, and how many times it
         # failed without a backoff, since it last worked
         self._rate_limited_since: datetime | None = None
@@ -460,7 +472,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             await self._unsubscribe()
             self._unsub_handler = await self.api.subscribe_for_vehicle_updates(
                 vehicle_id=self.vehicle_id,
-                properties=VEHICLE_STATE_API_FIELDS,
+                properties=VEHICLE_STATE_API_FIELDS | VEHICLE_STATE_FAST_FIELDS,
                 callback=self._process_new_data,
             )
 
@@ -597,6 +609,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         vehicle_keys = (
             ((clean.keys() - charging_keys) | (clean.keys() & {"timeToEndOfCharge"}))
             - VEHICLE_STATE_API_FIELDS
+            - self._graphql_fast_fields()
             - {"timestamp"}
         )
         timestamp = clean.get("timestamp")
@@ -619,6 +632,10 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
                 continue
             # Skip unchanged values, e.g. the snapshot resent on every reconnect
             if k in current and current[k].get("value") == value:
+                continue
+            # Parallax's odometer is whole kilometres, below GraphQL's exact
+            # reading, so it may only move the odometer forward
+            if k == "vehicleMileage" and _at_or_above(current.get(k), value):
                 continue
             vehicle_updates[k] = {"value": value}
             if timestamp:
@@ -645,6 +662,19 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         for item in vijson.values():
             if isinstance(item, dict) and isinstance(ts := item.get("timeStamp"), str):
                 self._note_report(dt_util.parse_datetime(ts))
+        for key in VEHICLE_STATE_FAST_FIELDS & vijson.keys():
+            if vijson[key]:
+                self._graphql_fast_seen[key] = self._last_message
+        # Fix times are datetimes, as Parallax sends them, so the newest fix can
+        # be picked whichever source sent it
+        location = vijson.get("gnssLocation")
+        if isinstance(location, dict) and isinstance(
+            fix_time := location.get("timeStamp"), str
+        ):
+            vijson = vijson | {
+                "gnssLocation": location
+                | {"timeStamp": dt_util.parse_datetime(fix_time)}
+            }
         vehicle_info = self._build_vehicle_info_dict(vijson)
         self.async_set_updated_data(vehicle_info)
         self._error_count = 0
@@ -664,6 +694,15 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
                     f"Vehicle {self.vehicle_id} subscription stopped after errors"
                 )
             )
+
+    def _graphql_fast_fields(self) -> set[str]:
+        """Return the fast driving fields GraphQL sent recently, so it owns them."""
+        now = dt_util.utcnow()
+        return {
+            key
+            for key, seen in self._graphql_fast_seen.items()
+            if now - seen <= GRAPHQL_FAST_FIELD_FRESHNESS
+        }
 
     def _use_newest_location(self, clean: dict[str, Any]) -> None:
         """Set gnssLocation, gnssSpeed and gnssBearing from the newest fix.

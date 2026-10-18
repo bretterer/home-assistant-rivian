@@ -166,7 +166,11 @@ def _setup_mock_environment() -> None:
                 self.config.components = []
                 self.services = MockServiceRegistry()
                 self.bus = MagicMock()
+                # No zones configured by default; __init__.py's zone sync
+                # (read_zone_states) reads hass.states.async_all("zone") at
+                # setup and on every zone.* state change.
                 self.states = MagicMock()
+                self.states.async_all = MagicMock(return_value=[])
                 # Sentinel that never matches a real threading.get_ident() value,
                 # so AnalyticsDatabase's executor-thread guard never fires when
                 # tests call its (normally executor-bound) methods directly from
@@ -233,6 +237,7 @@ def _setup_mock_environment() -> None:
         const_mod.UnitOfElectricCurrent = DynamicEnum  # type: ignore[attr-defined]
         const_mod.UnitOfElectricPotential = DynamicEnum  # type: ignore[attr-defined]
         const_mod.UnitOfEnergy = DynamicEnum  # type: ignore[attr-defined]
+        const_mod.UnitOfEnergyDistance = DynamicEnum  # type: ignore[attr-defined]
         const_mod.UnitOfLength = DynamicEnum  # type: ignore[attr-defined]
         const_mod.UnitOfPower = DynamicEnum  # type: ignore[attr-defined]
         const_mod.UnitOfPressure = DynamicEnum  # type: ignore[attr-defined]
@@ -780,6 +785,9 @@ def _setup_mock_environment() -> None:
         dt_mod.parse_datetime = _parse_datetime  # type: ignore[attr-defined]
         dt_mod.utc_from_timestamp = _utc_from_timestamp  # type: ignore[attr-defined]
         dt_mod.utcnow = _utcnow  # type: ignore[attr-defined]
+        # Backs websocket_api.py's calendar/day handlers, which resolve HA's
+        # configured zone on the event loop before handing it to the executor.
+        dt_mod.get_default_time_zone = lambda: UTC  # type: ignore[attr-defined]
         sys.modules["homeassistant.util.dt"] = dt_mod
         util_mod.dt = dt_mod  # type: ignore[attr-defined]
 
@@ -892,3 +900,38 @@ def mock_config_entry() -> MagicMock:
     entry.add_update_listener = MagicMock()
     entry.async_on_unload = MagicMock()
     return entry
+
+
+@pytest.fixture
+def analytics_db_path(tmp_path: Any) -> str:
+    """Provide a per-test SQLite analytics database file path under tmp_path.
+
+    A real file path (not ``:memory:``) is required for tests that construct
+    multiple DriveStore/AnalyticsDatabase instances against the same
+    underlying database (persistence tests) or that need to inspect the file
+    on disk (migration/idempotency tests).
+    """
+    return str(tmp_path / "rivian_analytics_test.db")
+
+
+def make_analytics_db(hass: Any, db_path: str) -> Any:
+    """Construct and synchronously set up an AnalyticsDatabase for tests.
+
+    ``setup()`` is executor-bound in production, but is safe to call directly
+    here because the mock hass's ``loop_thread_id`` sentinel (-1) never
+    matches the test thread's real id, so the executor-thread guard does not
+    fire.
+    """
+    from custom_components.rivian.analytics_db import AnalyticsDatabase
+
+    db = AnalyticsDatabase(hass, db_path=db_path)
+    db.setup()
+    return db
+
+
+@pytest.fixture
+def analytics_db(mock_hass: Any, analytics_db_path: str) -> Any:
+    """Provide a ready (schema-initialized) AnalyticsDatabase for tests."""
+    db = make_analytics_db(mock_hass, analytics_db_path)
+    yield db
+    db.close()
