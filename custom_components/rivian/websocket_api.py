@@ -64,6 +64,7 @@ WS_TYPE_ANALYTICS_DRIVES: Final[str] = "rivian/analytics/drives"
 WS_TYPE_ANALYTICS_DRIVE: Final[str] = "rivian/analytics/drive"
 WS_TYPE_ANALYTICS_SUMMARY: Final[str] = "rivian/analytics/summary"
 WS_TYPE_ANALYTICS_CALENDAR: Final[str] = "rivian/analytics/calendar"
+WS_TYPE_ANALYTICS_EFFICIENCY: Final[str] = "rivian/analytics/efficiency"
 WS_TYPE_ANALYTICS_DAY: Final[str] = "rivian/analytics/day"
 WS_TYPE_ANALYTICS_HEAT: Final[str] = "rivian/analytics/heat"
 WS_TYPE_ANALYTICS_HEAT_TILE: Final[str] = "rivian/analytics/heat_tile"
@@ -694,6 +695,52 @@ async def _websocket_analytics_summary(
             newest = {**last, "vin": store.vin}
     connection.send_result(
         msg["id"], {"combined": combined, "by_vin": by_vin, "last_drive": newest}
+    )
+
+
+@websocket_api.async_response
+async def _websocket_analytics_efficiency(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Handle the ``rivian/analytics/efficiency`` WebSocket command (Efficiency page).
+
+    Always answers in the combined shape, whether called with ``vin`` or
+    ``vins``: ``{drives: [...every vehicle's drives, each tagged ``vin``, oldest
+    first], speed_bands: {vin: [...]}, trend: {vin: {weekly, monthly}}}``. See
+    ``AnalyticsDatabase.efficiency_data`` for the row and series shapes. Micro
+    drives are left out unless ``include_micro``.
+    """
+    resolved = _resolve_stores(hass, connection, msg)
+    if resolved is None:
+        return
+    stores, _multi = resolved
+    tz = dt_util.get_default_time_zone()
+    include_micro = msg.get("include_micro", False)
+    parts = await asyncio.gather(
+        *(
+            store.async_efficiency(msg.get("days"), tz, include_micro)
+            for store in stores
+        )
+    )
+    drives: list[dict[str, Any]] = []
+    for store, part in zip(stores, parts, strict=True):
+        drives.extend({"vin": store.vin, **row} for row in part["drives"])
+    drives.sort(key=lambda d: d["date_ts"])
+    connection.send_result(
+        msg["id"],
+        {
+            "drives": drives,
+            "speed_bands": {
+                store.vin: part["speed_bands"]
+                for store, part in zip(stores, parts, strict=True)
+            },
+            "trend": {
+                store.vin: part["trend"]
+                for store, part in zip(stores, parts, strict=True)
+            },
+        },
     )
 
 
@@ -1750,6 +1797,20 @@ def async_register_websocket_api(hass: HomeAssistant) -> None:
         _multi_vin_schema(
             {
                 vol.Required("type"): WS_TYPE_ANALYTICS_SUMMARY,
+            }
+        ),
+    )
+    websocket_api.async_register_command(
+        hass,
+        WS_TYPE_ANALYTICS_EFFICIENCY,
+        _websocket_analytics_efficiency,
+        _multi_vin_schema(
+            {
+                vol.Required("type"): WS_TYPE_ANALYTICS_EFFICIENCY,
+                vol.Optional("days", default=365): vol.Any(
+                    None, vol.All(int, vol.Range(min=1, max=3650))
+                ),
+                vol.Optional("include_micro", default=False): bool,
             }
         ),
     )

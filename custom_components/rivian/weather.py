@@ -31,6 +31,17 @@ LIVE_CACHE_TTL_SECONDS: Final[float] = 900.0  # 15 minutes
 # plenty for weather and the same grid the caches use.
 REQUEST_COORDINATE_DECIMALS: Final[int] = 2
 
+# Open-Meteo variable names -> the sample keys stored on a weather sample.
+# Wind is requested in mph, pressure comes back in hPa and precipitation in mm.
+_CONDITION_FIELDS: Final[dict[str, str]] = {
+    "wind_speed_10m": "wind_speed_mph",
+    "wind_direction_10m": "wind_dir_deg",
+    "surface_pressure": "pressure_hpa",
+    "precipitation": "precip_mm",
+    "relative_humidity_2m": "humidity_pct",
+}
+_CURRENT_VARIABLES: Final[str] = ",".join(("temperature_2m", *_CONDITION_FIELDS))
+
 
 def _parse_iso_datetime(dt_val: str | datetime) -> datetime | None:
     """Parse string or datetime to timezone-aware UTC datetime."""
@@ -48,6 +59,20 @@ def _parse_iso_datetime(dt_val: str | datetime) -> datetime | None:
         return dt.astimezone(UTC)
     except (ValueError, TypeError):
         return None
+
+
+def _parse_conditions(current: dict[str, Any]) -> dict[str, float]:
+    """Pull the non-temperature condition fields out of an Open-Meteo ``current`` block."""
+    out: dict[str, float] = {}
+    for api_name, key in _CONDITION_FIELDS.items():
+        value = current.get(api_name)
+        if value is None:
+            continue
+        try:
+            out[key] = round(float(value), 2)
+        except (TypeError, ValueError):
+            continue
+    return out
 
 
 def calculate_distance_weighted_temperature(
@@ -204,8 +229,10 @@ class OpenMeteoWeatherClient:
         self.enabled = enabled
         self._custom_session = session
         self._live_cache: dict[tuple[float, float], tuple[float, float]] = {}
-        self._historical_cache: dict[
-            tuple[float, float, str, str], dict[str, float]
+        # Wind/pressure/precip/humidity from the same live request, same TTL.
+        self._live_conditions: dict[tuple[float, float], dict[str, float]] = {}
+        self._archive_conditions: dict[
+            tuple[float, float, str, str], dict[str, dict[str, float]]
         ] = {}
 
     def _get_session(self) -> aiohttp.ClientSession:
@@ -224,7 +251,26 @@ class OpenMeteoWeatherClient:
     def clear_cache(self) -> None:
         """Clear live and historical weather caches."""
         self._live_cache.clear()
-        self._historical_cache.clear()
+        self._live_conditions.clear()
+        self._archive_conditions.clear()
+
+    async def async_get_current_conditions(
+        self, latitude: float, longitude: float
+    ) -> dict[str, float] | None:
+        """Return wind/pressure/precipitation/humidity from the live request.
+
+        Served from the same request (and cache) as
+        ``async_get_current_temperature``, so after a temperature fetch this is
+        a cache hit. Keys: ``wind_speed_mph``, ``wind_dir_deg``,
+        ``pressure_hpa``, ``precip_mm``, ``humidity_pct`` (only those the API
+        returned). ``None`` when nothing is known.
+        """
+        cache_key = (round(latitude, 2), round(longitude, 2))
+        cached = self._live_cache.get(cache_key)
+        if cached is None or time.monotonic() - cached[0] >= LIVE_CACHE_TTL_SECONDS:
+            await self.async_get_current_temperature(latitude, longitude)
+        conditions = self._live_conditions.get(cache_key)
+        return dict(conditions) if conditions else None
 
     async def async_get_current_temperature(
         self, latitude: float, longitude: float
@@ -251,8 +297,9 @@ class OpenMeteoWeatherClient:
         params = {
             "latitude": round(latitude, REQUEST_COORDINATE_DECIMALS),
             "longitude": round(longitude, REQUEST_COORDINATE_DECIMALS),
-            "current": "temperature_2m",
+            "current": _CURRENT_VARIABLES,
             "temperature_unit": "fahrenheit",
+            "wind_speed_unit": "mph",
             "timeformat": "iso8601",
         }
 
@@ -281,6 +328,7 @@ class OpenMeteoWeatherClient:
                 if temp is not None:
                     temp_f = round(float(temp), 1)
                     self._live_cache[cache_key] = (now_mono, temp_f)
+                    self._live_conditions[cache_key] = _parse_conditions(current)
                     return temp_f
                 return None
         except (
@@ -309,29 +357,67 @@ class OpenMeteoWeatherClient:
         end_date: str,
     ) -> dict[str, float] | None:
         """Fetch historical hourly temperatures from Open-Meteo Archive API with caching."""
+        hourly = await self._async_fetch_archive(
+            latitude, longitude, start_date, end_date
+        )
+        if hourly is None:
+            return None
+        return {
+            ts: cond["temp_f"] for ts, cond in hourly.items() if "temp_f" in cond
+        } or None
+
+    async def async_get_historical_conditions(
+        self,
+        latitude: float,
+        longitude: float,
+        start_date: str,
+        end_date: str,
+    ) -> dict[str, dict[str, float]] | None:
+        """Fetch hourly temperature, wind, pressure, precipitation and humidity.
+
+        Returns ``{iso_hour: {temp_f?, wind_speed_mph?, wind_dir_deg?,
+        pressure_hpa?, precip_mm?, humidity_pct?}}`` (UTC hours; a variable
+        the archive has no value for is simply absent), or ``None`` on any
+        failure. Shares its request and cache with
+        ``async_get_historical_temperatures``.
+        """
+        hourly = await self._async_fetch_archive(
+            latitude, longitude, start_date, end_date
+        )
+        return hourly or None
+
+    async def _async_fetch_archive(
+        self,
+        latitude: float,
+        longitude: float,
+        start_date: str,
+        end_date: str,
+    ) -> dict[str, dict[str, float]] | None:
+        """One archive request; ``None`` on failure, else per-hour condition dicts."""
         if not self.enabled:
             return None
         grid_lat = round(latitude, 2)
         grid_lon = round(longitude, 2)
         cache_key = (grid_lat, grid_lon, start_date, end_date)
 
-        if cache_key in self._historical_cache:
+        if cache_key in self._archive_conditions:
             _LOGGER.debug(
-                "Returning cached historical temperatures for grid (%s, %s, %s, %s)",
+                "Returning cached archive weather for grid (%s, %s, %s, %s)",
                 grid_lat,
                 grid_lon,
                 start_date,
                 end_date,
             )
-            return dict(self._historical_cache[cache_key])
+            return {k: dict(v) for k, v in self._archive_conditions[cache_key].items()}
 
         params = {
             "latitude": round(latitude, REQUEST_COORDINATE_DECIMALS),
             "longitude": round(longitude, REQUEST_COORDINATE_DECIMALS),
             "start_date": start_date,
             "end_date": end_date,
-            "hourly": "temperature_2m",
+            "hourly": _CURRENT_VARIABLES,
             "temperature_unit": "fahrenheit",
+            "wind_speed_unit": "mph",
             "timezone": "UTC",
         }
 
@@ -362,13 +448,24 @@ class OpenMeteoWeatherClient:
                 if not times or not temps or len(times) != len(temps):
                     return None
 
-                result: dict[str, float] = {}
-                for t, temp in zip(times, temps, strict=True):
-                    if temp is not None:
-                        result[str(t)] = round(float(temp), 1)
+                result: dict[str, dict[str, float]] = {}
+                for idx, t in enumerate(times):
+                    cond: dict[str, float] = {}
+                    if temps[idx] is not None:
+                        cond["temp_f"] = round(float(temps[idx]), 1)
+                    for api_name, key in _CONDITION_FIELDS.items():
+                        values = hourly_data.get(api_name)
+                        if (
+                            isinstance(values, list)
+                            and idx < len(values)
+                            and values[idx] is not None
+                        ):
+                            cond[key] = round(float(values[idx]), 2)
+                    if cond:
+                        result[str(t)] = cond
 
-                self._historical_cache[cache_key] = result
-                return dict(result)
+                self._archive_conditions[cache_key] = result
+                return {k: dict(v) for k, v in result.items()}
         except (
             TimeoutError,
             aiohttp.ClientError,

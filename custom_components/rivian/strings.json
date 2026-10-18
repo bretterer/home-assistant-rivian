@@ -40,7 +40,7 @@
           "track_retention_days": "How long a drive's full GPS route is kept before it's deleted (the drive summary itself follows the analytics history retention setting above). A typical daily-driving route history runs roughly 12 MB/year at full detail.",
           "track_full_detail_days": "Routes older than this are simplified to about 10% of their original size (same overall shape, fewer points) to save storage, without being deleted.",
           "place_geocoding": "When on, an unnamed frequent stop (3+ visits within ~200 m) is looked up once via the public OSM Nominatim API to suggest a name. Only that place's coordinates are sent; the result is cached. When off, suggested places keep a numbered label until you name them yourself.",
-          "weather_lookups": "When on, each drive and charging session gets its outside temperature from the public Open-Meteo API. Only coordinates rounded to about 1 km and times are sent. When off, nothing is sent, and drives and sessions show no temperature."
+          "weather_lookups": "When on, each drive and charging session gets its temperature, wind and rain from the public Open-Meteo API. Only coordinates rounded to about 1 km and times are sent. When off, nothing is sent, and drives and sessions show no weather."
         }
       }
     },
@@ -1109,6 +1109,20 @@
         "vin": {
           "name": "Vehicle VIN",
           "description": "Specific vehicle VIN to refit (leave blank for all configured vehicles)."
+        }
+      }
+    },
+    "backfill_weather": {
+      "name": "Backfill drive weather",
+      "description": "Fills each stored drive's wind, headwind, precipitation, pressure, humidity and air density (and the energy model's expected energy, behind the Efficiency page's score) from the Open-Meteo weather archive. Only empty values are filled, requests are rate-limited, and demo vehicles are skipped. Runs once automatically in the background after the upgrade.",
+      "fields": {
+        "vin": {
+          "name": "Vehicle VIN",
+          "description": "Specific vehicle VIN to process (leave blank for all configured vehicles)."
+        },
+        "days": {
+          "name": "Days",
+          "description": "Number of past days of drives to fill (defaults to 365 days)."
         }
       }
     },

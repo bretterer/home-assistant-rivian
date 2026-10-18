@@ -266,7 +266,8 @@ test("sameDataset: merging stays within one dataset", () => {
 test("schemeForColor picks the dropdown color scheme from the card background", async () => {
   const { schemeForColor } = await import("../../custom_components/rivian/frontend/rivian-places-card.js");
   const explorer = await import("../../custom_components/rivian/frontend/rivian-drive-explorer-card.js");
-  for (const fn of [schemeForColor, explorer.schemeForColor]) {
+  const efficiency = await import("../../custom_components/rivian/frontend/rivian-efficiency-card.js");
+  for (const fn of [schemeForColor, explorer.schemeForColor, efficiency.schemeForColor]) {
     assert.equal(fn("rgb(28, 28, 28)"), "dark");
     assert.equal(fn("rgb(255, 255, 255)"), "light");
     assert.equal(fn("rgba(17, 17, 17, 0.9)"), "dark");

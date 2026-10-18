@@ -183,7 +183,7 @@ class _FakeWeather:
         self.recent = recent
         self.calls: list[str] = []
 
-    async def async_get_historical_temperatures(self, *_a: Any) -> Any:
+    async def async_get_historical_conditions(self, *_a: Any) -> Any:
         self.calls.append("archive")
         return self.archive
 
@@ -216,7 +216,7 @@ async def test_fill_session_temperatures_uses_archive_then_recent(
     )
     store = DriveStore(mock_hass, TEST_VIN, analytics_db)
     weather = _FakeWeather(
-        archive={_hour_key(old_start + h * H): 50.0 + h for h in range(3)},
+        archive={_hour_key(old_start + h * H): {"temp_f": 50.0 + h} for h in range(3)},
         recent={_hour_key(new_start + h * H): 70.0 for h in range(3)},
     )
     store._weather_client = weather  # type: ignore[assignment]

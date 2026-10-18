@@ -470,13 +470,18 @@ class TestDriveStore:
     async def test_weather_lookups_off_sends_nothing(
         self, mock_hass: Any, analytics_db: Any
     ) -> None:
-        """With the weather_lookups option off, the store's client stays offline."""
+        """With the weather_lookups option off, no weather job asks Open-Meteo."""
         store = DriveStore(mock_hass, TEST_VIN, analytics_db, weather_lookups=False)
         assert store.get_weather_client().enabled is False
+
+        result = await store.async_backfill_weather(30)
+        # Not complete, so the one-time seed runs once the option is turned on
+        assert result["disabled"] is True
+        assert result["complete"] is False
         assert (await store.async_fill_session_temperatures())["requests"] == 0
-        assert (
-            DriveStore(mock_hass, TEST_VIN, analytics_db).get_weather_client().enabled
-        )
+
+        store._async_seed_weather_once()
+        assert store._weather_seeded is False
 
     @pytest.mark.asyncio
     async def test_empty_batch_save(self, mock_hass: Any, analytics_db: Any) -> None:

@@ -277,6 +277,17 @@ def _build_charging_view(vehicles: list[tuple[str, str, str]]) -> dict[str, Any]
     )
 
 
+def _build_efficiency_view(vehicles: list[tuple[str, str, str]]) -> dict[str, Any]:
+    """Build the panel-mode Efficiency tab: one efficiency card."""
+    return _build_panel_view(
+        vehicles,
+        title="Efficiency",
+        path="efficiency",
+        icon="mdi:chart-scatter-plot",
+        card_type="custom:rivian-efficiency-card",
+    )
+
+
 def _build_routes_view(vehicles: list[tuple[str, str, str]]) -> dict[str, Any]:
     """Build the panel-mode Routes tab: one favorite-drives card."""
     return _build_panel_view(
@@ -362,11 +373,12 @@ async def async_create_efficiency_dashboard(
     """Create or update the turnkey, tabbed Rivian dashboard in Home Assistant.
 
     Views/tabs are generated in order: Overview, Drives (panel), Places
-    (panel), Routes (panel) and Charging (panel). The Overview tab is a
+    (panel), Routes (panel), Charging (panel) and Efficiency (panel). The Overview tab is a
     single `rivian-overview-card` listing every vehicle (see
     `_build_overview_view`). Drives, Places and Routes each hold ONE card
     that follows the shared vehicle selection. Charging is a panel view holding the one
-    `rivian-charging-card` (the vehicle bar renders inside it). There is no picker or conditional card
+    `rivian-charging-card` and Efficiency the one `rivian-efficiency-card` (the
+    vehicle bar renders inside each). There is no picker or conditional card
     anywhere.
     """
     dashboard_id = url_path.replace("-", "_")
@@ -404,6 +416,7 @@ async def async_create_efficiency_dashboard(
     places_view = _build_places_view(vehicles)
     routes_view = _build_routes_view(vehicles)
     charging_view = _build_charging_view(vehicles)
+    efficiency_view = _build_efficiency_view(vehicles)
 
     views: list[dict[str, Any]] = [
         overview_view,
@@ -411,6 +424,7 @@ async def async_create_efficiency_dashboard(
         routes_view,
         places_view,
         charging_view,
+        efficiency_view,
         # No vehicle status/controls tab for now; a redesigned one is planned.
     ]
 

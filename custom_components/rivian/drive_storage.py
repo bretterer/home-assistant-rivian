@@ -30,6 +30,7 @@ from .analytics_db import (
     VehiclePicture,
 )
 from .const import ATTR_DRIVE_STORE, DOMAIN, RIVIAN_ANALYTICS_UPDATED_EVENT
+from .drive_conditions import archive_samples
 from .drive_models import (
     AggregatedDriveStats,
     ChargingSessionRecord,
@@ -138,9 +139,10 @@ def _empty_cache() -> HotCache:
     )
 
 
-# Open-Meteo archive requests: how many days one request may span, the pause
-# between requests (polite to the free API) and how many failed requests in a
-# row end a run.
+# Weather backfill (driving conditions): how far back, how many days one archive
+# request may span, the pause between requests (polite to the free API) and how
+# many failed requests in a row end a run.
+WEATHER_BACKFILL_DEFAULT_DAYS: Final[int] = 365
 WEATHER_BACKFILL_WINDOW_DAYS: Final[int] = 31
 WEATHER_BACKFILL_REQUEST_INTERVAL_S: Final[float] = 1.0
 WEATHER_BACKFILL_MAX_FAILURES: Final[int] = 3
@@ -190,6 +192,7 @@ class DriveStore:
         self._gap_snap_seeded = False
         self._places_seeded = False
         self._routes_seeded = False
+        self._weather_seeded = False
         self._weather_client: OpenMeteoWeatherClient | None = None
 
     # -- sync, cache-only accessors (never touch SQLite) ---------------------
@@ -268,6 +271,7 @@ class DriveStore:
         self._async_maybe_fit_energy_model_once()
         self._async_seed_snap_gaps_once()
         self._async_seed_places_once()
+        self._async_seed_weather_once()
 
     def _async_maybe_recompute_stats_once(self) -> None:
         """Schedule a one-time background stats recompute if any drive needs it.
@@ -334,6 +338,162 @@ class DriveStore:
                 "Initial energy-model fit failed for VIN %s (non-fatal)", self.vin
             )
 
+    # -- driving conditions (weather backfill) -------------------------------
+
+    def get_weather_client(self) -> OpenMeteoWeatherClient:
+        """Return the Open-Meteo client, honouring the weather_lookups option."""
+        if self._weather_client is None:
+            self._weather_client = OpenMeteoWeatherClient(
+                hass=self.hass, enabled=self.weather_lookups
+            )
+        return self._weather_client
+
+    def _async_seed_weather_once(self) -> None:
+        """Schedule the one-time background weather/conditions backfill.
+
+        Mirrors ``_async_maybe_recompute_stats_once``: guarded per store
+        instance, stamped in ``meta`` as ``weather_version:<vin>`` once a run
+        finishes without a network failure.
+        """
+        # Off: not stamped, so turning weather lookups on later seeds it then
+        if self._weather_seeded or not self.weather_lookups:
+            return
+        self._weather_seeded = True
+        self.hass.async_create_background_task(
+            self._async_seed_weather_safe(),
+            name=f"rivian weather seed {self.vin}",
+        )
+
+    async def _async_seed_weather_safe(self) -> None:
+        """Best-effort one-time backfill over the last year; never raises."""
+        try:
+            needed = await self.hass.async_add_executor_job(
+                self._db.has_unseeded_weather, self.vin
+            )
+            if not needed:
+                return
+            result = await self.async_backfill_weather(WEATHER_BACKFILL_DEFAULT_DAYS)
+            _LOGGER.info("Weather backfill for VIN %s: %s", self.vin, result)
+            if result.get("complete"):
+                await self.hass.async_add_executor_job(
+                    self._db.mark_weather_seeded, self.vin
+                )
+            if result.get("updated"):
+                self.hass.bus.async_fire(
+                    RIVIAN_ANALYTICS_UPDATED_EVENT, {"vin": self.vin}
+                )
+        except Exception:
+            _LOGGER.exception(
+                "Weather backfill failed for VIN %s (non-fatal)", self.vin
+            )
+
+    async def async_backfill_weather(
+        self, days: int = WEATHER_BACKFILL_DEFAULT_DAYS
+    ) -> dict[str, Any]:
+        """Fill NULL wind/precip/pressure/humidity/density/headwind/expected-kWh columns.
+
+        Add-only, for stored routed drives of the last ``days`` days, from the
+        Open-Meteo archive. To keep the load on that free service small the
+        drives are grouped by ~11 km location tile and, within a tile, into
+        windows of at most ``WEATHER_BACKFILL_WINDOW_DAYS`` days: one request
+        per window, ``WEATHER_BACKFILL_REQUEST_INTERVAL_S`` apart, stopping
+        early after ``WEATHER_BACKFILL_MAX_FAILURES`` failed requests in a row.
+        Returns ``{"drives", "updated", "requests",
+        "failed_requests", "complete"}`` (``complete`` is False if any request
+        failed, so the one-time seed is retried on the next start).
+        """
+        result: dict[str, Any] = {
+            "drives": 0,
+            "updated": 0,
+            "requests": 0,
+            "failed_requests": 0,
+            "complete": True,
+        }
+        if not self.weather_lookups:
+            # Not complete: the seed runs once weather lookups are turned on
+            return {**result, "complete": False, "disabled": True}
+        if not self._loaded:
+            await self.async_load()
+        since_ts = datetime.now(UTC).timestamp() - days * 86400.0
+        candidates = await self.hass.async_add_executor_job(
+            self._db.drives_for_weather_backfill, self.vin, since_ts
+        )
+        result["drives"] = len(candidates)
+        tiles: dict[tuple[float, float], list[dict[str, Any]]] = {}
+        for drive in candidates:
+            if drive.get("start_ts") is None:
+                continue
+            key = (round(drive["lat"], 1), round(drive["lon"], 1))
+            tiles.setdefault(key, []).append(drive)
+
+        client = self.get_weather_client()
+        consecutive_failures = 0
+        for tile_drives in tiles.values():
+            tile_drives.sort(key=lambda d: d["start_ts"])
+            windows: list[list[dict[str, Any]]] = []
+            for drive in tile_drives:
+                if (
+                    windows
+                    and drive["start_ts"] - windows[-1][0]["start_ts"]
+                    <= WEATHER_BACKFILL_WINDOW_DAYS * 86400.0
+                ):
+                    windows[-1].append(drive)
+                else:
+                    windows.append([drive])
+            for window in windows:
+                if result["requests"]:
+                    await asyncio.sleep(WEATHER_BACKFILL_REQUEST_INTERVAL_S)
+                first = window[0]
+                end_ts = max(d.get("end_ts") or d["start_ts"] for d in window)
+                start_date = datetime.fromtimestamp(
+                    first["start_ts"] - 3600.0, UTC
+                ).date()
+                end_date = datetime.fromtimestamp(end_ts + 3600.0, UTC).date()
+                result["requests"] += 1
+                hourly = await client.async_get_historical_conditions(
+                    first["lat"],
+                    first["lon"],
+                    start_date.isoformat(),
+                    end_date.isoformat(),
+                )
+                if hourly is None:
+                    result["failed_requests"] += 1
+                    consecutive_failures += 1
+                    if consecutive_failures >= WEATHER_BACKFILL_MAX_FAILURES:
+                        break
+                    continue
+                consecutive_failures = 0
+                items = [
+                    (
+                        d["drive_id"],
+                        archive_samples(
+                            hourly, d["start_ts"], d.get("end_ts") or d["start_ts"]
+                        ),
+                    )
+                    for d in window
+                ]
+                result["updated"] += await self.hass.async_add_executor_job(
+                    self._db.apply_weather_backfill, self.vin, items
+                )
+            if consecutive_failures >= WEATHER_BACKFILL_MAX_FAILURES:
+                break
+        if result["failed_requests"]:
+            result["complete"] = False
+        return result
+
+    async def async_efficiency(
+        self, days: int | None, tz: tzinfo, include_micro: bool = False
+    ) -> dict[str, Any]:
+        """Per-drive rows, speed bands and trends for the Efficiency page (executor)."""
+        if not self._loaded:
+            await self.async_load()
+        since_ts = (
+            None if days is None else datetime.now(UTC).timestamp() - days * 86400.0
+        )
+        return await self.hass.async_add_executor_job(
+            self._db.efficiency_data, self.vin, since_ts, tz, include_micro
+        )
+
     async def async_get_energy_model(self) -> EnergyModelParams | None:
         """Return this VIN's stored fitted energy-model params, or None if never fitted."""
         if not self._loaded:
@@ -368,16 +528,6 @@ class DriveStore:
             self._async_update_heat_safe(),
             name=f"rivian heat seed {self.vin}",
         )
-
-    # -- weather ---------------------------------------------------------------
-
-    def get_weather_client(self) -> OpenMeteoWeatherClient:
-        """Return the Open-Meteo client, honouring the weather_lookups option."""
-        if self._weather_client is None:
-            self._weather_client = OpenMeteoWeatherClient(
-                hass=self.hass, enabled=self.weather_lookups
-            )
-        return self._weather_client
 
     async def _async_import_legacy_json(self) -> None:
         """One-time import of the legacy per-VIN JSON store into SQLite.
@@ -542,9 +692,9 @@ class DriveStore:
     ) -> dict[str, Any]:
         """Fill located sessions' outside temperature from Open-Meteo.
 
-        Add-only: only sessions with no ``outside_temp_f`` yet. Grouped by
-        ~11 km location tile, in windows of at most
-        ``WEATHER_BACKFILL_WINDOW_DAYS``, one archive request per window; when
+        Add-only: only sessions with no ``outside_temp_f`` yet. Grouped like the
+        drive weather backfill (by ~11 km location tile, windows of at most
+        ``WEATHER_BACKFILL_WINDOW_DAYS``), one archive request per window; when
         the archive doesn't have the hours yet (the last few days) the forecast
         API's past days fill them. At most ``max_requests`` requests, 1 s apart,
         stopping after ``WEATHER_BACKFILL_MAX_FAILURES`` failures in a row; a
@@ -607,11 +757,15 @@ class DriveStore:
                     > SESSION_WEATHER_RECENT_DAYS * 86400.0
                 ):
                     hourly = await request(
-                        client.async_get_historical_temperatures(
+                        client.async_get_historical_conditions(
                             lat, lon, start_date.isoformat(), end_date.isoformat()
                         )
                     )
-                    temps = dict(hourly or {})
+                    temps = {
+                        k: c["temp_f"]
+                        for k, c in (hourly or {}).items()
+                        if "temp_f" in c
+                    }
                 missing = [
                     r
                     for r in window

@@ -100,6 +100,7 @@ SERVICE_SET_VEHICLE_PICTURE = "set_vehicle_picture"
 SERVICE_REBUILD_HEAT_MAP = "rebuild_heat_map"
 SERVICE_RECOMPUTE_DRIVE_STATS = "recompute_drive_stats"
 SERVICE_FIT_ENERGY_MODEL = "fit_energy_model"
+SERVICE_BACKFILL_WEATHER = "backfill_weather"
 SERVICE_SNAP_ROUTE_GAPS = "snap_route_gaps"
 SERVICE_REBUILD_PLACES = "rebuild_places"
 SERVICE_REBUILD_ROUTES = "rebuild_routes"
@@ -137,6 +138,7 @@ _BUNDLED_MODULES: Final = (
     "rivian-places-card.js",
     "rivian-routes-card.js",
     "rivian-charging-card.js",
+    "rivian-efficiency-card.js",
     # Shared by the cards above (imported dynamically) and a tiny card for
     # tabs without a panel header. Skipped at registration while not on disk.
     "rivian-vehicle-bar.js",
@@ -185,6 +187,15 @@ REBUILD_HEAT_MAP_SERVICE_SCHEMA = vol.Schema(
 RECOMPUTE_DRIVE_STATS_SERVICE_SCHEMA = vol.Schema(
     {
         vol.Optional("vin"): cv.string,
+    }
+)
+
+BACKFILL_WEATHER_SERVICE_SCHEMA = vol.Schema(
+    {
+        vol.Optional("vin"): cv.string,
+        vol.Optional("days", default=365): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=365)
+        ),
     }
 )
 
@@ -1134,6 +1145,41 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             _LOGGER.info("Fitted energy model for VIN %s: %s", store.vin, result)
             hass.bus.async_fire(RIVIAN_ANALYTICS_UPDATED_EVENT, {"vin": store.vin})
 
+    async def async_handle_backfill_weather(call: ServiceCall) -> None:
+        """Handle the service call to fill wind/precipitation/pressure/humidity/air density.
+
+        Add-only: fills only the still-empty condition columns (and the
+        energy model's expected kWh) of stored routed drives from the
+        Open-Meteo archive, rate-limited.
+        """
+        vin = call.data.get("vin")
+        days = call.data.get("days", 365)
+        targets = [
+            store
+            for entry_data in _iter_entry_datas(hass)
+            for store in (entry_data.get(ATTR_DRIVE_STORE) or {}).values()
+            if (vin is None or store.vin == vin)
+        ]
+        if not targets:
+            raise HomeAssistantError(
+                f"No Rivian vehicle with VIN {vin}"
+                if vin
+                else "No Rivian vehicles with drive history"
+            )
+        if not any(store.weather_lookups for store in targets):
+            raise HomeAssistantError(
+                "Weather lookups are turned off in the Rivian integration's options"
+            )
+        for store in targets:
+            result = await store.async_backfill_weather(days)
+            _LOGGER.info("Weather backfill for VIN %s: %s", store.vin, result)
+            if result.get("complete"):
+                await hass.async_add_executor_job(
+                    store._db.mark_weather_seeded, store.vin
+                )
+            if result.get("updated"):
+                hass.bus.async_fire(RIVIAN_ANALYTICS_UPDATED_EVENT, {"vin": store.vin})
+
     async def async_handle_snap_route_gaps(call: ServiceCall) -> None:
         """Handle the service call to snap recorded GPS gaps onto OSM roads."""
         vin = call.data.get("vin")
@@ -1296,6 +1342,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             schema=FIT_ENERGY_MODEL_SERVICE_SCHEMA,
         )
 
+    if not hass.services.has_service(DOMAIN, SERVICE_BACKFILL_WEATHER):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_BACKFILL_WEATHER,
+            async_handle_backfill_weather,
+            schema=BACKFILL_WEATHER_SERVICE_SCHEMA,
+        )
+
     if not hass.services.has_service(DOMAIN, SERVICE_SNAP_ROUTE_GAPS):
         hass.services.async_register(
             DOMAIN,
@@ -1418,6 +1472,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             hass.services.async_remove(DOMAIN, SERVICE_RECOMPUTE_DRIVE_STATS)
         if hass.services.has_service(DOMAIN, SERVICE_FIT_ENERGY_MODEL):
             hass.services.async_remove(DOMAIN, SERVICE_FIT_ENERGY_MODEL)
+        if hass.services.has_service(DOMAIN, SERVICE_BACKFILL_WEATHER):
+            hass.services.async_remove(DOMAIN, SERVICE_BACKFILL_WEATHER)
         if hass.services.has_service(DOMAIN, SERVICE_SNAP_ROUTE_GAPS):
             hass.services.async_remove(DOMAIN, SERVICE_SNAP_ROUTE_GAPS)
         if hass.services.has_service(DOMAIN, SERVICE_REBUILD_PLACES):

@@ -813,6 +813,18 @@ class DriveTracker:
                 "temp_f": round(temp_f, 1),
                 "distance_at_sample": round(distance_at_sample, 2),
             }
+            # Wind, pressure, precipitation and humidity ride along on the same
+            # sample (served from the temperature request's cache). Tolerates a
+            # client that doesn't provide them.
+            conditions = await self.weather_client.async_get_current_conditions(
+                lat, lon
+            )
+            if self._active_drive is None:
+                return
+            if isinstance(conditions, dict):
+                sample.update(
+                    {k: v for k, v in conditions.items() if isinstance(v, (int, float))}
+                )
             self._active_drive["weather_samples"].append(sample)
             _LOGGER.debug(
                 "Added weather sample for VIN %s: %.1f°F at %.2f mi",

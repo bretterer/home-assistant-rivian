@@ -25,6 +25,7 @@ import zlib
 from homeassistant.util import dt as dt_util
 
 from . import places, road_snap, routes as routes_mod
+from .drive_conditions import compute_condition_columns
 from .drive_models import (
     MICRO_DRIVE_THRESHOLD_MILES,
     MPGE_FACTOR,
@@ -115,6 +116,19 @@ DEMO_VEHICLES_META_KEY: Final[str] = "demo_vehicles"
 # failed (or no-name) geocode attempt.
 GEOCODE_RETRY_SECONDS: Final[float] = 7 * 86400.0
 PLACES_GEOCODE_DEFAULT_LIMIT: Final[int] = 10
+# Bump to re-run the one-time weather/conditions backfill for every VIN.
+WEATHER_VERSION: Final[int] = 1
+# The conditions columns the weather backfill fills when NULL (add-only).
+_CONDITION_COLUMNS: Final[tuple[str, ...]] = (
+    "wind_speed_mph",
+    "wind_dir_deg",
+    "headwind_mph",
+    "precip_mm",
+    "pressure_hpa",
+    "humidity_pct",
+    "air_density",
+    "expected_kwh",
+)
 # Bump when a routes definition changes (mirrors PLACES_VERSION): every VIN
 # then gets one deterministic rebuild_routes() in the background.
 ROUTES_VERSION: Final[int] = 1
@@ -301,7 +315,9 @@ INSERT INTO drives (
   end_lat, end_lon, speed_bins_json, weather_json, chunks_json,
   moving_seconds, stopped_seconds, stop_count, climb_ft, descent_ft,
   track_max_speed_mph, pct_distance_over_70mph,
-  start_range_mi, end_range_mi, drive_modes_json, trailer, driver
+  start_range_mi, end_range_mi, drive_modes_json, trailer, driver,
+  wind_speed_mph, wind_dir_deg, headwind_mph, precip_mm, pressure_hpa,
+  humidity_pct, air_density, expected_kwh
 ) VALUES (
   :vin, :drive_id, :start_time, :end_time, :start_ts, :end_ts, :created_ts,
   :distance_miles, :duration_seconds, :start_soc, :end_soc, :battery_capacity_kwh,
@@ -311,7 +327,9 @@ INSERT INTO drives (
   :end_lat, :end_lon, :speed_bins_json, :weather_json, :chunks_json,
   :moving_seconds, :stopped_seconds, :stop_count, :climb_ft, :descent_ft,
   :track_max_speed_mph, :pct_distance_over_70mph,
-  :start_range_mi, :end_range_mi, :drive_modes_json, :trailer, :driver
+  :start_range_mi, :end_range_mi, :drive_modes_json, :trailer, :driver,
+  :wind_speed_mph, :wind_dir_deg, :headwind_mph, :precip_mm, :pressure_hpa,
+  :humidity_pct, :air_density, :expected_kwh
 )
 ON CONFLICT(vin, drive_id) DO UPDATE SET
   start_time=excluded.start_time, end_time=excluded.end_time,
@@ -335,7 +353,17 @@ ON CONFLICT(vin, drive_id) DO UPDATE SET
   pct_distance_over_70mph=excluded.pct_distance_over_70mph,
   start_range_mi=excluded.start_range_mi, end_range_mi=excluded.end_range_mi,
   drive_modes_json=excluded.drive_modes_json, trailer=excluded.trailer,
-  driver=excluded.driver
+  driver=excluded.driver,
+  -- Conditions are add-only: a re-upsert from a record that never computed
+  -- them (a backfill, a legacy import) must not blank what's stored.
+  wind_speed_mph=COALESCE(excluded.wind_speed_mph, drives.wind_speed_mph),
+  wind_dir_deg=COALESCE(excluded.wind_dir_deg, drives.wind_dir_deg),
+  headwind_mph=COALESCE(excluded.headwind_mph, drives.headwind_mph),
+  precip_mm=COALESCE(excluded.precip_mm, drives.precip_mm),
+  pressure_hpa=COALESCE(excluded.pressure_hpa, drives.pressure_hpa),
+  humidity_pct=COALESCE(excluded.humidity_pct, drives.humidity_pct),
+  air_density=COALESCE(excluded.air_density, drives.air_density),
+  expected_kwh=COALESCE(excluded.expected_kwh, drives.expected_kwh)
 """
 
 _UPSERT_VAMPIRE_SQL: Final[str] = """
@@ -1323,6 +1351,14 @@ class AnalyticsDatabase:
             "drive_modes_json": json.dumps(record.drive_modes),
             "trailer": (int(record.trailer) if record.trailer is not None else None),
             "driver": record.driver,
+            "wind_speed_mph": record.wind_speed_mph,
+            "wind_dir_deg": record.wind_dir_deg,
+            "headwind_mph": record.headwind_mph,
+            "precip_mm": record.precip_mm,
+            "pressure_hpa": record.pressure_hpa,
+            "humidity_pct": record.humidity_pct,
+            "air_density": record.air_density,
+            "expected_kwh": record.expected_kwh,
         }
 
     @staticmethod
@@ -1375,6 +1411,14 @@ class AnalyticsDatabase:
             ),
             trailer=(bool(row["trailer"]) if row["trailer"] is not None else None),
             driver=row["driver"],
+            wind_speed_mph=row["wind_speed_mph"],
+            wind_dir_deg=row["wind_dir_deg"],
+            headwind_mph=row["headwind_mph"],
+            precip_mm=row["precip_mm"],
+            pressure_hpa=row["pressure_hpa"],
+            humidity_pct=row["humidity_pct"],
+            air_density=row["air_density"],
+            expected_kwh=row["expected_kwh"],
         )
 
     @staticmethod
@@ -2853,6 +2897,8 @@ class AnalyticsDatabase:
         roll back together. Returns True if the drive row is new.
         """
         self._assert_executor_thread()
+        # Pure CPU over the route, so done before taking the lock.
+        self._apply_conditions(vin, record, track)
         with self._lock:
             if self.read_only:
                 _LOGGER.warning(
@@ -2879,6 +2925,269 @@ class AnalyticsDatabase:
                     "DELETE FROM active_track_chunks WHERE vin = ?", (vin,)
                 )
             return is_new
+
+    def _apply_conditions(
+        self, vin: str, record: DriveRecord, track: DriveTrack | None
+    ) -> None:
+        """Fill the record's still-empty driving-condition fields; never raises.
+
+        Uses the drive's own weather samples (live Open-Meteo ``current``
+        readings) and this VIN's fitted energy model (the default parameters
+        until a fit exists). A failure just leaves the fields ``None`` for the
+        weather backfill to fill later.
+        """
+        if track is None or len(track.points) < 2:
+            return
+        try:
+            params = self.get_energy_model(vin) or ENERGY_MODEL_DEFAULT_PARAMS
+            cols = compute_condition_columns(
+                track,
+                record.weather_samples,
+                params,
+                duration_s=record.duration_seconds,
+                distance_miles=record.distance_miles,
+                temp_f=record.integrated_temperature_f,
+            )
+        except Exception:
+            _LOGGER.exception("Could not compute driving conditions (non-fatal)")
+            return
+        for column in _CONDITION_COLUMNS:
+            if getattr(record, column) is None and cols.get(column) is not None:
+                setattr(record, column, cols[column])
+
+    # -- driving conditions (weather backfill) ----------------------------------
+
+    @staticmethod
+    def _weather_meta_key(vin: str) -> str:
+        """Meta key recording the weather-backfill version a VIN was filled with."""
+        return f"weather_version:{vin}"
+
+    def has_unseeded_weather(self, vin: str) -> bool:
+        """True until the one-time weather backfill has run for this VIN."""
+        return self.get_meta(self._weather_meta_key(vin)) != str(WEATHER_VERSION)
+
+    def mark_weather_seeded(self, vin: str) -> None:
+        """Stamp the one-time weather backfill as done for this VIN."""
+        self._assert_executor_thread()
+        with self._lock, self._transaction():
+            self._set_meta_locked(self._weather_meta_key(vin), str(WEATHER_VERSION))
+
+    def drives_for_weather_backfill(
+        self, vin: str, since_ts: float
+    ) -> list[dict[str, Any]]:
+        """Routed drives since ``since_ts`` with any condition column still NULL.
+
+        Oldest first.
+        """
+        self._assert_executor_thread()
+        null_clause = " OR ".join(f"d.{c} IS NULL" for c in _CONDITION_COLUMNS)
+        with self._lock:
+            rows = self._conn.execute(
+                f"""
+                SELECT d.drive_id AS drive_id, d.start_ts AS start_ts,
+                       d.end_ts AS end_ts, d.start_lat AS lat, d.start_lon AS lon
+                  FROM drives d
+                  JOIN drive_tracks t ON t.vin = d.vin AND t.drive_id = d.drive_id
+                 WHERE d.vin = ? AND d.sort_ts IS NOT NULL AND d.sort_ts >= ?
+                   AND d.start_lat IS NOT NULL AND d.start_lon IS NOT NULL
+                   AND ({null_clause})
+                 ORDER BY d.sort_ts ASC
+                """,
+                (vin, since_ts),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def apply_weather_backfill(
+        self, vin: str, items: list[tuple[str, list[dict[str, Any]]]]
+    ) -> int:
+        """Fill NULL condition columns from per-drive weather samples; returns drives updated.
+
+        ``items`` is ``[(drive_id, samples)]``; a drive with no samples still
+        gets its ``expected_kwh``. Add-only: a column that already holds a
+        value is never overwritten. Tracks are decoded and
+        the physics run outside the write lock, one batch write at the end.
+        """
+        self._assert_executor_thread()
+        if self.read_only:
+            return 0
+        params = self.get_energy_model(vin) or ENERGY_MODEL_DEFAULT_PARAMS
+        updates: list[tuple[str, dict[str, float | None]]] = []
+        for drive_id, samples in items:
+            with self._lock:
+                row = self._conn.execute(
+                    """
+                    SELECT d.duration_seconds AS duration_seconds,
+                           d.distance_miles AS distance_miles,
+                           d.integrated_temperature_f AS temp_f,
+                           t.track_json AS track_json
+                      FROM drives d
+                      JOIN drive_tracks t ON t.vin = d.vin AND t.drive_id = d.drive_id
+                     WHERE d.vin = ? AND d.drive_id = ?
+                    """,
+                    (vin, drive_id),
+                ).fetchone()
+            if row is None:
+                continue
+            try:
+                track = DriveTrack.decode(row["track_json"])
+            except ValueError:
+                continue
+            cols = compute_condition_columns(
+                track,
+                samples,
+                params,
+                duration_s=row["duration_seconds"],
+                distance_miles=row["distance_miles"],
+                temp_f=row["temp_f"],
+            )
+            updates.append((drive_id, cols))
+        if not updates:
+            return 0
+        assignments = ", ".join(f"{c} = COALESCE({c}, ?)" for c in _CONDITION_COLUMNS)
+        with self._lock, self._transaction():
+            for drive_id, cols in updates:
+                self._conn.execute(
+                    f"UPDATE drives SET {assignments} WHERE vin = ? AND drive_id = ?",
+                    (*(cols.get(c) for c in _CONDITION_COLUMNS), vin, drive_id),
+                )
+        return len(updates)
+
+    # -- efficiency page ---------------------------------------------------------
+
+    def efficiency_data(
+        self,
+        vin: str,
+        since_ts: float | None,
+        tz: tzinfo,
+        include_micro: bool = False,
+    ) -> dict[str, Any]:
+        """Per-drive rows, speed-band aggregates and weekly/monthly trends for one VIN.
+
+        ``since_ts`` bounds the window (``None`` = everything retained). Micro
+        drives (and any drive with no energy) are excluded unless
+        ``include_micro``. Drives older than the retention window are gone, so
+        the trend only reaches as far back as the retained drives.
+        """
+        self._assert_executor_thread()
+        clauses = [
+            "drives.vin = ?",
+            "drives.sort_ts IS NOT NULL",
+            "drives.energy_kwh > 0",
+        ]
+        args: list[Any] = [vin]
+        if since_ts is not None:
+            clauses.append("drives.sort_ts >= ?")
+            args.append(since_ts)
+        if not include_micro:
+            clauses.append("drives.is_micro_drive = 0 AND drives.distance_miles >= ?")
+            args.append(MICRO_DRIVE_THRESHOLD_MILES)
+        where = " AND ".join(clauses)
+        with self._lock:
+            rows = self._conn.execute(
+                f"SELECT * FROM drives WHERE {where} ORDER BY sort_ts ASC, id ASC",
+                args,
+            ).fetchall()
+            band_rows = self._conn.execute(
+                f"""
+                SELECT json_extract(je.value, '$.speed_bin') AS band,
+                       COALESCE(SUM(json_extract(je.value, '$.distance_miles')), 0) AS miles,
+                       COALESCE(SUM(json_extract(je.value, '$.energy_kwh')), 0) AS kwh
+                  FROM drives, json_each(drives.chunks_json) AS je
+                 WHERE {where}
+                 GROUP BY band
+                """,
+                args,
+            ).fetchall()
+
+        drives_out: list[dict[str, Any]] = []
+        weekly: dict[date, list[float]] = {}
+        monthly: dict[date, list[float]] = {}
+        for row in rows:
+            distance = row["distance_miles"] or 0.0
+            energy = row["energy_kwh"]
+            eff = distance / energy if energy > 0 else None
+            expected = row["expected_kwh"]
+            climb = row["climb_ft"]
+            modes = normalize_drive_modes(json.loads(row["drive_modes_json"] or "[]"))
+            drives_out.append(
+                {
+                    "drive_id": row["drive_id"],
+                    "date_ts": row["sort_ts"],
+                    "distance_mi": round(distance, 2),
+                    "duration_s": round(row["duration_seconds"] or 0.0, 1),
+                    "avg_speed_mph": row["avg_speed_mph"],
+                    "temp_f": row["integrated_temperature_f"],
+                    "headwind_mph": row["headwind_mph"],
+                    "wind_speed_mph": row["wind_speed_mph"],
+                    "precip_mm": row["precip_mm"],
+                    "air_density": row["air_density"],
+                    "climb_ft_per_mi": (
+                        round(climb / distance, 1)
+                        if climb is not None and distance > 0
+                        else None
+                    ),
+                    "trip_length_mi": round(distance, 2),
+                    "drive_mode": modes[0] if modes else None,
+                    "trailer": (
+                        bool(row["trailer"]) if row["trailer"] is not None else None
+                    ),
+                    "efficiency_mi_kwh": round(eff, 3) if eff is not None else None,
+                    "mpge": round(eff * MPGE_FACTOR, 1) if eff is not None else None,
+                    "expected_eff_mi_kwh": (
+                        round(distance / expected, 3)
+                        if expected is not None and expected > 0
+                        else None
+                    ),
+                    "score": (
+                        round(expected / energy, 3)
+                        if expected is not None and energy > 0
+                        else None
+                    ),
+                }
+            )
+            local = datetime.fromtimestamp(row["sort_ts"], tz).date()
+            for bucket, key in (
+                (weekly, local - timedelta(days=local.weekday())),
+                (monthly, local.replace(day=1)),
+            ):
+                agg = bucket.setdefault(key, [0.0, 0.0])
+                agg[0] += distance
+                agg[1] += energy
+
+        def _series(bucket: dict[date, list[float]]) -> list[list[float]]:
+            out: list[list[float]] = []
+            for start in sorted(bucket):
+                miles, kwh = bucket[start]
+                eff = miles / kwh if kwh > 0 else 0.0
+                start_ts = datetime(
+                    start.year, start.month, start.day, tzinfo=tz
+                ).timestamp()
+                out.append(
+                    [
+                        start_ts,
+                        round(eff, 3),
+                        round(eff * MPGE_FACTOR, 1),
+                        round(miles, 1),
+                    ]
+                )
+            return out
+
+        found = {r["band"]: r for r in band_rows if r["band"] is not None}
+        speed_bands = [
+            {
+                "band": band,
+                "miles": round(found[band]["miles"], 2),
+                "kwh": round(found[band]["kwh"], 3),
+                "efficiency": round(found[band]["miles"] / found[band]["kwh"], 3),
+            }
+            for band in STANDARD_SPEED_BINS
+            if band in found and found[band]["kwh"] > 0
+        ]
+        return {
+            "drives": drives_out,
+            "speed_bands": speed_bands,
+            "trend": {"weekly": _series(weekly), "monthly": _series(monthly)},
+        }
 
     def get_track(self, vin: str, drive_id: str) -> DriveTrack | None:
         """Return the full-detail (or thinned) GPS track for one drive, if any."""

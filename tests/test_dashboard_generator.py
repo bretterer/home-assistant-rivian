@@ -299,6 +299,7 @@ async def test_one_vehicle_produces_four_tabs_in_order_with_no_picker() -> None:
         "routes",
         "places",
         "charging",
+        "efficiency",
     ]
     assert [v["title"] for v in views] == [
         "Vehicles",
@@ -306,6 +307,7 @@ async def test_one_vehicle_produces_four_tabs_in_order_with_no_picker() -> None:
         "Fav Routes",
         "Destinations",
         "Charging",
+        "Efficiency",
     ]
     # Every tab shows its icon and its name.
     assert all(v.get("show_icon_and_title") is True and v.get("icon") for v in views)
@@ -339,6 +341,31 @@ async def test_one_vehicle_produces_four_tabs_in_order_with_no_picker() -> None:
             "drives_path": "/rivian-dashboard/drives",
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_efficiency_tab_is_one_panel_efficiency_card() -> None:
+    """Efficiency is a panel view with the one card; no Plotly chart is generated."""
+    hass = _hass_with_one_vehicle()
+    saved: dict[str, Any] = {}
+    registry = _MockEntityRegistry()
+
+    with (
+        patch(
+            "custom_components.rivian.dashboard_generator.Store",
+            side_effect=_grid_dashboards_store(saved),
+        ),
+        patch(
+            "custom_components.rivian.dashboard_generator.er",
+            MagicMock(async_get=MagicMock(return_value=registry)),
+        ),
+    ):
+        await async_create_efficiency_dashboard(hass=hass)
+
+    views = saved["lovelace.rivian_dashboard"]["config"]["views"]
+    efficiency = next(v for v in views if v["path"] == "efficiency")
+    assert efficiency["panel"] is True
+    assert efficiency["cards"] == [{"type": "custom:rivian-efficiency-card"}]
 
 
 @pytest.mark.asyncio
@@ -427,6 +454,10 @@ async def test_two_vehicles_get_one_card_per_tab_and_no_picker() -> None:
         view = next(v for v in views if v["path"] == path)
         assert view["panel"] is True
         assert view["cards"] == [{"type": card_type}]
+
+    efficiency = next(v for v in views if v["path"] == "efficiency")
+    assert efficiency["panel"] is True
+    assert efficiency["cards"] == [{"type": "custom:rivian-efficiency-card"}]
 
     charging = next(v for v in views if v["path"] == "charging")
     assert charging["panel"] is True
