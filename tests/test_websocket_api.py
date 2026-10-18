@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 
 from custom_components.rivian import websocket_api as ws_api_module
-from custom_components.rivian.const import ATTR_DRIVE_STORE, DOMAIN
+from custom_components.rivian.const import ATTR_DRIVE_STORE, ATTR_VEHICLE, DOMAIN
 from custom_components.rivian.drive_models import (
     MPGE_FACTOR,
     STANDARD_SPEED_BINS,
@@ -25,6 +25,7 @@ from custom_components.rivian.websocket_api import (
     RIVIAN_ANALYTICS_UPDATED_EVENT,
     SUMMARY_WINDOWS,
     VALID_SERIES_KEYS,
+    VEHICLE_PALETTE,
     _build_series_payload,
     _multi_vin_schema,
     _websocket_analytics_drive,
@@ -32,6 +33,8 @@ from custom_components.rivian.websocket_api import (
     _websocket_analytics_series,
     _websocket_analytics_subscribe,
     _websocket_analytics_summary,
+    _websocket_vehicles_list,
+    assign_vehicle_slots,
 )
 
 VIN = "7PDSGABA8NN000000"
@@ -132,7 +135,8 @@ class _FakeStore:
         raise AssertionError("async_series_window should not be called")
 
 
-def test_speed_bins_series_totals_the_storage_window() -> None:
+def test_speed_bins_total_the_storage_window() -> None:
+    """The speed-bin series is the store's totals, not the last drive's bins."""
     store = _FakeStore([_drive()])
     payload = _build_series_payload(store, ["speed_bins"])
     assert payload == {"speed_bins": store.speed_bin_totals}
@@ -646,7 +650,7 @@ async def test_summary_unknown_vin_is_not_found() -> None:
     assert connection.errors[1][0] == "not_found"
 
 
-# -- multi-VIN reads (`vins`) --------------------------
+# -- multi-VIN reads (`vins`) and rivian/vehicles/list --------------------------
 
 THIRD_VIN = "7PDSGABA8NN555555"
 FOURTH_VIN = "7PDSGABA8NN444444"
@@ -904,3 +908,132 @@ def test_subscribe_vins_unknown_vin_is_not_found() -> None:
     )
     assert connection.errors[1][0] == "not_found"
     assert 1 not in connection.subscriptions
+
+
+# -- rivian/vehicles/list ---------------------------------------------------
+
+
+class _MetaStore:
+    """A store holding the shared meta table in a dict."""
+
+    def __init__(self, vin: str, meta: dict[str, str]) -> None:
+        self.vin = vin
+        self.meta = meta
+
+    async def async_get_meta(self, key: str) -> str | None:
+        return self.meta.get(key)
+
+    async def async_set_meta(self, key: str, value: str) -> None:
+        self.meta[key] = value
+
+
+def _vehicles_hass(
+    real: list[tuple[str, str, str]],
+    meta: dict[str, str],
+) -> Any:
+    stores = {vin: _MetaStore(vin, meta) for vin, _n, _m in real}
+    return SimpleNamespace(
+        data={
+            DOMAIN: {
+                "entry": {
+                    ATTR_VEHICLE: {
+                        f"v{i}": {"vin": vin, "name": name, "model": model}
+                        for i, (vin, name, model) in enumerate(real)
+                    },
+                    ATTR_DRIVE_STORE: stores,
+                },
+            }
+        },
+        bus=_FakeBus(),
+    )
+
+
+@pytest.fixture
+def _registry(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _Registry:
+        def async_get_entity_id(self, domain: str, platform: str, unique_id: str):
+            return {f"{VIN}-picture": "image.rivi_picture"}.get(unique_id)
+
+    monkeypatch.setattr(
+        ws_api_module, "er", SimpleNamespace(async_get=lambda hass: _Registry())
+    )
+
+
+async def test_vehicles_list_orders_vehicles_with_letters_and_colors(
+    _registry: None,
+) -> None:
+    meta: dict[str, str] = {}
+    hass = _vehicles_hass(
+        [(VIN, "Rivi", "R1S"), (OTHER_VIN, "Otto", "R1T"), (THIRD_VIN, "New", "R2")],
+        meta,
+    )
+    connection = _FakeConnection()
+
+    await _websocket_vehicles_list(hass, connection, {"id": 1})
+
+    result = connection.results[1]
+    assert [v["vin"] for v in result] == [VIN, OTHER_VIN, THIRD_VIN]
+    assert [v["letter"] for v in result] == ["A", "B", "C"]
+    assert [v["name"] for v in result] == ["Rivi", "Otto", "New"]
+    assert [(v["color"], v["color_dark"]) for v in result] == list(VEHICLE_PALETTE[:3])
+    assert result[0]["picture_entity"] == "image.rivi_picture"
+    assert result[1]["picture_entity"] is None
+    assert set(result[0]) == {
+        "vin",
+        "name",
+        "model",
+        "letter",
+        "color",
+        "color_dark",
+        "picture_entity",
+    }
+
+
+async def test_vehicle_colors_are_stable_and_slots_are_reused(_registry: None) -> None:
+    import json
+
+    meta: dict[str, str] = {}
+    real = [(VIN, "Rivi", "R1S"), (OTHER_VIN, "Otto", "R1T")]
+
+    real.append((THIRD_VIN, "New", "R2"))
+    hass = _vehicles_hass(real, meta)
+    await _websocket_vehicles_list(hass, _FakeConnection(), {"id": 1})
+    assert json.loads(meta["vehicle_colors"]) == {VIN: 0, OTHER_VIN: 1, THIRD_VIN: 2}
+
+    # Removing Otto never repaints the others.
+    hass = _vehicles_hass([real[0], real[2]], meta)
+    connection = _FakeConnection()
+    await _websocket_vehicles_list(hass, connection, {"id": 2})
+    colors = {v["vin"]: v["color"] for v in connection.results[2]}
+    assert colors[THIRD_VIN] == VEHICLE_PALETTE[2][0]
+    # Letters follow display order; colors do not.
+    assert [v["letter"] for v in connection.results[2]] == ["A", "B"]
+
+    # A newly added vehicle takes the lowest slot no known VIN holds: Otto
+    # keeps slot 1 while absent, so it comes back in the same color.
+    hass = _vehicles_hass([real[0], (FOURTH_VIN, "Newer", "R2")], meta)
+    connection = _FakeConnection()
+    await _websocket_vehicles_list(hass, connection, {"id": 3})
+    colors = {v["vin"]: v["color"] for v in connection.results[3]}
+    assert colors[FOURTH_VIN] == VEHICLE_PALETTE[3][0]
+    assert colors[VIN] == VEHICLE_PALETTE[0][0]
+
+
+def test_assign_vehicle_slots_shares_the_least_used_slot_when_exhausted() -> None:
+    vins = [f"V{i}" for i in range(len(VEHICLE_PALETTE) + 1)]
+    slots = assign_vehicle_slots({}, vins)
+    assert [slots[v] for v in vins[:-1]] == list(range(len(VEHICLE_PALETTE)))
+    assert slots[vins[-1]] == 0
+    # Garbage in storage is ignored; valid entries are kept.
+    assert assign_vehicle_slots({"A": 99, "B": 4}, ["A", "B"]) == {"A": 0, "B": 4}
+
+
+def test_assign_vehicle_slots_keeps_an_absent_vehicles_slot() -> None:
+    # B is briefly missing (entry reloading); it keeps slot 1 and gets it back.
+    stored = {"A": 0, "B": 1}
+    slots = assign_vehicle_slots(stored, ["A"])
+    assert slots == {"A": 0, "B": 1}
+    assert assign_vehicle_slots(slots, ["A", "B"]) == {"A": 0, "B": 1}
+    # Once every slot is held, a new VIN reuses one no present vehicle uses.
+    full = {f"old{i}": i for i in range(len(VEHICLE_PALETTE))}
+    assert assign_vehicle_slots(full, ["old0", "new"])["new"] == 1

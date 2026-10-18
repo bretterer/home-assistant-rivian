@@ -2245,3 +2245,29 @@ class TestLoopThreadGuardOnNewMethods:
 
         db._loop_thread_id = -1
         db.close()
+
+
+class TestVehiclePicture:
+    """The configurator picture is stored once per VIN and read back intact."""
+
+    def test_round_trip_and_replace(self, analytics_db: Any) -> None:
+        from custom_components.rivian.analytics_db import VehiclePicture
+
+        assert analytics_db.get_vehicle_picture(TEST_VIN) is None
+        failed = VehiclePicture("failed", None, None, None, [], 1.0)
+        analytics_db.save_vehicle_picture(TEST_VIN, failed)
+        assert analytics_db.get_vehicle_picture(TEST_VIN) == failed
+
+        ok = VehiclePicture(
+            "ok", "image/webp", b"\x00RIFF\xff", "https://x", ["EXP-LGR"], 2.0
+        )
+        analytics_db.save_vehicle_picture(TEST_VIN, ok)
+        assert analytics_db.get_vehicle_picture(TEST_VIN) == ok
+
+    def test_picture_methods_reject_the_loop_thread(
+        self, mock_hass: Any, analytics_db_path: str
+    ) -> None:
+        db = AnalyticsDatabase(mock_hass, db_path=analytics_db_path)
+        db._loop_thread_id = threading.get_ident()
+        with pytest.raises(RuntimeError):
+            db.get_vehicle_picture(TEST_VIN)

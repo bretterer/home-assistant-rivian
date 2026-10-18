@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any, Final
 
 from homeassistant.helpers.storage import Store
 
-from .analytics_db import ActiveCheckpoint, AnalyticsDatabase, HotCache
+from .analytics_db import ActiveCheckpoint, AnalyticsDatabase, HotCache, VehiclePicture
 from .const import RIVIAN_ANALYTICS_UPDATED_EVENT
 from .drive_models import (
     AggregatedDriveStats,
@@ -511,6 +511,26 @@ class DriveStore:
             now_ts = datetime.now(UTC).timestamp()
         return await self.hass.async_add_executor_job(
             self._db.drives_since, self.vin, from_ts, now_ts
+        )
+
+    async def async_get_meta(self, key: str) -> str | None:
+        """Read a value from the shared analytics database's ``meta`` table."""
+        return await self.hass.async_add_executor_job(self._db.get_meta, key)
+
+    async def async_set_meta(self, key: str, value: str) -> None:
+        """Write a value to the shared analytics database's ``meta`` table."""
+        await self.hass.async_add_executor_job(self._db.set_meta, key, value)
+
+    async def async_get_vehicle_picture(self) -> VehiclePicture | None:
+        """Return this vehicle's saved picture record, if one exists."""
+        return await self.hass.async_add_executor_job(
+            self._db.get_vehicle_picture, self.vin
+        )
+
+    async def async_save_vehicle_picture(self, picture: VehiclePicture) -> None:
+        """Save this vehicle's picture record."""
+        await self.hass.async_add_executor_job(
+            self._db.save_vehicle_picture, self.vin, picture
         )
 
     async def async_recompute_stats(self) -> dict[str, int]:

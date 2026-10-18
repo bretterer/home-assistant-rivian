@@ -899,6 +899,7 @@ class TestServiceRegistration:
             assert setup_ok is True
 
         assert mock_hass.services.has_service(DOMAIN, "backfill_drive_history")
+        assert mock_hass.services.has_service(DOMAIN, "create_efficiency_dashboard")
 
         # Test calling service with default dry_run (should default to True)
         with patch(
@@ -950,6 +951,7 @@ class TestServiceRegistration:
             await async_unload_entry(mock_hass, mock_config_entry)
 
         assert not mock_hass.services.has_service(DOMAIN, "backfill_drive_history")
+        assert not mock_hass.services.has_service(DOMAIN, "create_efficiency_dashboard")
 
 
 class TestVampireEventReconstruction:

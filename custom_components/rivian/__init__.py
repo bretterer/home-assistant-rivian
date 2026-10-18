@@ -4,17 +4,21 @@ from __future__ import annotations
 
 import asyncio
 from datetime import timedelta
+import hashlib
+import json
 import logging
+from pathlib import Path
+import re
 from typing import Any, Final
 
 from rivian import Rivian
 import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import Platform
+from homeassistant.const import EVENT_HOMEASSISTANT_STARTED, Platform
 from homeassistant.core import HomeAssistant, ServiceCall, callback
-from homeassistant.exceptions import ConfigEntryNotReady
-from homeassistant.helpers import config_validation as cv
+from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError
+from homeassistant.helpers import config_validation as cv, entity_registry as er
 from homeassistant.helpers.device_registry import DeviceEntry
 from homeassistant.helpers.event import async_call_later, async_track_time_interval
 from homeassistant.helpers.issue_registry import (
@@ -22,6 +26,8 @@ from homeassistant.helpers.issue_registry import (
     async_create_issue,
     async_delete_issue,
 )
+from homeassistant.helpers.service import async_register_admin_service
+from homeassistant.helpers.storage import Store
 
 from .analytics_db import AnalyticsDatabase
 from .config_flow import (
@@ -44,40 +50,105 @@ from .const import (
     ATTR_VEHICLE,
     ATTR_WALLBOX,
     CONF_VEHICLE_CONTROL,
+    DASHBOARD_SCHEMA_VERSION,
     DOMAIN,
     ISSUE_STATE_VALUES_CHANGED,
     ISSUE_URL,
     RIVIAN_ANALYTICS_UPDATED_EVENT,
     VERSION,
 )
+
+try:
+    from homeassistant.components.frontend import add_extra_js_url
+except ImportError:
+
+    def add_extra_js_url(*args: Any, **kwargs: Any) -> None:  # type: ignore[misc]
+        pass
+
+
+try:
+    from homeassistant.components.http import StaticPathConfig
+except ImportError:
+
+    class StaticPathConfig:  # type: ignore[no-redef]
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+
 from .coordinator import UserCoordinator, VehicleCoordinator, WallboxCoordinator
+from .dashboard_generator import (
+    DEFAULT_ICON,
+    DEFAULT_TITLE,
+    DEFAULT_URL_PATH,
+    async_create_efficiency_dashboard,
+)
 from .drive_storage import DriveStore
 from .drive_tracker import DriveEvent, DriveTracker
 from .helpers import get_rivian_api_from_entry
 from .history_backfill import async_backfill_from_recorder
+from .image import async_apply_vehicle_picture
 from .statistics import async_update_statistics
+from .vehicle_picture import async_picture_from_url
 from .websocket_api import async_register_websocket_api
 
 SERVICE_BACKFILL_DRIVE_HISTORY = "backfill_drive_history"
+SERVICE_CREATE_EFFICIENCY_DASHBOARD = "create_efficiency_dashboard"
+SERVICE_SET_VEHICLE_PICTURE = "set_vehicle_picture"
 
 # Special (non-config-entry) keys stored directly under hass.data[DOMAIN].
 _ANALYTICS_DB_LOCK_KEY: Final = "_analytics_db_lock"
+_DASHBOARD_AUTOCREATE_KEY: Final = "_dashboard_autocreate_claimed"
 _SPECIAL_DOMAIN_DATA_KEYS: Final = frozenset(
     {
         ATTR_ANALYTICS_DB,
         _ANALYTICS_DB_LOCK_KEY,
         "_ws_api_registered",
+        _DASHBOARD_AUTOCREATE_KEY,
     }
 )
 
 RETENTION_PRUNE_INITIAL_DELAY_SECONDS: Final = 30
 RETENTION_PRUNE_INTERVAL: Final = timedelta(hours=24)
+# Bundled frontend cards registered as Lovelace resources by
+# _async_register_frontend.
+_BUNDLED_MODULES: Final = (
+    "rivian-overview-card.js",
+    # Shared by the cards above (imported dynamically) and a tiny card for
+    # tabs without a panel header. Skipped at registration while not on disk.
+    "rivian-vehicle-bar.js",
+    "rivian-vehicle-bar-card.js",
+)
+# Modules earlier builds registered and no longer ship (the Plotly charts and
+# the old sessions card). Their Lovelace resources are removed at setup so a
+# browser doesn't request a missing file on every page load.
+_RETIRED_MODULES: Final = (
+    "plotly-graph-card.js",
+    "mushroom.js",
+    "rivian-series-card.js",
+    "rivian-charging-sessions-card.js",
+)
+
 BACKFILL_SERVICE_SCHEMA = vol.Schema(
     {
         vol.Optional("vin"): cv.string,
         vol.Optional("days"): vol.Coerce(int),
         vol.Optional("dry_run", default=True): cv.boolean,
         vol.Optional("tracks", default=True): cv.boolean,
+    }
+)
+
+CREATE_DASHBOARD_SERVICE_SCHEMA = vol.Schema(
+    {
+        vol.Optional("title", default=DEFAULT_TITLE): cv.string,
+        vol.Optional("icon", default=DEFAULT_ICON): cv.string,
+        vol.Optional("url_path", default=DEFAULT_URL_PATH): cv.string,
+    }
+)
+
+SET_VEHICLE_PICTURE_SERVICE_SCHEMA = vol.Schema(
+    {
+        vol.Optional("vin"): cv.string,
+        vol.Required("url"): cv.url,
     }
 )
 
@@ -167,13 +238,298 @@ def _async_check_analytics_db_issues(
         _LOGGER.debug("Could not update analytics DB repair issues: %s", err)
 
 
+_REMOVED_ATTRIBUTE_READ: Final = re.compile(
+    r"recent_(drives|segments|vampire_events|dcfc_sessions)"
+)
+
+
+async def _async_check_dashboard_staleness(hass: HomeAssistant) -> None:
+    """Raise a repair issue if any dashboard still reads the removed bulk attributes.
+
+    Best-effort and defensive: any failure here is logged and swallowed, and
+    must never fail integration setup.
+    """
+    try:
+        dashboards_store: Store[Any] = Store(hass, 1, "lovelace_dashboards")
+        dashboards_data = await dashboards_store.async_load()
+        # The default Overview dashboard isn't listed in lovelace_dashboards, but
+        # it's a common place to have pasted the old YAML templates.
+        store_keys = ["lovelace"] + [
+            f"lovelace.{item['id']}"
+            for item in (dashboards_data or {}).get("items", [])
+            if item.get("id")
+        ]
+        stale_found = False
+        for key in store_keys:
+            config_store: Store[Any] = Store(hass, 1, key)
+            config_data = await config_store.async_load()
+            if not config_data:
+                continue
+            dashboard_config = config_data.get("config", {})
+            schema_version = dashboard_config.get("schema_version")
+            if schema_version is not None:
+                stale = schema_version < DASHBOARD_SCHEMA_VERSION
+            else:
+                # Every dashboard generated before versioning lacks schema_version,
+                # so unversioned is not "not ours": it's stale if it reads the
+                # bulk attributes the sensors no longer publish.
+                stale = bool(
+                    _REMOVED_ATTRIBUTE_READ.search(json.dumps(dashboard_config))
+                )
+            if stale:
+                stale_found = True
+                break
+
+        if stale_found:
+            async_create_issue(
+                hass,
+                DOMAIN,
+                "dashboard_schema_stale",
+                is_fixable=False,
+                is_persistent=True,
+                severity=IssueSeverity.WARNING,
+                translation_key="dashboard_schema_stale",
+            )
+        else:
+            async_delete_issue(hass, DOMAIN, "dashboard_schema_stale")
+    except Exception as err:  # noqa: BLE001 - dashboard check must never break setup
+        _LOGGER.debug("Dashboard staleness check failed (non-fatal): %s", err)
+
+
+# Persisted once-per-instance flag for the first-setup dashboard. A small HA
+# Store rather than the analytics DB's meta table: no executor round trip, and
+# it stays independent of the database's lifecycle (a wiped or rebuilt
+# analytics DB must not bring back a dashboard the user deleted).
+_DASHBOARD_AUTOCREATE_STORE: Final = "rivian_dashboard_autocreate"
+
+
+def _lovelace_is_yaml_mode(hass: HomeAssistant) -> bool:
+    """Return True when the Lovelace UI is configured in YAML mode."""
+    lovelace = hass.data.get("lovelace")
+    mode = getattr(lovelace, "mode", None)
+    if mode is None and isinstance(lovelace, dict):
+        mode = lovelace.get("mode")
+    return mode == "yaml"
+
+
+async def _async_dashboard_exists(hass: HomeAssistant, url_path: str) -> bool:
+    """Return True if a Lovelace dashboard with ``url_path`` is registered."""
+    dashboards = getattr(hass.data.get("lovelace"), "dashboards", None)
+    if isinstance(dashboards, dict) and url_path in dashboards:
+        return True
+    data = await Store(hass, 1, "lovelace_dashboards").async_load()
+    return any(
+        item.get("url_path") == url_path for item in (data or {}).get("items", [])
+    )
+
+
+async def _async_auto_create_dashboard(hass: HomeAssistant) -> None:
+    """Create the Rivian dashboard once per HA instance, on first setup.
+
+    Skips when the persisted flag is already set. The flag is also set when the
+    dashboard already exists (so deleting it later is never undone) and in YAML
+    mode, where a notification explains how to add it. Never raises.
+    """
+    try:
+        store: Store[Any] = Store(hass, 1, _DASHBOARD_AUTOCREATE_STORE)
+        if (await store.async_load() or {}).get("created"):
+            return
+
+        if _lovelace_is_yaml_mode(hass):
+            from homeassistant.components import persistent_notification
+
+            persistent_notification.async_create(
+                hass,
+                "Lovelace is in YAML mode, so the Rivian dashboard could not be "
+                "created automatically. After switching Lovelace to storage "
+                "mode, run **Developer tools > Actions > Create Rivian "
+                "dashboard** (`rivian.create_efficiency_dashboard`), or see the "
+                "integration's documentation to add the views by hand.",
+                title="Rivian dashboard",
+                notification_id="rivian_dashboard_yaml_mode",
+            )
+        elif not await _async_dashboard_exists(hass, DEFAULT_URL_PATH):
+            await async_create_efficiency_dashboard(
+                hass=hass,
+                title=DEFAULT_TITLE,
+                icon=DEFAULT_ICON,
+                url_path=DEFAULT_URL_PATH,
+            )
+            _LOGGER.info("Created the Rivian dashboard on first setup")
+        await store.async_save({"created": True})
+    except Exception as err:  # noqa: BLE001 - must never break setup
+        _LOGGER.warning(
+            "Could not create the Rivian dashboard automatically (run the "
+            "rivian.create_efficiency_dashboard action to create it): %s",
+            err,
+        )
+
+
+def _schedule_dashboard_autocreate(hass: HomeAssistant) -> None:
+    """Start the first-setup dashboard task once per instance, without blocking."""
+    domain_data = hass.data.setdefault(DOMAIN, {})
+    if domain_data.get(_DASHBOARD_AUTOCREATE_KEY):
+        return
+    domain_data[_DASHBOARD_AUTOCREATE_KEY] = True
+
+    # @callback: HA runs a plain (non-callback) listener in a worker thread,
+    # where creating a task fails ("Task was destroyed but it is pending").
+    @callback
+    def _start(_event: Any = None) -> None:
+        hass.async_create_background_task(
+            _async_auto_create_dashboard(hass), "rivian_dashboard_autocreate"
+        )
+
+    # Waits for HA to finish starting when it hasn't yet, so Lovelace and the
+    # entity registry are fully populated.
+    if getattr(hass, "is_running", False):
+        _start()
+    else:
+        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _start)
+
+
+async def _async_register_frontend(hass: HomeAssistant) -> None:
+    """Register bundled frontend cards so they load automatically without HACS.
+
+    Each module is registered exactly once, as a Lovelace resource with a
+    cache-busting ``?v={VERSION}`` query string; a stale ``?v=`` from a
+    previous version is updated in place. ``add_extra_js_url`` (which has no
+    cache-busting story) is only used as a fallback for YAML-mode Lovelace,
+    where there's no storage-backed resources collection to register with --
+    registering both, as earlier versions did, made every browser load each
+    module twice.
+    """
+    frontend_dir = Path(__file__).parent / "frontend"
+    if not frontend_dir.is_dir():
+        return
+
+    static_url = f"/{DOMAIN}_static"
+    try:
+        await hass.http.async_register_static_paths(
+            [StaticPathConfig(static_url, str(frontend_dir), cache_headers=True)]
+        )
+    except (RuntimeError, ValueError, AttributeError):
+        pass
+
+    versions = await hass.async_add_executor_job(_bundled_module_versions, frontend_dir)
+    if not versions:
+        return
+
+    urls = {name: f"{static_url}/{name}?v={v}" for name, v in versions.items()}
+    try:
+        registered = await _async_register_lovelace_resources(hass, static_url, urls)
+    except Exception as err:  # noqa: BLE001
+        _LOGGER.debug("Could not register cards as Lovelace resources: %s", err)
+        registered = False
+
+    if not registered:
+        # YAML-mode resources (or Lovelace unavailable): load via extra JS URLs.
+        for name, url in urls.items():
+            try:
+                add_extra_js_url(hass, url)
+            except Exception as fallback_err:  # noqa: BLE001
+                _LOGGER.debug("Could not add %s extra URL: %s", name, fallback_err)
+
+
+def _bundled_module_versions(frontend_dir: Path) -> dict[str, str]:
+    """Return the cache-busting version for each bundled card present on disk.
+
+    Every module shares ONE combined version (a hash of all their mtimes and
+    sizes plus the integration version): the cards import the shared
+    ``rivian-vehicle-bar.js`` dynamically with their own ``?v=`` query
+    string, which only works if every module carries the same value, and any
+    change to one of them refreshes them all. Executor-bound (stats files).
+    """
+    own: dict[str, tuple[int, int]] = {}
+    for name in _BUNDLED_MODULES:
+        try:
+            stat = (frontend_dir / name).stat()
+        except OSError:
+            continue
+        own[name] = (int(stat.st_mtime), stat.st_size)
+    if not own:
+        return {}
+    digest = hashlib.sha1(repr(sorted(own.items())).encode()).hexdigest()[:10]
+    combined = f"{VERSION}-{digest}"
+    return {name: combined for name in own}
+
+
+async def _async_register_lovelace_resources(
+    hass: HomeAssistant, static_url: str, urls: dict[str, str]
+) -> bool:
+    """Create or update storage-mode Lovelace resources for the bundled cards.
+
+    Goes through Lovelace's live resource collection when it exists, so the
+    change reaches the frontend without a restart; writing the storage file
+    directly is invisible once that collection has been loaded. Returns False
+    in YAML resource mode, where storage-mode resources are ignored. Also
+    removes the resources of ``_RETIRED_MODULES``.
+    """
+
+    def _is_retired(item_url: str) -> bool:
+        return any(f"{static_url}/{name}" in item_url for name in _RETIRED_MODULES)
+
+    lovelace = hass.data.get("lovelace")
+    if getattr(lovelace, "resource_mode", "storage") == "yaml":
+        return False
+
+    resources = getattr(lovelace, "resources", None)
+    if resources is not None and hasattr(resources, "async_create_item"):
+        if not getattr(resources, "loaded", True):
+            await resources.async_load()
+            resources.loaded = True
+        for item in list(resources.async_items()):
+            if _is_retired(item.get("url", "")):
+                await resources.async_delete_item(item["id"])
+        for name, url in urls.items():
+            existing = next(
+                (
+                    item
+                    for item in resources.async_items()
+                    if f"{static_url}/{name}" in item.get("url", "")
+                ),
+                None,
+            )
+            if existing is None:
+                await resources.async_create_item({"res_type": "module", "url": url})
+            elif existing.get("url") != url:
+                await resources.async_update_item(
+                    existing["id"], {"res_type": "module", "url": url}
+                )
+        return True
+
+    # Lovelace not set up yet: its collection will read this file when it loads.
+    import uuid
+
+    store = Store(hass, 1, "lovelace_resources")
+    data = await store.async_load() or {"items": []}
+    items = data.get("items", [])
+    kept = [x for x in items if not _is_retired(x.get("url", ""))]
+    changed = len(kept) != len(items)
+    items = kept
+    for name, url in urls.items():
+        existing = next(
+            (x for x in items if f"{static_url}/{name}" in x.get("url", "")), None
+        )
+        if existing is None:
+            items.append({"id": uuid.uuid4().hex, "url": url, "type": "module"})
+            changed = True
+        elif existing.get("url") != url:
+            existing["url"] = url
+            changed = True
+    if changed:
+        data["items"] = items
+        await store.async_save(data)
+    return True
+
+
 def _make_drive_complete_listener(
     hass: HomeAssistant, vin: str, store: DriveStore
 ) -> Any:
     """Build a DriveTracker listener that reacts to a finished drive.
 
     On ``DriveEvent.DRIVE_COMPLETE`` it fires the ``rivian_analytics_updated``
-    bus event (so frontend subscribers refetch) and schedules a
+    bus event (so the dashboard cards refetch) and schedules a
     long-term statistics update as a background task. The listener itself is
     a synchronous ``@callback`` -- it never awaits -- so it cannot block the
     DriveTracker's notification loop; the actual (async, executor-bound)
@@ -257,6 +613,23 @@ async def _async_prune_analytics_retention(
             )
 
 
+def _async_remove_retired_entities(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Drop entities earlier builds created that no longer exist.
+
+    The "Dashboard vehicle" select (beta builds only) would otherwise stay in
+    the entity registry as unavailable.
+    """
+    try:
+        registry = er.async_get(hass)
+        entity_id = registry.async_get_entity_id(
+            "select", DOMAIN, f"{entry.entry_id}-dashboard_vehicle"
+        )
+        if isinstance(entity_id, str):
+            registry.async_remove(entity_id)
+    except Exception as err:  # noqa: BLE001 - a cleanup must never block setup
+        _LOGGER.debug("Could not remove retired entities: %s", err)
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Load the saved entries."""
     _LOGGER.info(
@@ -266,6 +639,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
 
     hass.data.setdefault(DOMAIN, {})
+    _async_remove_retired_entities(hass, entry)
 
     analytics_db = await _async_get_or_create_analytics_db(hass)
     _async_check_analytics_db_issues(hass, analytics_db)
@@ -404,6 +778,49 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 await matched_tracker.store.async_load()
                 matched_tracker._notify_listeners()
 
+    async def async_handle_set_vehicle_picture(call: ServiceCall) -> None:
+        """Download a picture from a URL once and keep it as the vehicle's picture."""
+        vin = call.data.get("vin")
+        targets = [
+            (entry_id, store)
+            for entry_id, entry_data in hass.data.get(DOMAIN, {}).items()
+            if entry_id not in _SPECIAL_DOMAIN_DATA_KEYS
+            and isinstance(entry_data, dict)
+            for store in (entry_data.get(ATTR_DRIVE_STORE) or {}).values()
+            if vin is None or store.vin == vin
+        ]
+        if not targets:
+            raise HomeAssistantError(f"No Rivian vehicle with VIN {vin}")
+        if len(targets) > 1:
+            raise HomeAssistantError(
+                "Several Rivian vehicles are set up; say which one with `vin`"
+            )
+        entry_id, store = targets[0]
+        try:
+            picture = await async_picture_from_url(hass, call.data["url"])
+        except ValueError as err:
+            raise HomeAssistantError(str(err)) from err
+        await store.async_save_vehicle_picture(picture)
+        async_apply_vehicle_picture(hass, entry_id, store.vin, picture)
+
+    async def async_handle_create_dashboard(call: ServiceCall) -> None:
+        """Handle the service call to create or update the turnkey efficiency dashboard."""
+        title = call.data.get("title", DEFAULT_TITLE)
+        icon = call.data.get("icon", DEFAULT_ICON)
+        url_path = call.data.get("url_path", DEFAULT_URL_PATH)
+        await async_create_efficiency_dashboard(
+            hass=hass,
+            title=title,
+            icon=icon,
+            url_path=url_path,
+        )
+        # The dashboard was just (re)generated on the latest schema: clear the
+        # staleness repair immediately instead of leaving it until next restart.
+        try:
+            await _async_check_dashboard_staleness(hass)
+        except Exception as err:  # noqa: BLE001 - must never fail the service call
+            _LOGGER.debug("Dashboard staleness check raised unexpectedly: %s", err)
+
     if not hass.services.has_service(DOMAIN, SERVICE_BACKFILL_DRIVE_HISTORY):
         hass.services.async_register(
             DOMAIN,
@@ -412,8 +829,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             schema=BACKFILL_SERVICE_SCHEMA,
         )
 
+    if not hass.services.has_service(DOMAIN, SERVICE_SET_VEHICLE_PICTURE):
+        # Admin only: it makes Home Assistant fetch an arbitrary URL.
+        async_register_admin_service(
+            hass,
+            DOMAIN,
+            SERVICE_SET_VEHICLE_PICTURE,
+            async_handle_set_vehicle_picture,
+            schema=SET_VEHICLE_PICTURE_SERVICE_SCHEMA,
+        )
+
+    if not hass.services.has_service(DOMAIN, SERVICE_CREATE_EFFICIENCY_DASHBOARD):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_CREATE_EFFICIENCY_DASHBOARD,
+            async_handle_create_dashboard,
+            schema=CREATE_DASHBOARD_SERVICE_SCHEMA,
+        )
+
     async_register_websocket_api(hass)
+    await _async_register_frontend(hass)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    _schedule_dashboard_autocreate(hass)
 
     entry.async_on_unload(entry.add_update_listener(update_listener))
 
@@ -428,6 +865,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(
         async_track_time_interval(hass, _run_retention_prune, RETENTION_PRUNE_INTERVAL)
     )
+
+    try:
+        await _async_check_dashboard_staleness(hass)
+    except Exception as err:  # noqa: BLE001 - must never fail setup
+        _LOGGER.debug("Dashboard staleness check raised unexpectedly: %s", err)
 
     return True
 
@@ -477,10 +919,15 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # AnalyticsDatabase connection itself).
         if hass.services.has_service(DOMAIN, SERVICE_BACKFILL_DRIVE_HISTORY):
             hass.services.async_remove(DOMAIN, SERVICE_BACKFILL_DRIVE_HISTORY)
+        if hass.services.has_service(DOMAIN, SERVICE_CREATE_EFFICIENCY_DASHBOARD):
+            hass.services.async_remove(DOMAIN, SERVICE_CREATE_EFFICIENCY_DASHBOARD)
+        if hass.services.has_service(DOMAIN, SERVICE_SET_VEHICLE_PICTURE):
+            hass.services.async_remove(DOMAIN, SERVICE_SET_VEHICLE_PICTURE)
 
         domain_data = hass.data.get(DOMAIN, {})
         db: AnalyticsDatabase | None = domain_data.pop(ATTR_ANALYTICS_DB, None)
         domain_data.pop(_ANALYTICS_DB_LOCK_KEY, None)
+        domain_data.pop(_DASHBOARD_AUTOCREATE_KEY, None)
         domain_data.pop("_ws_api_registered", None)
         if db is not None:
             await hass.async_add_executor_job(db.close)

@@ -993,6 +993,18 @@ class ActiveCheckpoint:
     updated_ts: float
 
 
+@dataclass(frozen=True)
+class VehiclePicture:
+    """A vehicle's saved configurator picture, or the record of a failed fetch."""
+
+    status: str  # "ok" | "failed"
+    content_type: str | None
+    image: bytes | None
+    source_url: str | None
+    options: list[str]
+    fetched_ts: float
+
+
 class AnalyticsDatabase:
     """Owns the single shared SQLite connection backing all vehicles' drive analytics."""
 
@@ -2503,3 +2515,54 @@ class AnalyticsDatabase:
                 (vin, from_ts, now_ts),
             ).fetchall()
         return [self._row_to_drive(r, hydrate=False) for r in rows]
+
+    # -- vehicle picture --------------------------------------------------------
+
+    def get_vehicle_picture(self, vin: str) -> VehiclePicture | None:
+        """Return the saved picture (or failed-fetch record) for a VIN, if any."""
+        self._assert_executor_thread()
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT status, content_type, image, source_url, options_json, "
+                "fetched_ts FROM vehicle_pictures WHERE vin = ?",
+                (vin,),
+            ).fetchone()
+        if row is None:
+            return None
+        return VehiclePicture(
+            status=row["status"],
+            content_type=row["content_type"],
+            image=bytes(row["image"]) if row["image"] is not None else None,
+            source_url=row["source_url"],
+            options=json.loads(row["options_json"] or "[]"),
+            fetched_ts=row["fetched_ts"],
+        )
+
+    def save_vehicle_picture(self, vin: str, picture: VehiclePicture) -> None:
+        """Insert or replace a VIN's picture record."""
+        self._assert_executor_thread()
+        with self._lock:
+            if self.read_only:
+                _LOGGER.warning(
+                    "Analytics database is read-only; save_vehicle_picture skipped"
+                )
+                return
+            with self._transaction():
+                self._conn.execute(
+                    "INSERT INTO vehicle_pictures(vin, status, content_type, image, "
+                    "source_url, options_json, fetched_ts) VALUES(?, ?, ?, ?, ?, ?, ?) "
+                    "ON CONFLICT(vin) DO UPDATE SET status=excluded.status, "
+                    "content_type=excluded.content_type, image=excluded.image, "
+                    "source_url=excluded.source_url, "
+                    "options_json=excluded.options_json, "
+                    "fetched_ts=excluded.fetched_ts",
+                    (
+                        vin,
+                        picture.status,
+                        picture.content_type,
+                        picture.image,
+                        picture.source_url,
+                        json.dumps(picture.options),
+                        picture.fetched_ts,
+                    ),
+                )

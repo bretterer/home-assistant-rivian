@@ -15,8 +15,8 @@ must never touch SQLite. For ``days > 90`` it goes through
 than the cache holds.
 
 ``rivian/analytics/summary`` serves rolling/all-time aggregate stats (7d,
-30d, 365d, all-time) plus the most recent drive, for per-vehicle
-overview cards.
+30d, 365d, all-time) plus the most recent drive, for the Overview tab's
+per-vehicle card.
 
 None of this bulk data is ever attached to entity state attributes; the
 recorder's 16 KiB attribute limit and the state DB are irrelevant here.
@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
+import json
 import logging
 from typing import Any, Final
 
@@ -33,8 +34,14 @@ import voluptuous as vol
 
 from homeassistant.components import websocket_api
 from homeassistant.core import Event, HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
 
-from .const import ATTR_DRIVE_STORE, DOMAIN, RIVIAN_ANALYTICS_UPDATED_EVENT
+from .const import (
+    ATTR_DRIVE_STORE,
+    ATTR_VEHICLE,
+    DOMAIN,
+    RIVIAN_ANALYTICS_UPDATED_EVENT,
+)
 from .drive_models import (
     MPGE_FACTOR,
     AggregatedDriveStats,
@@ -46,6 +53,7 @@ from .drive_storage import DriveStore
 
 _LOGGER = logging.getLogger(__name__)
 
+WS_TYPE_VEHICLES_LIST: Final[str] = "rivian/vehicles/list"
 WS_TYPE_ANALYTICS_SERIES: Final[str] = "rivian/analytics/series"
 WS_TYPE_ANALYTICS_DRIVES: Final[str] = "rivian/analytics/drives"
 WS_TYPE_ANALYTICS_DRIVE: Final[str] = "rivian/analytics/drive"
@@ -60,8 +68,10 @@ SUMMARY_WINDOWS: Final[tuple[tuple[str, int | None], ...]] = (
 VALID_SERIES_KEYS: Final[tuple[str, ...]] = (
     "drives",
     "chunks",
-    # "segments" is a legacy alias for "chunks", from before the
-    # segment->chunk rename; clients still requesting it keep working.
+    # "segments" is a legacy alias for "chunks": dashboards generated before
+    # the segment->chunk rename request ``series: ["segments"]`` and read
+    # ``window.__rivianAnalytics[vin].segments``, so it must keep working
+    # until those dashboards are regenerated.
     "segments",
     "vampire",
     "dcfc",
@@ -69,6 +79,21 @@ VALID_SERIES_KEYS: Final[tuple[str, ...]] = (
 )
 MAX_CHUNKS: Final[int] = 600
 
+# Per-vehicle categorical colors, (light, dark) per slot, in the dataviz
+# skill's fixed categorical order (references/palette.md). A vehicle's slot is
+# persisted in the analytics DB's ``meta`` row below so its color never moves
+# when other vehicles are added or removed.
+VEHICLE_PALETTE: Final[tuple[tuple[str, str], ...]] = (
+    ("#2a78d6", "#3987e5"),  # blue
+    ("#eb6834", "#d95926"),  # orange
+    ("#1baf7a", "#199e70"),  # aqua
+    ("#eda100", "#c98500"),  # yellow
+    ("#e87ba4", "#d55181"),  # magenta
+    ("#008300", "#008300"),  # green
+    ("#4a3aa7", "#9085e9"),  # violet
+    ("#e34948", "#e66767"),  # red
+)
+VEHICLE_COLORS_META_KEY: Final[str] = "vehicle_colors"
 MAX_DCFC_SAMPLES: Final[int] = 60
 SERIES_CACHE_MAX_DAYS: Final[int] = 90
 
@@ -147,6 +172,56 @@ def _resolve_stores(
     return stores, multi
 
 
+def _vehicle_letter(index: int) -> str:
+    """A, B, ... Z, AA, AB, ... for the vehicle at ``index``."""
+    letters = ""
+    index += 1
+    while index > 0:
+        index, rem = divmod(index - 1, 26)
+        letters = chr(65 + rem) + letters
+    return letters
+
+
+def assign_vehicle_slots(stored: dict[str, int], vins: list[str]) -> dict[str, int]:
+    """Stable palette slots: a VIN keeps its slot for good, even while absent.
+
+    A vehicle can be missing for a while (its config entry reloading,
+    car removed and re-added), and it should come back in the same color, so
+    absent VINs keep their stored slot. A new VIN takes the lowest slot no
+    known VIN holds; once every slot is held, the lowest one no *present*
+    vehicle uses; and with more present vehicles than slots, the least-used
+    one is shared.
+    """
+    size = len(VEHICLE_PALETTE)
+    slots = {vin: slot for vin, slot in stored.items() if slot in range(size)}
+    for vin in vins:
+        if vin in slots:
+            continue
+        held = set(slots.values())
+        present = [slots[v] for v in vins if v in slots]
+        unheld = [i for i in range(size) if i not in held]
+        unused_now = [i for i in range(size) if i not in present]
+        if unheld:
+            slots[vin] = unheld[0]
+        elif unused_now:
+            slots[vin] = unused_now[0]
+        else:
+            slots[vin] = min(range(size), key=lambda i: (present.count(i), i))
+    return slots
+
+
+def _parse_slots(raw: str | None) -> dict[str, int]:
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {str(k): v for k, v in data.items() if isinstance(v, int)}
+
+
 def _decimate(samples: list[Any], limit: int) -> list[Any]:
     """Evenly downsample a sequence to at most ``limit`` items, keeping first/last."""
     count = len(samples)
@@ -171,10 +246,11 @@ def _bin_value(value: Any, attr: str) -> float:
     return 0.0
 
 
-# The drive and chunk shapes below are the chart-ready contract that frontends
-# read (e.g. d.distance, d.efficiency, d.temp_f).
+# The drive and chunk shapes below are a contract with the chart expressions
+# in dashboard_generator.py (they read e.g. d.distance, d.efficiency, d.temp_f);
+# tests/test_websocket_api.py fails if a chart reads a field this doesn't send.
 def _drive_chart_dict(drive: DriveRecord) -> dict[str, Any]:
-    """Shape a drive the way chart expressions read it."""
+    """Shape a drive the way the dashboard's chart expressions read it."""
     temp = drive.integrated_temperature_f
     return {
         "drive_id": drive.drive_id,
@@ -611,6 +687,57 @@ def _websocket_analytics_subscribe(
     connection.send_result(msg["id"])
 
 
+@websocket_api.async_response
+async def _websocket_vehicles_list(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Handle ``rivian/vehicles/list``: the vehicles in display order.
+
+    Vehicles in config order. Letters A, B, C... follow
+    that order; colors come from a persisted, stable palette slot per VIN.
+    """
+    from .dashboard_generator import _model_str
+
+    registry = er.async_get(hass)
+    entries: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for entry_data in hass.data.get(DOMAIN, {}).values():
+        if not isinstance(entry_data, dict):
+            continue
+        for v_info in (entry_data.get(ATTR_VEHICLE) or {}).values():
+            vin = str(v_info.get("vin") or "")
+            if not vin or vin in seen:
+                continue
+            seen.add(vin)
+            picture = registry.async_get_entity_id("image", DOMAIN, f"{vin}-picture")
+            entries.append(
+                {
+                    "vin": vin,
+                    "name": str(v_info.get("name") or v_info.get("model") or "Rivian"),
+                    "model": _model_str(v_info),
+                    "picture_entity": picture if isinstance(picture, str) else None,
+                }
+            )
+
+    vins = [e["vin"] for e in entries]
+    meta_store = next((s for s in (_find_store(hass, v) for v in vins) if s), None)
+    stored: dict[str, int] = {}
+    if meta_store is not None:
+        stored = _parse_slots(await meta_store.async_get_meta(VEHICLE_COLORS_META_KEY))
+    slots = assign_vehicle_slots(stored, vins)
+    if meta_store is not None and slots != stored:
+        await meta_store.async_set_meta(VEHICLE_COLORS_META_KEY, json.dumps(slots))
+
+    for index, entry in enumerate(entries):
+        light, dark = VEHICLE_PALETTE[slots[entry["vin"]]]
+        entry["letter"] = _vehicle_letter(index)
+        entry["color"] = light
+        entry["color_dark"] = dark
+    connection.send_result(msg["id"], entries)
+
+
 def async_register_websocket_api(hass: HomeAssistant) -> None:
     """Register the Rivian analytics WebSocket API commands.
 
@@ -621,6 +748,14 @@ def async_register_websocket_api(hass: HomeAssistant) -> None:
     if domain_data.get(WS_API_REGISTERED_KEY):
         return
 
+    websocket_api.async_register_command(
+        hass,
+        WS_TYPE_VEHICLES_LIST,
+        _websocket_vehicles_list,
+        websocket_api.BASE_COMMAND_MESSAGE_SCHEMA.extend(
+            {vol.Required("type"): WS_TYPE_VEHICLES_LIST}
+        ),
+    )
     websocket_api.async_register_command(
         hass,
         WS_TYPE_ANALYTICS_SERIES,

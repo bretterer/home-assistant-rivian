@@ -1047,6 +1047,38 @@
           "description": "Also rebuild GPS routes for stored drives from the recorder's location history (only the recorder retention window, ~10 days by default)."
         }
       }
+    },
+    "create_efficiency_dashboard": {
+      "name": "Create Rivian dashboard",
+      "description": "Generate and register the Rivian dashboard in your Home Assistant sidebar.",
+      "fields": {
+        "title": {
+          "name": "Dashboard Title",
+          "description": "Title displayed in the sidebar and header."
+        },
+        "icon": {
+          "name": "Sidebar Icon",
+          "description": "Material Design icon for the sidebar navigation."
+        },
+        "url_path": {
+          "name": "URL Path",
+          "description": "URL slug for the dashboard."
+        }
+      }
+    },
+    "set_vehicle_picture": {
+      "name": "Set vehicle picture",
+      "description": "Download a picture of your vehicle from an image URL once and keep it as the vehicle's picture (shown on the Rivian dashboard's Overview). Use this when the automatic configurator picture doesn't match your car, e.g. copy the image address of your build on rivian.com.",
+      "fields": {
+        "vin": {
+          "name": "VIN",
+          "description": "Vehicle to set the picture for. Optional when only one Rivian is set up."
+        },
+        "url": {
+          "name": "Image URL",
+          "description": "Web address of a PNG, JPEG or WebP image (up to 10 MB). It is downloaded once and stored locally."
+        }
+      }
     }
   },
   "issues": {
@@ -1068,6 +1100,10 @@
     "analytics_db_read_only": {
       "title": "Rivian analytics database is read-only after a downgrade",
       "description": "The analytics database schema version is newer than this version of the integration supports, which usually means the integration was downgraded. To avoid corrupting data, analytics writes are paused until you update the integration to a version that supports this schema."
+    },
+    "dashboard_schema_stale": {
+      "title": "Rivian efficiency dashboard needs to be regenerated",
+      "description": "A previously generated Rivian Efficiency dashboard uses an older layout schema. Please re-run the `rivian.create_efficiency_dashboard` service to regenerate it with the latest cards and layout."
     },
     "rate_limited": {
       "title": "Rivian live updates are rate limited",
