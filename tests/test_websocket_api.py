@@ -1583,7 +1583,7 @@ def test_routes_schemas_reject_malformed_messages(
 
 
 # -- delete, with confirmation: /delete_drive, /delete_day, /delete_vehicle_history,
-# -- /places/delete ---------------------------------------------------------
+# -- /places/delete, /charging/delete_session ---------------------------------
 
 
 class _FakeDeleteStore:
@@ -1594,10 +1594,12 @@ class _FakeDeleteStore:
         self.deleted_drive_ids: list[str] = []
         self.deleted_days: list[Any] = []
         self.deleted_place_ids: list[int] = []
+        self.deleted_session_ids: list[str] = []
         self.vehicle_history_deleted = False
         self.drive_result: dict[str, Any] = {"deleted": 1, "affected_hours": [0.0]}
         self.day_result: dict[str, Any] = {"deleted": 2, "affected_hours": [0.0]}
         self.place_result: dict[str, Any] = {"action": "deleted"}
+        self.session_removed: int = 1
         self.raise_value_error: str | None = None
 
     async def async_delete_drive(self, drive_id: str) -> dict[str, Any]:
@@ -1613,6 +1615,10 @@ class _FakeDeleteStore:
             raise ValueError(self.raise_value_error)
         self.deleted_place_ids.append(place_id)
         return self.place_result
+
+    async def async_delete_dcfc_session(self, session_id: str) -> int:
+        self.deleted_session_ids.append(session_id)
+        return self.session_removed
 
     async def async_delete_vehicle_history(self) -> None:
         self.vehicle_history_deleted = True
@@ -1760,6 +1766,32 @@ async def test_places_delete_zone_place_is_invalid_format() -> None:
     assert connection.errors[1][0] == "invalid_format"
 
 
+async def test_charging_delete_session_admin_succeeds() -> None:
+    store = _FakeDeleteStore()
+    hass = _hass_with_store(store)
+    connection = _admin_connection(is_admin=True)
+
+    await ws_api_module._websocket_charging_delete_session(
+        hass, connection, {"id": 1, "vin": VIN, "session_id": "sess1"}
+    )
+
+    assert store.deleted_session_ids == ["sess1"]
+    assert connection.results[1] == {"removed": 1}
+
+
+async def test_charging_delete_session_rejects_non_admin() -> None:
+    store = _FakeDeleteStore()
+    hass = _hass_with_store(store)
+    connection = _admin_connection(is_admin=False)
+
+    await ws_api_module._websocket_charging_delete_session(
+        hass, connection, {"id": 1, "vin": VIN, "session_id": "sess1"}
+    )
+
+    assert store.deleted_session_ids == []
+    assert connection.errors[1][0] == "unauthorized"
+
+
 def test_delete_schemas_accept_well_formed_messages(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1769,6 +1801,11 @@ def test_delete_schemas_accept_well_formed_messages(
         {"type": "rivian/analytics/delete_day", "vin": VIN, "date": "2026-09-20"},
         {"type": "rivian/analytics/delete_vehicle_history", "vin": VIN},
         {"type": "rivian/places/delete", "vin": VIN, "place_id": 1},
+        {
+            "type": "rivian/charging/delete_session",
+            "vin": VIN,
+            "session_id": "sess1",
+        },
     ]
     for i, message in enumerate(messages, start=1):
         schemas[message["type"]]({"id": i, **message})
@@ -1784,6 +1821,7 @@ def test_delete_schemas_reject_malformed_messages(
         {"type": "rivian/analytics/delete_drive", "vin": VIN},
         {"type": "rivian/analytics/delete_day", "vin": VIN},
         {"type": "rivian/places/delete", "vin": VIN},
+        {"type": "rivian/charging/delete_session", "vin": VIN},
     ]
     for message in bad:
         with pytest.raises(vol.Invalid):
@@ -2428,3 +2466,28 @@ def test_places_schema_uses_the_shared_category_list(
     schemas["rivian/routes/list"](
         {"id": 1, "type": "rivian/routes/list", "vins": ["A", "B"]}
     )
+
+
+def test_vehicle_model_found_by_vin_not_vehicle_id() -> None:
+    """Vehicle info is keyed by Rivian's vehicle id; the lookup matches the VIN."""
+    hass = SimpleNamespace(
+        data={
+            DOMAIN: {
+                "entry": {
+                    ATTR_VEHICLE: {
+                        "vehicle-id-1": {
+                            "vin": VIN,
+                            "model": "R2",
+                            "model_year": 2026,
+                            "battery_capacity": 87.9,
+                        }
+                    }
+                },
+                "_demo_vehicles": [],
+            }
+        }
+    )
+    store = SimpleNamespace(vin=VIN, last_drive=None)
+
+    assert ws_api_module._vehicle_model_and_capacity(hass, store) == ("R2", 87.9)
+    assert ws_api_module._vehicle_model_year(hass, store) == 2026

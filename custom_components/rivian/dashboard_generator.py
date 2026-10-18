@@ -266,6 +266,17 @@ def _build_places_view(vehicles: list[tuple[str, str, str]]) -> dict[str, Any]:
     )
 
 
+def _build_charging_view(vehicles: list[tuple[str, str, str]]) -> dict[str, Any]:
+    """Build the panel-mode Charging tab: one charging & battery card."""
+    return _build_panel_view(
+        vehicles,
+        title="Charging",
+        path="charging",
+        icon="mdi:ev-station",
+        card_type="custom:rivian-charging-card",
+    )
+
+
 def _build_routes_view(vehicles: list[tuple[str, str, str]]) -> dict[str, Any]:
     """Build the panel-mode Routes tab: one favorite-drives card."""
     return _build_panel_view(
@@ -351,11 +362,12 @@ async def async_create_efficiency_dashboard(
     """Create or update the turnkey, tabbed Rivian dashboard in Home Assistant.
 
     Views/tabs are generated in order: Overview, Drives (panel), Places
-    (panel) and Routes (panel). The Overview tab is a
+    (panel), Routes (panel) and Charging (panel). The Overview tab is a
     single `rivian-overview-card` listing every vehicle (see
     `_build_overview_view`). Drives, Places and Routes each hold ONE card
-    that follows the shared vehicle selection. There is no picker or
-    conditional card anywhere.
+    that follows the shared vehicle selection. Charging is a panel view holding the one
+    `rivian-charging-card` (the vehicle bar renders inside it). There is no picker or conditional card
+    anywhere.
     """
     dashboard_id = url_path.replace("-", "_")
     vehicles_with_entry = await async_discover_vehicle_prefixes(hass)
@@ -391,12 +403,14 @@ async def async_create_efficiency_dashboard(
     drives_view = _build_drives_view(vehicles)
     places_view = _build_places_view(vehicles)
     routes_view = _build_routes_view(vehicles)
+    charging_view = _build_charging_view(vehicles)
 
     views: list[dict[str, Any]] = [
         overview_view,
         drives_view,
         routes_view,
         places_view,
+        charging_view,
         # No vehicle status/controls tab for now; a redesigned one is planned.
     ]
 

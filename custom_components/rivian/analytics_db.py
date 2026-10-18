@@ -64,6 +64,9 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 SCHEMA_VERSION: Final[int] = 14
+# A session with no recorded position is placed at the end of the drive that
+# finished at most this long before it (the car charges where it parked).
+SESSION_LOCATION_MAX_GAP_S: Final[float] = 2 * 3600.0
 # Unit-conversion constants for recompute_drive_stats (mirrors drive_tracker.py).
 _METERS_TO_FEET: Final[float] = 3.28084
 _MPS_TO_MPH: Final[float] = 2.23693629
@@ -1677,16 +1680,447 @@ class AnalyticsDatabase:
                     (new_id, r["id"]),
                 )
 
-    def charging_session_intervals(self, vin: str) -> list[tuple[float, float]]:
-        """Return every stored session's ``(start_ts, end_ts)``, for backfill dedupe."""
+    def list_charging_sessions(
+        self,
+        vin: str,
+        since_ts: float | None = None,
+        until_ts: float | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return a VIN's charging sessions (DC and AC), ascending, hydrated.
+
+        Each item is the record's ``to_dict()`` plus ``start_ts``/``end_ts``
+        (epoch seconds) and ``place`` (``{"id", "label", "category",
+        "zone_entity_id"}`` or None; a hidden or deleted place labels nothing).
+        """
+        self._assert_executor_thread()
+        with self._lock:
+            dataset = (
+                places.DATASET_DEMO
+                if vin in self._demo_vins_locked()
+                else places.DATASET_REAL
+            )
+            query = "SELECT * FROM dcfc_sessions WHERE vin = ?"
+            params: list[Any] = [vin]
+            if since_ts is not None:
+                query += " AND COALESCE(end_ts, start_ts) >= ?"
+                params.append(since_ts)
+            if until_ts is not None:
+                query += " AND COALESCE(start_ts, end_ts) <= ?"
+                params.append(until_ts)
+            query += " ORDER BY sort_ts ASC, id ASC"
+            rows = self._conn.execute(query, params).fetchall()
+            place_rows = self._conn.execute(
+                "SELECT place_id, name, geocode_name, hidden, category, "
+                "zone_entity_id FROM places WHERE dataset = ?",
+                (dataset,),
+            ).fetchall()
+        labels = {
+            r["place_id"]: {
+                "id": r["place_id"],
+                "label": places.place_label(
+                    r["name"], r["geocode_name"], r["place_id"]
+                ),
+                "category": r["category"],
+                "zone_entity_id": r["zone_entity_id"],
+            }
+            for r in place_rows
+            if not r["hidden"]
+        }
+        result: list[dict[str, Any]] = []
+        for row in rows:
+            item = self._row_to_dcfc(row, hydrate=True).to_dict()
+            item["start_ts"] = row["start_ts"]
+            item["end_ts"] = row["end_ts"]
+            pid = row["place_id"]
+            item["place"] = dict(labels[pid]) if pid in labels else None
+            result.append(item)
+        return result
+
+    def charging_session_intervals(
+        self, vin: str, exclude_inferred: bool = False
+    ) -> list[tuple[float, float]]:
+        """Return every stored session's ``(start_ts, end_ts)``, for backfill dedupe.
+
+        ``exclude_inferred`` leaves out the sessions inferred from the battery
+        level (the inference re-derives those itself).
+        """
+        self._assert_executor_thread()
+        query = (
+            "SELECT start_ts, end_ts FROM dcfc_sessions WHERE vin = ? "
+            "AND start_ts IS NOT NULL"
+        )
+        if exclude_inferred:
+            query += " AND source != 'inferred'"
+        with self._lock:
+            rows = self._conn.execute(query, (vin,)).fetchall()
+        return [(r["start_ts"], r["end_ts"] or r["start_ts"]) for r in rows]
+
+    def drive_end_times(self, vin: str, start_ts: float, end_ts: float) -> list[float]:
+        """Return the end times of a VIN's drives (micro drives too) ending in a window."""
         self._assert_executor_thread()
         with self._lock:
             rows = self._conn.execute(
-                "SELECT start_ts, end_ts FROM dcfc_sessions WHERE vin = ? "
-                "AND start_ts IS NOT NULL",
+                "SELECT end_ts FROM drives WHERE vin = ? AND end_ts IS NOT NULL "
+                "AND end_ts >= ? AND end_ts <= ? ORDER BY end_ts",
+                (vin, start_ts, end_ts),
+            ).fetchall()
+        return [r["end_ts"] for r in rows]
+
+    def soc_events(self, vin: str, start_ts: float, end_ts: float) -> dict[str, Any]:
+        """Return the drives and charging sessions overlapping a window.
+
+        Feeds the synthesized battery-% timeline of vehicles without recorder
+        statistics. A drive carries its stored route preview's
+        SoC points when it has a route. Reaches a few days before ``start_ts``
+        so the series has a value at the window's start.
+        """
+        self._assert_executor_thread()
+        lo = start_ts - 3 * SECONDS_PER_DAY
+        with self._lock:
+            drive_rows = self._conn.execute(
+                "SELECT d.start_ts, d.end_ts, d.start_soc, d.end_soc, "
+                "t.preview_json AS preview_json FROM drives d "
+                "LEFT JOIN drive_tracks t ON t.vin = d.vin AND t.drive_id = d.drive_id "
+                "WHERE d.vin = ? AND d.start_ts IS NOT NULL AND d.end_ts IS NOT NULL "
+                "AND d.end_ts >= ? AND d.start_ts <= ? ORDER BY d.start_ts ASC",
+                (vin, lo, end_ts),
+            ).fetchall()
+            session_rows = self._conn.execute(
+                "SELECT start_ts, end_ts, start_soc, end_soc, kind, samples_json "
+                "FROM dcfc_sessions WHERE vin = ? AND start_ts IS NOT NULL "
+                "AND end_ts IS NOT NULL AND end_ts >= ? AND start_ts <= ? "
+                "ORDER BY start_ts ASC",
+                (vin, lo, end_ts),
+            ).fetchall()
+        drives: list[dict[str, Any]] = []
+        for r in drive_rows:
+            points: list[tuple[float, float]] = []
+            if r["preview_json"]:
+                with contextlib.suppress(ValueError, KeyError, TypeError):
+                    points = [
+                        (p.t, p.soc)
+                        for p in DriveTrack.decode(r["preview_json"]).points
+                        if p.soc is not None
+                    ]
+            drives.append(
+                {
+                    "start_ts": r["start_ts"],
+                    "end_ts": r["end_ts"],
+                    "start_soc": r["start_soc"],
+                    "end_soc": r["end_soc"],
+                    "points": points,
+                }
+            )
+        sessions: list[dict[str, Any]] = []
+        for r in session_rows:
+            spoints: list[tuple[float, float]] = []
+            with contextlib.suppress(ValueError, TypeError):
+                for sample in json.loads(r["samples_json"] or "[]"):
+                    ts = _parse_iso_to_epoch(sample.get("timestamp"))
+                    if ts is not None and sample.get("soc") is not None:
+                        spoints.append((ts, float(sample["soc"])))
+            sessions.append(
+                {
+                    "start_ts": r["start_ts"],
+                    "end_ts": r["end_ts"],
+                    "start_soc": r["start_soc"],
+                    "end_soc": r["end_soc"],
+                    "kind": r["kind"],
+                    "points": spoints,
+                }
+            )
+        return {"drives": drives, "sessions": sessions}
+
+    def capacity_rows(self, vin: str) -> list[dict[str, Any]]:
+        """Return each drive's capacity/range readings, ascending, for the health chart.
+
+        Only drives that recorded a ``battery_capacity_kwh``; ``end_range_mi``
+        and ``end_soc`` may be None.
+        """
+        self._assert_executor_thread()
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT sort_ts, battery_capacity_kwh, end_soc, end_range_mi "
+                "FROM drives WHERE vin = ? AND sort_ts IS NOT NULL "
+                "AND battery_capacity_kwh IS NOT NULL AND battery_capacity_kwh > 0 "
+                "ORDER BY sort_ts ASC",
                 (vin,),
             ).fetchall()
-        return [(r["start_ts"], r["end_ts"] or r["start_ts"]) for r in rows]
+        return [
+            {
+                "ts": r["sort_ts"],
+                "capacity_kwh": r["battery_capacity_kwh"],
+                "end_soc": r["end_soc"],
+                "end_range_mi": r["end_range_mi"],
+            }
+            for r in rows
+        ]
+
+    # -- capacity history (kept forever) --------------------------------------
+
+    def capacity_history_rows(self, vin: str) -> list[dict[str, Any]]:
+        """Return a VIN's ``capacity_history`` rows, oldest day first."""
+        self._assert_executor_thread()
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT day, kwh, temp_f, temp_source, source FROM capacity_history "
+                "WHERE vin = ? ORDER BY day ASC",
+                (vin,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def upsert_capacity_history(self, vin: str, rows: list[dict[str, Any]]) -> int:
+        """Insert or replace per-day capacity rows (``day``, ``kwh``, ``temp_f``,
+        ``temp_source``, ``source``); returns how many were written. Never pruned."""
+        self._assert_executor_thread()
+        if not rows:
+            return 0
+        with self._lock:
+            if self.read_only:
+                _LOGGER.warning(
+                    "Analytics database is read-only; upsert_capacity_history skipped"
+                )
+                return 0
+            with self._transaction():
+                for row in rows:
+                    self._conn.execute(
+                        "INSERT INTO capacity_history "
+                        "(vin, day, kwh, temp_f, temp_source, source) "
+                        "VALUES (?, ?, ?, ?, ?, ?) "
+                        "ON CONFLICT(vin, day) DO UPDATE SET kwh=excluded.kwh, "
+                        "temp_f=excluded.temp_f, temp_source=excluded.temp_source, "
+                        "source=excluded.source",
+                        (
+                            vin,
+                            row["day"],
+                            float(row["kwh"]),
+                            row.get("temp_f"),
+                            row.get("temp_source"),
+                            row.get("source") or "statistics",
+                        ),
+                    )
+        return len(rows)
+
+    def capacity_day_inputs(self, vin: str, tz: tzinfo) -> dict[str, dict[str, Any]]:
+        """Return per local day (``YYYY-MM-DD``) the capacity inputs stored here.
+
+        ``kwh``: the day's largest drive-reported battery capacity;
+        ``outside_f``: mean of the day's drives' temperature;
+        ``battery_f``: mean battery temperature over the day's DC session samples.
+        Any key is absent when there is nothing for it.
+        """
+        self._assert_executor_thread()
+        with self._lock:
+            drive_rows = self._conn.execute(
+                "SELECT sort_ts, battery_capacity_kwh, integrated_temperature_f "
+                "FROM drives WHERE vin = ? AND sort_ts IS NOT NULL",
+                (vin,),
+            ).fetchall()
+            session_rows = self._conn.execute(
+                "SELECT start_ts, samples_json FROM dcfc_sessions WHERE vin = ? "
+                "AND kind = 'dc' AND start_ts IS NOT NULL AND sample_count > 0",
+                (vin,),
+            ).fetchall()
+        days: dict[str, dict[str, Any]] = {}
+
+        def day_of(ts: float) -> str:
+            return datetime.fromtimestamp(ts, tz=tz).strftime("%Y-%m-%d")
+
+        outside: dict[str, list[float]] = {}
+        battery: dict[str, list[float]] = {}
+        for r in drive_rows:
+            day = day_of(r["sort_ts"])
+            entry = days.setdefault(day, {})
+            kwh = r["battery_capacity_kwh"]
+            if kwh and kwh > 0:
+                entry["kwh"] = max(entry.get("kwh", 0.0), float(kwh))
+            if r["integrated_temperature_f"] is not None:
+                outside.setdefault(day, []).append(float(r["integrated_temperature_f"]))
+        for r in session_rows:
+            with contextlib.suppress(ValueError, TypeError):
+                temps = [
+                    float(smp["battery_temp_f"])
+                    for smp in json.loads(r["samples_json"] or "[]")
+                    if isinstance(smp, dict) and smp.get("battery_temp_f") is not None
+                ]
+                if temps:
+                    battery.setdefault(day_of(r["start_ts"]), []).extend(temps)
+        for day, vals in outside.items():
+            days.setdefault(day, {})["outside_f"] = sum(vals) / len(vals)
+        for day, vals in battery.items():
+            days.setdefault(day, {})["battery_f"] = sum(vals) / len(vals)
+        return days
+
+    # -- Rivian-app history import / station lookup ----------------------------
+
+    def sessions_for_history_match(self, vin: str) -> list[dict[str, Any]]:
+        """Return every stored session's identity fields (no samples) for matching."""
+        self._assert_executor_thread()
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT session_id, kind, start_ts, end_ts, start_soc, end_soc, "
+                "energy_added_kwh, vendor, network, is_home, rivian_txn_id, source "
+                "FROM dcfc_sessions WHERE vin = ? AND start_ts IS NOT NULL",
+                (vin,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def update_session_fields(
+        self, vin: str, session_id: str, fields: dict[str, Any]
+    ) -> None:
+        """Set a whitelisted subset of one session's station/energy fields."""
+        self._assert_executor_thread()
+        allowed = {
+            "vendor",
+            "network",
+            "station_name",
+            "station_version",
+            "charger_max_kw",
+            "is_home",
+            "rivian_txn_id",
+            "energy_added_kwh",
+            "lat",
+            "lon",
+            "place_id",
+            "outside_temp_f",
+            "battery_temp_f",
+        }
+        cols = {k: v for k, v in fields.items() if k in allowed}
+        if not cols:
+            return
+        with self._lock:
+            if self.read_only:
+                return
+            assignments = ", ".join(f"{c} = ?" for c in cols)
+            with self._transaction():
+                self._conn.execute(
+                    f"UPDATE dcfc_sessions SET {assignments} "
+                    "WHERE vin = ? AND session_id = ?",
+                    [*cols.values(), vin, session_id],
+                )
+
+    def fill_session_locations_from_drives(self, vin: str) -> int:
+        """Locate sessions recorded without a position from the drive before them.
+
+        A car charges where it parked, so a session with no lat/lon takes the
+        end point of the drive that finished within ``SESSION_LOCATION_MAX_GAP_S``
+        before it (sessions recorded before v11 captured no location). Returns
+        how many sessions were updated. Demo sessions are left alone.
+        """
+        self._assert_executor_thread()
+        prior = (
+            "SELECT {col} FROM drives d WHERE d.vin = dcfc_sessions.vin "
+            "AND d.end_ts IS NOT NULL AND d.end_ts <= dcfc_sessions.start_ts "
+            "AND d.end_ts >= dcfc_sessions.start_ts - ? "
+            "AND d.end_lat IS NOT NULL AND d.end_lon IS NOT NULL "
+            "ORDER BY d.end_ts DESC LIMIT 1"
+        )
+        gap = SESSION_LOCATION_MAX_GAP_S
+        with self._lock, self._transaction():
+            cur = self._conn.execute(
+                f"UPDATE dcfc_sessions SET lat = ({prior.format(col='d.end_lat')}), "
+                f"lon = ({prior.format(col='d.end_lon')}) "
+                "WHERE vin = ? AND lat IS NULL AND source != 'demo' "
+                f"AND EXISTS ({prior.format(col='1')})",
+                (gap, gap, vin, gap),
+            )
+            return cur.rowcount or 0
+
+    def sessions_needing_outside_temp(
+        self, vin: str, before_ts: float, limit: int = 60
+    ) -> list[dict[str, Any]]:
+        """Return located sessions (DC and AC) with no outside temperature yet.
+
+        Only sessions that ended before ``before_ts`` (the weather service needs
+        the hours to have happened), newest first, never demo rows.
+        """
+        self._assert_executor_thread()
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT session_id, start_ts, end_ts, lat, lon FROM dcfc_sessions "
+                "WHERE vin = ? AND lat IS NOT NULL AND lon IS NOT NULL "
+                "AND start_ts IS NOT NULL AND outside_temp_f IS NULL "
+                "AND COALESCE(end_ts, start_ts) <= ? AND source != 'demo' "
+                "ORDER BY start_ts DESC LIMIT ?",
+                (vin, before_ts, limit),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def dc_sessions_needing_station(
+        self, vin: str, limit: int = 20
+    ) -> list[dict[str, Any]]:
+        """Return located DC sessions with no station info yet, newest first."""
+        self._assert_executor_thread()
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT session_id, lat, lon FROM dcfc_sessions WHERE vin = ? "
+                "AND kind = 'dc' AND lat IS NOT NULL AND lon IS NOT NULL "
+                "AND station_name IS NULL AND network IS NULL AND vendor IS NULL "
+                "AND source != 'demo' ORDER BY start_ts DESC LIMIT ?",
+                (vin, limit),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def level_before(self, vin: str, ts: float) -> tuple[float, float | None] | None:
+        """Return ``(soc, battery_capacity_kwh)`` the car had just before ``ts``.
+
+        From the latest drive or session ending before ``ts`` (its end SoC);
+        the capacity is the newest drive-reported one. None when there is
+        nothing earlier.
+        """
+        self._assert_executor_thread()
+        with self._lock:
+            drive = self._conn.execute(
+                "SELECT end_ts, end_soc FROM drives "
+                "WHERE vin = ? AND end_ts IS NOT NULL AND end_ts <= ? "
+                "AND end_soc IS NOT NULL ORDER BY end_ts DESC LIMIT 1",
+                (vin, ts),
+            ).fetchone()
+            session = self._conn.execute(
+                "SELECT end_ts, end_soc FROM dcfc_sessions WHERE vin = ? "
+                "AND end_ts IS NOT NULL AND end_ts <= ? ORDER BY end_ts DESC LIMIT 1",
+                (vin, ts),
+            ).fetchone()
+            cap = self._conn.execute(
+                "SELECT battery_capacity_kwh FROM drives WHERE vin = ? "
+                "AND battery_capacity_kwh > 0 ORDER BY sort_ts DESC LIMIT 1",
+                (vin,),
+            ).fetchone()
+        capacity = float(cap[0]) if cap is not None else None
+        best: tuple[float, float] | None = None
+        for row in (drive, session):
+            if row is not None and (best is None or row["end_ts"] > best[0]):
+                best = (row["end_ts"], row["end_soc"])
+        return None if best is None else (float(best[1]), capacity)
+
+    def get_cached_osm(self, key: str) -> Any | None:
+        """Return a cached JSON value (any OSM lookup) for ``key``, or None if
+        absent, older than 90 days or corrupt. Shares the ``osm_roads`` table."""
+        self._assert_executor_thread()
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT fetched_ts, data FROM osm_roads WHERE bbox_key = ?", (key,)
+            ).fetchone()
+        if row is None or time.time() - row["fetched_ts"] > OSM_ROADS_TTL_SECONDS:
+            return None
+        try:
+            return json.loads(zlib.decompress(row["data"]))
+        except (zlib.error, ValueError, TypeError):
+            return None
+
+    def save_cached_osm(self, key: str, value: Any) -> None:
+        """Cache a JSON-able OSM lookup result under ``key`` for 90 days."""
+        self._assert_executor_thread()
+        if self.read_only:
+            return
+        data = zlib.compress(json.dumps(value, separators=(",", ":")).encode())
+        with self._lock, self._transaction():
+            self._conn.execute(
+                "INSERT INTO osm_roads (bbox_key, fetched_ts, data) VALUES (?, ?, ?) "
+                "ON CONFLICT(bbox_key) DO UPDATE SET "
+                "fetched_ts=excluded.fetched_ts, data=excluded.data",
+                (key, time.time(), data),
+            )
 
     def migrate_legacy_json(
         self,
@@ -1938,6 +2372,174 @@ class AnalyticsDatabase:
         self.rebuild_places(dataset)
         self.rebuild_routes(dataset)
         return {"action": action}
+
+    def delete_dcfc_session(self, vin: str, session_id: str) -> int:
+        """Delete one DC fast-charge session; return the number of rows removed (0 or 1)."""
+        self._assert_executor_thread()
+        if self.read_only:
+            _LOGGER.warning(
+                "Analytics database is read-only; delete_dcfc_session skipped"
+            )
+            return 0
+        with self._lock, self._transaction():
+            row = self._conn.execute(
+                "SELECT source FROM dcfc_sessions WHERE vin = ? AND session_id = ?",
+                (vin, session_id),
+            ).fetchone()
+            cur = self._conn.execute(
+                "DELETE FROM dcfc_sessions WHERE vin = ? AND session_id = ?",
+                (vin, session_id),
+            )
+            if row is not None and row["source"] == "inferred":
+                # Remember the delete: the nightly inference would re-add it.
+                tombstones = self._inferred_tombstones_locked(vin)
+                if session_id not in tombstones:
+                    tombstones.append(session_id)
+                    self._set_meta_locked(
+                        f"inferred_deleted:{vin}", json.dumps(tombstones)
+                    )
+            return cur.rowcount or 0
+
+    def _inferred_tombstones_locked(self, vin: str) -> list[str]:
+        """Return the VIN's deleted inferred session ids; caller holds the lock."""
+        row = self._conn.execute(
+            "SELECT value FROM meta WHERE key = ?", (f"inferred_deleted:{vin}",)
+        ).fetchone()
+        if row is None:
+            return []
+        try:
+            data = json.loads(row["value"])
+        except (TypeError, ValueError):
+            return []
+        return [str(x) for x in data] if isinstance(data, list) else []
+
+    def earliest_activity_ts(self, vin: str) -> float | None:
+        """Return the start of the VIN's earliest stored drive or session."""
+        self._assert_executor_thread()
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT MIN(t) FROM (SELECT MIN(start_ts) AS t FROM drives "
+                "WHERE vin = ?1 UNION ALL SELECT MIN(start_ts) FROM dcfc_sessions "
+                "WHERE vin = ?1 AND source != 'inferred')",
+                (vin,),
+            ).fetchone()
+        return row[0] if row is not None and row[0] is not None else None
+
+    def last_drive_end_location(
+        self, vin: str, ts: float, max_age_s: float
+    ) -> tuple[float, float] | None:
+        """Return where the latest drive ending at/before ``ts`` (within ``max_age_s``) ended."""
+        self._assert_executor_thread()
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT end_lat, end_lon FROM drives WHERE vin = ? "
+                "AND end_ts IS NOT NULL AND end_ts <= ? AND end_ts >= ? "
+                "ORDER BY end_ts DESC LIMIT 1",
+                (vin, ts, ts - max_age_s),
+            ).fetchone()
+        if row is None or row["end_lat"] is None or row["end_lon"] is None:
+            return None
+        return (row["end_lat"], row["end_lon"])
+
+    def get_inferred_scan(self, vin: str) -> dict[str, Any] | None:
+        """The VIN's last inference scan stamp (``{version, through}``), or None."""
+        self._assert_executor_thread()
+        raw = self.get_meta(f"inferred_scan:{vin}")
+        try:
+            value = json.loads(raw) if raw else None
+        except (TypeError, ValueError):
+            return None
+        return value if isinstance(value, dict) else None
+
+    def set_inferred_scan(self, vin: str, stamp: dict[str, Any]) -> None:
+        """Record the VIN's inference scan stamp (see ``get_inferred_scan``)."""
+        self._assert_executor_thread()
+        if self.read_only:
+            return
+        self.set_meta(f"inferred_scan:{vin}", json.dumps(stamp))
+
+    def replace_inferred_sessions(
+        self,
+        vin: str,
+        sessions: list[ChargingSessionRecord],
+        since_ts: float | None = None,
+    ) -> bool:
+        """Replace the VIN's ``source='inferred'`` sessions with ``sessions``.
+
+        With ``since_ts`` only the inferred rows starting at or after it are
+        replaced (an incremental re-check); older ones are kept as stored.
+
+        One transaction: the old inferred rows go, the new set comes in except
+        ids the user deleted (``inferred_deleted:<vin>`` in ``meta``) and any
+        that overlap a stored non-inferred session. Rows of other sources are
+        never touched. Returns True when the stored inferred set changed.
+        """
+        self._assert_executor_thread()
+        if self.read_only:
+            return False
+        with self._lock:
+            dataset = (
+                places.DATASET_DEMO
+                if vin in self._demo_vins_locked()
+                else places.DATASET_REAL
+            )
+            tombstones = set(self._inferred_tombstones_locked(vin))
+            before = self._inferred_signature_locked(vin)
+            real = [
+                (r["start_ts"], r["end_ts"] or r["start_ts"])
+                for r in self._conn.execute(
+                    "SELECT start_ts, end_ts FROM dcfc_sessions WHERE vin = ? "
+                    "AND start_ts IS NOT NULL AND source != 'inferred'",
+                    (vin,),
+                ).fetchall()
+            ]
+            created_ts = time.time()
+            with self._transaction():
+                if since_ts is None:
+                    self._conn.execute(
+                        "DELETE FROM dcfc_sessions WHERE vin = ? AND source = 'inferred'",
+                        (vin,),
+                    )
+                else:
+                    self._conn.execute(
+                        "DELETE FROM dcfc_sessions WHERE vin = ? AND source = 'inferred' "
+                        "AND start_ts >= ?",
+                        (vin, since_ts),
+                    )
+                for session in sessions:
+                    if session.source != "inferred" or session.session_id in tombstones:
+                        continue
+                    start = _parse_iso_to_epoch(session.start_time)
+                    end = _parse_iso_to_epoch(session.end_time) or start
+                    if start is not None and any(
+                        a <= end and start <= b for a, b in real
+                    ):
+                        continue
+                    if (
+                        session.place_id is None
+                        and session.lat is not None
+                        and session.lon is not None
+                    ):
+                        session.place_id = self._place_id_at_locked(
+                            dataset, session.lat, session.lon
+                        )
+                    self._conn.execute(
+                        _UPSERT_DCFC_SQL,
+                        self._dcfc_row_params(vin, session, created_ts),
+                    )
+            return self._inferred_signature_locked(vin) != before
+
+    def _inferred_signature_locked(self, vin: str) -> list[tuple[Any, ...]]:
+        """Comparable summary of the VIN's inferred rows; caller holds the lock."""
+        return [
+            tuple(r)
+            for r in self._conn.execute(
+                "SELECT session_id, start_ts, end_ts, start_soc, end_soc, place_id "
+                "FROM dcfc_sessions WHERE vin = ? AND source = 'inferred' "
+                "ORDER BY session_id",
+                (vin,),
+            ).fetchall()
+        ]
 
     def prune(self, vin: str, cutoff_ts: float) -> int:
         """Delete drives/vampire events older than cutoff_ts; return rows removed.

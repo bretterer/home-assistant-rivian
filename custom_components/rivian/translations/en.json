@@ -32,14 +32,14 @@
           "track_retention_days": "Keep GPS routes for (days, 0 = as long as the drive)",
           "track_full_detail_days": "Thin routes older than (days, 0 = never)",
           "place_geocoding": "Automatically name frequent places",
-          "weather_lookups": "Weather for drives"
+          "weather_lookups": "Weather for drives and charging"
         },
         "data_description": {
           "track_capture": "When off, drives are still recorded but no GPS route is stored for them, so the map/drive-explorer route view is unavailable.",
           "track_retention_days": "How long a drive's full GPS route is kept before it's deleted (the drive summary itself follows the analytics history retention setting above). A typical daily-driving route history runs roughly 12 MB/year at full detail.",
           "track_full_detail_days": "Routes older than this are simplified to about 10% of their original size (same overall shape, fewer points) to save storage, without being deleted.",
           "place_geocoding": "When on, an unnamed frequent stop (3+ visits within ~200 m) is looked up once via the public OSM Nominatim API to suggest a name. Only that place's coordinates are sent; the result is cached. When off, suggested places keep a numbered label until you name them yourself.",
-          "weather_lookups": "When on, each drive gets its outside temperature from the public Open-Meteo API. Only coordinates rounded to about 1 km and times are sent. When off, nothing is sent and drives show no temperature."
+          "weather_lookups": "When on, each drive and charging session gets its outside temperature from the public Open-Meteo API. Only coordinates rounded to about 1 km and times are sent. When off, nothing is sent, and drives and sessions show no temperature."
         }
       }
     },
@@ -1138,6 +1138,26 @@
         "vin": {
           "name": "Vehicle VIN",
           "description": "Specific vehicle VIN to rebuild (leave blank for all configured vehicles)."
+        }
+      }
+    },
+    "import_charging_history": {
+      "name": "Import charging history from Rivian",
+      "description": "Imports the Rivian app's completed charging sessions (home and public) and merges them with the ones recorded here. A session that overlaps a stored one adds its vendor, home/public flag and measured energy; a missing one is added. Then looks up the station (brand, network, name, maximum kW) of fast charges from OpenStreetMap. Also runs once a day. Real vehicles only; never sends payment or account details.",
+      "fields": {
+        "vin": {
+          "name": "Vehicle VIN",
+          "description": "Specific vehicle VIN to process (leave blank for all configured vehicles)."
+        }
+      }
+    },
+    "infer_charging_sessions": {
+      "name": "Infer charging sessions from battery history",
+      "description": "Finds charges that the battery level history shows but that neither Home Assistant nor Rivian recorded (older data Rivian no longer stores) and adds them to the charging history, marked as inferred. Scans the whole battery history again and replaces the earlier inferred sessions; one you deleted stays deleted. The whole history is scanned once automatically after installing; after that a nightly run re-checks only the last few days, so this is only needed after changing how charges are detected. Real vehicles only.",
+      "fields": {
+        "vin": {
+          "name": "Vehicle VIN",
+          "description": "Specific vehicle VIN to process (leave blank for all configured vehicles)."
         }
       }
     }

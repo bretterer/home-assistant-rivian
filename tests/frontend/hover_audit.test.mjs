@@ -8,6 +8,7 @@ import * as bar from "../../custom_components/rivian/frontend/rivian-vehicle-bar
 import * as overview from "../../custom_components/rivian/frontend/rivian-overview-card.js";
 import * as routes from "../../custom_components/rivian/frontend/rivian-routes-card.js";
 import * as places from "../../custom_components/rivian/frontend/rivian-places-card.js";
+import * as chg from "../../custom_components/rivian/frontend/rivian-charging-card.js";
 import * as rde from "../../custom_components/rivian/frontend/rivian-drive-explorer-card.js";
 
 // -- vehicle bar -------------------------------------------------------------
@@ -78,6 +79,36 @@ test("places: placeTooltip summarizes a place", () => {
   assert.equal(text, "Home · 79 visits · last today · 100 m radius · Home Assistant zone");
   assert.ok(places.placeTooltip({ label: "Place #3", visits: 3, source: "auto" }).includes("suggestion"));
   assert.equal(places.placeTooltip(null), "");
+});
+
+// -- charging ------------------------------------------------------------------------------
+
+test("charging: range titles, history titles, scorecard titles", () => {
+  assert.equal(chg.rangeTitle("7d"), "Last 7 days");
+  assert.equal(chg.rangeTitle("1y"), "Last year");
+  assert.equal(chg.rangeTitle("all"), "Everything on record");
+  for (const key of ["when", "vehicle", "place", "type", "soc", "kwh", "peak", "avg", "battery_temp", "outside_temp", "duration"]) {
+    assert.ok(chg.HISTORY_COLUMN_TITLES[key], key);
+  }
+  const { tiles } = chg.scorecardTiles({}, null);
+  for (const t of tiles) {
+    assert.ok(chg.SCORE_TILE_TITLES[t.label], t.label);
+    if (t.sub) assert.ok(chg.SCORE_TILE_TITLES[t.sub.label], t.sub.label);
+  }
+  assert.ok(chg.SCORE_TILE_TITLES["Time in 20–80 %"]);
+  assert.ok(chg.scoreCountTitle("Fast charges", true).includes("fast charges only"));
+  assert.ok(chg.scoreCountTitle("Fast charges", false).includes("Tap to highlight"));
+});
+
+test("charging: band titles, aria-sort and key stepping", () => {
+  for (const b of chg.BANDS) assert.ok(chg.bandTitle(b).length > 10);
+  assert.ok(chg.bandTitle(chg.BANDS[2]).startsWith("Ideal"));
+  assert.equal(chg.ariaSortFor({ key: "kwh", dir: "asc" }, "kwh"), "ascending");
+  assert.equal(chg.ariaSortFor({ key: "kwh", dir: "asc" }, "when"), "none");
+  assert.equal(chg.stepIndex(undefined, 1, 3), 0);
+  assert.equal(chg.stepIndex(1, 1, 3), 2);
+  assert.equal(chg.stepIndex(2, 1, 3), 2);
+  assert.equal(chg.stepIndex(0, -1, 0), -1);
 });
 
 // -- drive explorer ----------------------------------------------------------------------------

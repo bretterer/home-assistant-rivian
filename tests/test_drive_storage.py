@@ -473,6 +473,7 @@ class TestDriveStore:
         """With the weather_lookups option off, the store's client stays offline."""
         store = DriveStore(mock_hass, TEST_VIN, analytics_db, weather_lookups=False)
         assert store.get_weather_client().enabled is False
+        assert (await store.async_fill_session_temperatures())["requests"] == 0
         assert (
             DriveStore(mock_hass, TEST_VIN, analytics_db).get_weather_client().enabled
         )

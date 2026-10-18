@@ -37,6 +37,7 @@ from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 
+from . import battery_analytics, charge_curves, charger_lookup
 from .const import (
     ATTR_DRIVE_STORE,
     ATTR_VEHICLE,
@@ -44,6 +45,7 @@ from .const import (
     RIVIAN_ANALYTICS_UPDATED_EVENT,
 )
 from .drive_models import (
+    AC_L1_MAX_KW,
     MPGE_FACTOR,
     AggregatedDriveStats,
     DriveChunk,
@@ -52,6 +54,7 @@ from .drive_models import (
 )
 from .drive_storage import DriveStore
 from .places import DATASET_REAL, DATASETS, PLACE_CATEGORIES, category_options
+from .statistics import async_entity_statistics, async_soc_points
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -79,6 +82,11 @@ WS_TYPE_PLACES_DELETE: Final[str] = "rivian/places/delete"
 WS_TYPE_ROUTES_LIST: Final[str] = "rivian/routes/list"
 WS_TYPE_ROUTES_ROUTE: Final[str] = "rivian/routes/route"
 WS_TYPE_ROUTES_RENAME: Final[str] = "rivian/routes/rename"
+WS_TYPE_CHARGING_DELETE_SESSION: Final[str] = "rivian/charging/delete_session"
+WS_TYPE_CHARGING_SESSIONS: Final[str] = "rivian/charging/sessions"
+WS_TYPE_CHARGING_REFERENCE: Final[str] = "rivian/charging/reference"
+WS_TYPE_BATTERY_SOC_TIMELINE: Final[str] = "rivian/battery/soc_timeline"
+WS_TYPE_BATTERY_CAPACITY: Final[str] = "rivian/battery/capacity"
 ROUTE_NAME_MAX_LEN: Final[int] = 80
 VALID_HEAT_PERIODS: Final[tuple[str, ...]] = ("all", "year", "month")
 # Places and routes belong to no vehicle: ``dataset`` ('real' by default) picks
@@ -127,6 +135,9 @@ VEHICLE_PALETTE: Final[tuple[tuple[str, str], ...]] = (
 VEHICLE_COLORS_META_KEY: Final[str] = "vehicle_colors"
 MAX_DCFC_SAMPLES: Final[int] = 60
 SERIES_CACHE_MAX_DAYS: Final[int] = 90
+SECONDS_PER_DAY: Final[float] = 86400.0
+# A battery-% timeline window up to this long uses 5-minute statistics.
+SOC_TIMELINE_FINE_MAX_DAYS: Final[int] = 10
 
 WS_API_REGISTERED_KEY: Final[str] = "_ws_api_registered"
 
@@ -1251,6 +1262,428 @@ async def _websocket_routes_rename(
     connection.send_result(msg["id"])
 
 
+@websocket_api.require_admin
+@websocket_api.async_response
+async def _websocket_charging_delete_session(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Handle the ``rivian/charging/delete_session`` WebSocket command. Admin only."""
+    vin: str = msg["vin"]
+    store = _find_store(hass, vin)
+    if store is None:
+        _not_found(connection, msg["id"], vin)
+        return
+    removed = await store.async_delete_dcfc_session(msg["session_id"])
+    connection.send_result(msg["id"], {"removed": removed})
+
+
+def _vehicle_info(entry_data: dict[str, Any], vin: str) -> dict[str, Any] | None:
+    """Return the account's info for ``vin`` from one entry's vehicles.
+
+    ``ATTR_VEHICLE`` is keyed by Rivian's vehicle id, not the VIN.
+    """
+    for info in (entry_data.get(ATTR_VEHICLE) or {}).values():
+        if isinstance(info, dict) and info.get("vin") == vin:
+            return info
+    return None
+
+
+def _vehicle_model_and_capacity(
+    hass: HomeAssistant, store: DriveStore
+) -> tuple[str | None, float | None]:
+    """Return ``(model, capacity_kwh)`` for a vehicle, as far as they are known.
+
+    The model and capacity come from the discovered vehicle info; the capacity is the newest drive's reported battery capacity when
+    there is one (it tracks degradation), else the vehicle info's.
+    """
+    model: str | None = None
+    capacity: Any = None
+    for entry_data in hass.data.get(DOMAIN, {}).values():
+        if not isinstance(entry_data, dict):
+            continue
+        info = _vehicle_info(entry_data, store.vin)
+        if info is not None:
+            model = info.get("model") or model
+            capacity = info.get("battery_capacity") or capacity
+    last = store.last_drive
+    if last is not None and last.battery_capacity_kwh:
+        capacity = last.battery_capacity_kwh
+    try:
+        capacity = float(capacity) if capacity else None
+    except (TypeError, ValueError):
+        capacity = None
+    return (str(model) if model else None), capacity
+
+
+def _vehicle_model_year(hass: HomeAssistant, store: DriveStore) -> int | None:
+    """Return the vehicle's model year when the account data has one."""
+    for entry_data in hass.data.get(DOMAIN, {}).values():
+        if not isinstance(entry_data, dict):
+            continue
+        info = _vehicle_info(entry_data, store.vin)
+        if info is not None:
+            year = info.get("model_year") or info.get("modelYear")
+            try:
+                return int(year) if year else None
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
+def _vehicle_reference(
+    hass: HomeAssistant, store: DriveStore
+) -> tuple[dict[str, Any], float]:
+    """Return ``(reference curve entry, capacity_kwh)`` for a vehicle."""
+    model, capacity = _vehicle_model_and_capacity(hass, store)
+    ref = charge_curves.reference(
+        charge_curves.pack_for(model, capacity, _vehicle_model_year(hass, store))
+    )
+    return ref, capacity or float(ref["capacity_kwh"])
+
+
+CHARGE_TYPE_LABELS: Final[dict[str, str]] = {
+    "dc": "DC Fast",
+    "ac_l2": "AC L2",
+    "ac_l1": "AC L1",
+    # An inferred slow charge whose rate is unknown (Home Assistant got no
+    # updates during it): not guessed as L1 or L2.
+    "ac": "AC",
+}
+
+
+def _session_payload(
+    session: dict[str, Any], vin: str, ref: dict[str, Any], capacity: float
+) -> dict[str, Any]:
+    """Shape one stored session for ``rivian/charging/sessions``."""
+    start_ts, end_ts = session.get("start_ts"), session.get("end_ts")
+    duration_s = (
+        round(end_ts - start_ts)
+        if start_ts is not None and end_ts is not None
+        else None
+    )
+    is_dc = session.get("kind") == "dc"
+    peak_kw = session["max_power_kw"]
+    if not is_dc:
+        # AC sessions store only a coarse SoC trace: its fastest stretch is
+        # the peak (backfilled ones have no trace, so peak = average).
+        estimated = battery_analytics.peak_from_soc_samples(
+            session.get("samples") or [], capacity
+        )
+        if estimated is not None and estimated > (peak_kw or 0.0):
+            peak_kw = estimated
+    temps = [
+        s["battery_temp_f"]
+        for s in session.get("samples") or []
+        if s.get("battery_temp_f") is not None
+    ]
+    battery_temp = session.get("battery_temp_f")
+    if battery_temp is None and temps:
+        battery_temp = round(sum(temps) / len(temps), 1)
+    kind_type = battery_analytics.charge_type(
+        session.get("kind"), session.get("avg_power_kw"), AC_L1_MAX_KW
+    )
+    brand, label = charger_lookup.brand_for(
+        session.get("vendor") or None,
+        session.get("network") or None,
+        session.get("station_name") or None,
+        session.get("is_home"),
+    )
+    inferred = session.get("source") == "inferred"
+    raw_place = session.get("place")
+    place = (
+        {k: raw_place.get(k) for k in ("id", "label", "category")}
+        if raw_place
+        else None
+    )
+    is_home_charge = bool(
+        session.get("is_home") is True
+        or brand == "home"
+        or (raw_place or {}).get("category") == "home"
+        or (raw_place or {}).get("zone_entity_id") == "zone.home"
+    )
+    if (
+        session.get("source") == "inferred"
+        and kind_type != "dc"
+        and not session.get("avg_power_kw")
+    ):
+        kind_type = "ac"
+    payload: dict[str, Any] = {
+        "vin": vin,
+        "session_id": session["session_id"],
+        "kind": session.get("kind"),
+        "start_ts": start_ts,
+        "end_ts": end_ts,
+        "start_soc": session["start_soc"],
+        "end_soc": session["end_soc"],
+        "energy_added_kwh": session["energy_added_kwh"],
+        "max_power_kw": peak_kw,
+        "avg_power_kw": session["avg_power_kw"],
+        "charge_type": kind_type,
+        "charge_type_label": CHARGE_TYPE_LABELS[kind_type],
+        "outside_temp_f": session.get("outside_temp_f"),
+        "battery_temp_f": battery_temp,
+        "duration_s": duration_s,
+        "place": place,
+        "inferred": inferred,
+        "is_home_charge": is_home_charge,
+        "lat": session.get("lat"),
+        "lon": session.get("lon"),
+        "source": session.get("source"),
+        "vendor": session.get("vendor") or None,
+        "network": session.get("network") or None,
+        "station_name": session.get("station_name") or None,
+        "station_version": session.get("station_version"),
+        "charger_max_kw": session.get("charger_max_kw"),
+        "is_home": session.get("is_home"),
+        "brand": brand,
+        "brand_label": label,
+        "samples": (
+            _decimate(session.get("samples", []), MAX_DCFC_SAMPLES) if is_dc else []
+        ),
+        "expected": None,
+    }
+    if inferred:
+        # Derived from the battery level alone: no measured power or energy
+        # unless the span could estimate it.
+        for key in ("max_power_kw", "avg_power_kw", "energy_added_kwh"):
+            if not payload[key]:
+                payload[key] = None
+    if is_dc:
+        minutes = charge_curves.expected_minutes(
+            ref, session["start_soc"], session["end_soc"], capacity
+        )
+        avg_kw = charge_curves.expected_avg_kw(
+            ref, session["start_soc"], session["end_soc"], capacity
+        )
+        if minutes is not None and avg_kw is not None:
+            pct = (
+                round(minutes / (duration_s / 60.0) * 100.0, 1) if duration_s else None
+            )
+            payload["expected"] = {
+                "pack": ref["pack"],
+                "approximate": ref["approximate"],
+                "minutes": round(minutes, 1),
+                "avg_kw": round(avg_kw, 1),
+                "pct_of_expected": pct,
+            }
+    return payload
+
+
+@websocket_api.async_response
+async def _websocket_charging_sessions(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Handle ``rivian/charging/sessions``. Open to all users.
+
+    Every stored charging session (DC fast and AC/home) of the requested
+    vehicles, oldest first, plus per-vehicle counts. DC sessions carry their
+    (downsampled) curve and ``expected`` -- what the vehicle's reference pack
+    needs for the same SoC range (``pct_of_expected`` is expected minutes over
+    actual minutes, so 100 means as fast as the reference).
+    """
+    resolved = _resolve_stores(hass, connection, msg)
+    if resolved is None:
+        return
+    stores, _multi = resolved
+    days = msg.get("days")
+    since_ts = dt_util.utcnow().timestamp() - days * SECONDS_PER_DAY if days else None
+    if msg.get("start") is not None:
+        since_ts = max(since_ts, msg["start"]) if since_ts is not None else msg["start"]
+    until_ts = msg.get("end")
+    brands = set(msg.get("brands") or [])
+    sessions: list[dict[str, Any]] = []
+    counts: dict[str, dict[str, int]] = {}
+    for store in stores:
+        rows = await store.async_list_charging_sessions(since_ts, until_ts)
+        ref, capacity = _vehicle_reference(hass, store)
+        payloads = [_session_payload(r, store.vin, ref, capacity) for r in rows]
+        if brands:
+            keep = [i for i, p in enumerate(payloads) if p["brand"] in brands]
+            rows = [rows[i] for i in keep]
+            payloads = [payloads[i] for i in keep]
+        sessions.extend(payloads)
+        counts[store.vin] = battery_analytics.session_counts(rows)
+    sessions.sort(key=lambda s: (s["start_ts"] is None, s["start_ts"] or 0.0))
+    connection.send_result(msg["id"], {"sessions": sessions, "counts_by_vin": counts})
+
+
+@websocket_api.async_response
+async def _websocket_charging_reference(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Handle ``rivian/charging/reference``: each vehicle's expected DC curve."""
+    resolved = _resolve_stores(hass, connection, msg)
+    if resolved is None:
+        return
+    stores, _multi = resolved
+    result: dict[str, Any] = {}
+    for store in stores:
+        ref, capacity = _vehicle_reference(hass, store)
+        result[store.vin] = {
+            "pack": ref["pack"],
+            "label": ref["name"],
+            "approximate": ref["approximate"],
+            "capacity_kwh": round(capacity, 1),
+            "curve": {"soc": list(ref["x"]), "kw": list(ref["y"])},
+        }
+    connection.send_result(msg["id"], result)
+
+
+async def _soc_timeline_for_store(
+    hass: HomeAssistant, store: DriveStore, start_ts: float, end_ts: float
+) -> tuple[list[battery_analytics.Point], str]:
+    """Return ``(points, source)`` for one vehicle's battery-% timeline.
+
+    A real vehicle uses its battery-level sensor's recorder statistics (5-minute
+    for a window of 10 days or less, hourly beyond). Where 5-minute statistics
+    have already been purged (older than ~10 days), hourly statistics fill the
+    uncovered start of the window. A vehicle with no statistics at
+    all is synthesized from its drives and charging sessions.
+    """
+    entity_id = er.async_get(hass).async_get_entity_id(
+        "sensor", DOMAIN, f"{store.vin}-battery_level"
+    )
+    if entity_id:
+        fine = end_ts - start_ts <= SOC_TIMELINE_FINE_MAX_DAYS * SECONDS_PER_DAY
+        points = await async_soc_points(
+            hass,
+            entity_id,
+            start_ts,
+            end_ts,
+            fine=fine,
+            reader=async_entity_statistics,
+        )
+        if points:
+            return points, "statistics"
+    events = await store.async_soc_events(start_ts, end_ts)
+    # An open-ended request ("All", start 0) would otherwise hold the first
+    # level flat back to 1970: start the synthesized series at the vehicle's
+    # first recorded drive or session instead.
+    first = min(
+        (
+            e["start_ts"]
+            for kind in ("drives", "sessions")
+            for e in events.get(kind, [])
+        ),
+        default=None,
+    )
+    if first is not None and first > start_ts:
+        start_ts = first
+    return (
+        battery_analytics.synthesize_timeline(events, start_ts, end_ts),
+        "synthesized",
+    )
+
+
+@websocket_api.async_response
+async def _websocket_battery_soc_timeline(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Handle ``rivian/battery/soc_timeline``: battery % over time per vehicle.
+
+    ``time_in_band`` is the fraction of covered time per SoC band (below 10,
+    10-20, 20-80, 80-90, above 90 %), or None when nothing is covered.
+    """
+    resolved = _resolve_stores(hass, connection, msg)
+    if resolved is None:
+        return
+    stores, _multi = resolved
+    start_ts, end_ts = battery_analytics.window_bounds(
+        msg.get("start"), msg.get("end"), dt_util.utcnow().timestamp()
+    )
+    series: dict[str, Any] = {}
+    bands: dict[str, Any] = {}
+    detected: dict[str, list[dict[str, Any]]] = {}
+    for store in stores:
+        points, source = await _soc_timeline_for_store(hass, store, start_ts, end_ts)
+        detected[store.vin] = []
+        if source == "statistics" and points:
+            # Charges the battery level shows but no stored session covers.
+            recorded = await store.async_charging_session_intervals()
+            _ref, capacity = _vehicle_reference(hass, store)
+            # A fast charge needs a drive just before it (see detect_charge_spans).
+            drive_ends = await store.async_drive_end_times(
+                start_ts - battery_analytics.DETECT_DC_DRIVE_GAP_S, end_ts
+            )
+            detected[store.vin] = battery_analytics.detect_charge_spans(
+                points, recorded, capacity, drive_ends=drive_ends
+            )
+        bands[store.vin] = battery_analytics.time_in_band(
+            points,
+            battery_analytics.STATISTICS_MAX_GAP_S if source == "statistics" else None,
+        )
+        series[store.vin] = {
+            "points": [
+                [int(ts), round(soc, 1)]
+                for ts, soc in battery_analytics.downsample(
+                    points, battery_analytics.TIMELINE_MAX_POINTS
+                )
+            ],
+            "source": source,
+        }
+    connection.send_result(
+        msg["id"], {"series": series, "time_in_band": bands, "detected": detected}
+    )
+
+
+@websocket_api.async_response
+async def _websocket_battery_capacity(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Handle ``rivian/battery/capacity``: battery health per vehicle.
+
+    Reads the stored ``capacity_history`` (one row per local day, kept forever;
+    seeded from the capacity sensor's long-term statistics and the drives, and
+    refreshed daily) plus today's live sensor value, and returns
+    ``points: [[day_ts, kwh, temp_f|null, temp_source 'battery'|'outside'|null]]``,
+    ``pct_points`` (% of the original), ``original_kwh`` (the first day's, else
+    the pack's nominal), ``projected_range`` (median of
+    ``end_range_mi / end_soc * 100`` per day), ``pack`` and ``approximate``.
+    """
+    resolved = _resolve_stores(hass, connection, msg)
+    if resolved is None:
+        return
+    stores, _multi = resolved
+    tz = dt_util.get_default_time_zone()
+    now_ts = dt_util.utcnow().timestamp()
+    registry = er.async_get(hass)
+    result: dict[str, Any] = {}
+    for store in stores:
+        rows = await store.async_capacity_rows()
+        history = await store.async_capacity_history()
+        live: tuple[float, float] | None = None
+        entity_id = registry.async_get_entity_id(
+            "sensor", DOMAIN, f"{store.vin}-battery_capacity"
+        )
+        state = hass.states.get(entity_id) if entity_id else None
+        try:
+            value = float(state.state) if state is not None else 0.0
+        except (TypeError, ValueError):
+            value = 0.0
+        if value > 0:
+            live = (now_ts, value)
+        model, capacity = _vehicle_model_and_capacity(hass, store)
+        pack = charge_curves.pack_for(model, capacity, _vehicle_model_year(hass, store))
+        ref = charge_curves.reference(pack)
+        series = battery_analytics.capacity_history_series(
+            history, rows, tz, float(capacity or ref["capacity_kwh"]), live
+        )
+        series["pack"] = pack
+        series["approximate"] = ref["approximate"]
+        result[store.vin] = series
+    connection.send_result(msg["id"], result)
+
+
 @callback
 def async_register_websocket_api(hass: HomeAssistant) -> None:
     """Register the Rivian analytics WebSocket API commands.
@@ -1548,6 +1981,57 @@ def async_register_websocket_api(hass: HomeAssistant) -> None:
                 ),
             }
         ),
+    )
+    websocket_api.async_register_command(
+        hass,
+        WS_TYPE_CHARGING_DELETE_SESSION,
+        _websocket_charging_delete_session,
+        websocket_api.BASE_COMMAND_MESSAGE_SCHEMA.extend(
+            {
+                vol.Required("type"): WS_TYPE_CHARGING_DELETE_SESSION,
+                vol.Required("vin"): str,
+                vol.Required("session_id"): str,
+            }
+        ),
+    )
+
+    websocket_api.async_register_command(
+        hass,
+        WS_TYPE_CHARGING_SESSIONS,
+        _websocket_charging_sessions,
+        _multi_vin_schema(
+            {
+                vol.Required("type"): WS_TYPE_CHARGING_SESSIONS,
+                vol.Optional("days"): vol.All(vol.Coerce(int), vol.Range(min=1)),
+                vol.Optional("start"): vol.Coerce(float),
+                vol.Optional("end"): vol.Coerce(float),
+                vol.Optional("brands"): [str],
+            }
+        ),
+    )
+    websocket_api.async_register_command(
+        hass,
+        WS_TYPE_CHARGING_REFERENCE,
+        _websocket_charging_reference,
+        _multi_vin_schema({vol.Required("type"): WS_TYPE_CHARGING_REFERENCE}),
+    )
+    websocket_api.async_register_command(
+        hass,
+        WS_TYPE_BATTERY_SOC_TIMELINE,
+        _websocket_battery_soc_timeline,
+        _multi_vin_schema(
+            {
+                vol.Required("type"): WS_TYPE_BATTERY_SOC_TIMELINE,
+                vol.Optional("start"): vol.Coerce(float),
+                vol.Optional("end"): vol.Coerce(float),
+            }
+        ),
+    )
+    websocket_api.async_register_command(
+        hass,
+        WS_TYPE_BATTERY_CAPACITY,
+        _websocket_battery_capacity,
+        _multi_vin_schema({vol.Required("type"): WS_TYPE_BATTERY_CAPACITY}),
     )
 
     domain_data[WS_API_REGISTERED_KEY] = True

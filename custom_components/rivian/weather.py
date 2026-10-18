@@ -387,6 +387,72 @@ class OpenMeteoWeatherClient:
             if created_session:
                 await session.close()
 
+    async def async_get_recent_hourly_temperatures(
+        self, latitude: float, longitude: float, past_days: int
+    ) -> dict[str, float] | None:
+        """Hourly temperatures (F) for the last ``past_days`` days, UTC ISO hours.
+
+        From the forecast API's ``past_days`` (at most 92), which covers the
+        last few days the archive doesn't have yet. ``None`` on any failure.
+        """
+        if not self.enabled:
+            return None
+        params = {
+            "latitude": round(latitude, REQUEST_COORDINATE_DECIMALS),
+            "longitude": round(longitude, REQUEST_COORDINATE_DECIMALS),
+            "hourly": "temperature_2m",
+            "past_days": max(1, min(92, int(past_days))),
+            "forecast_days": 1,
+            "temperature_unit": "fahrenheit",
+            "timezone": "UTC",
+        }
+        session = self._get_session()
+        created_session = session is not self._custom_session and self.hass is None
+        try:
+            timeout = aiohttp.ClientTimeout(total=REQUEST_TIMEOUT_SECONDS)
+            async with session.get(
+                OPEN_METEO_FORECAST_URL,
+                params=params,
+                timeout=timeout,
+                headers=_HEADERS,
+            ) as response:
+                if response.status != 200:
+                    _LOGGER.debug(
+                        "Open-Meteo forecast API returned status %s for (%s, %s)",
+                        response.status,
+                        latitude,
+                        longitude,
+                    )
+                    return None
+                data = await response.json()
+                hourly = data.get("hourly", {})
+                times = hourly.get("time", [])
+                temps = hourly.get("temperature_2m", [])
+                if not times or len(times) != len(temps):
+                    return None
+                return {
+                    str(t): round(float(v), 1)
+                    for t, v in zip(times, temps, strict=True)
+                    if v is not None
+                } or None
+        except (
+            TimeoutError,
+            aiohttp.ClientError,
+            KeyError,
+            TypeError,
+            ValueError,
+        ) as err:
+            _LOGGER.debug(
+                "Failed to fetch recent temperatures for (%s, %s): %s",
+                latitude,
+                longitude,
+                err,
+            )
+            return None
+        finally:
+            if created_session:
+                await session.close()
+
     async def async_get_historical_temperature_for_timestamp(
         self,
         latitude: float,

@@ -15,10 +15,11 @@ import functools
 import logging
 from typing import TYPE_CHECKING, Any, Final
 
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
-from . import geocode, road_snap
+from . import battery_analytics, charger_lookup, geocode, road_snap
 from .analytics_db import (
     ENERGY_MODEL_MIN_DRIVES,
     ENERGY_MODEL_WINDOW_DAYS,
@@ -38,7 +39,11 @@ from .drive_models import (
 from .drive_track import DriveTrack
 from .energy_model import EnergyModelParams
 from .places import DATASET_REAL
-from .statistics import async_clear_statistics, async_rewrite_statistics
+from .statistics import (
+    async_clear_statistics,
+    async_rewrite_statistics,
+    async_soc_history,
+)
 from .weather import OpenMeteoWeatherClient
 
 if TYPE_CHECKING:
@@ -50,6 +55,42 @@ LEGACY_STORAGE_KEY_PREFIX: Final[str] = "rivian_drives"
 LEGACY_STORAGE_VERSION: Final[int] = 1
 LEGACY_STORAGE_MINOR_VERSION: Final[int] = 1
 SNAP_GAPS_BATCH_LIMIT: Final[int] = 20
+# Inferred charging sessions: how far back the battery-level history is read
+# when the vehicle has no earlier drive/session, and how recent a drive's end
+# must be for its location to stand in for where the car charged.
+INFER_MAX_HISTORY_DAYS: Final[int] = 730
+INFER_LOCATION_MAX_AGE_S: Final[float] = 7 * 86400.0
+# The full back-scan runs once per VIN (and again only when INFER_VERSION
+# changes, i.e. the detection itself changed); later runs re-check just the
+# last INFER_RESCAN_DAYS, while their 5-minute statistics still exist. A span
+# starting in the first INFER_OVERLAP_DAYS of that window was already found
+# by an earlier run, so it is left as stored (it may be cut off here).
+INFER_VERSION: Final[int] = 1
+INFER_RESCAN_DAYS: Final[float] = 10.0
+INFER_OVERLAP_DAYS: Final[float] = 1.0
+
+
+def _inferred_record(
+    vin: str, span: dict[str, Any], location: tuple[float, float] | None
+) -> ChargingSessionRecord:
+    """Build the stored session for one ``detect_charge_spans`` span."""
+    start_ts, end_ts = float(span["start_ts"]), float(span["end_ts"])
+    energy = span.get("energy_added_kwh")
+    avg = span.get("avg_power_kw")
+    return ChargingSessionRecord(
+        session_id=f"inferred:{vin}:{int(start_ts)}",
+        start_time=datetime.fromtimestamp(start_ts, tz=UTC).isoformat(),
+        end_time=datetime.fromtimestamp(end_ts, tz=UTC).isoformat(),
+        start_soc=float(span["start_soc"]),
+        end_soc=float(span["end_soc"]),
+        energy_added_kwh=float(energy) if energy is not None else 0.0,
+        max_power_kw=float(avg) if avg is not None else 0.0,
+        avg_power_kw=float(avg) if avg is not None else 0.0,
+        kind="dc" if span.get("kind") == "dc" else "ac",
+        lat=location[0] if location else None,
+        lon=location[1] if location else None,
+        source="inferred",
+    )
 
 
 def read_zone_states(hass: HomeAssistant) -> list[dict[str, Any]]:
@@ -97,6 +138,19 @@ def _empty_cache() -> HotCache:
     )
 
 
+# Open-Meteo archive requests: how many days one request may span, the pause
+# between requests (polite to the free API) and how many failed requests in a
+# row end a run.
+WEATHER_BACKFILL_WINDOW_DAYS: Final[int] = 31
+WEATHER_BACKFILL_REQUEST_INTERVAL_S: Final[float] = 1.0
+WEATHER_BACKFILL_MAX_FAILURES: Final[int] = 3
+# Charging-session outside temperatures: at most this many Open-Meteo requests
+# per run; sessions newer than this many days skip the archive (it lags a few
+# days behind) and use the forecast API's past days.
+SESSION_WEATHER_MAX_REQUESTS: Final[int] = 20
+SESSION_WEATHER_RECENT_DAYS: Final[int] = 5
+
+
 class DriveStore:
     """SQLite-backed drive analytics store for a single vehicle, with a hot cache."""
 
@@ -118,7 +172,6 @@ class DriveStore:
         self._place_geocoding = place_geocoding
         # The weather_lookups option: off sends nothing to Open-Meteo
         self.weather_lookups = weather_lookups
-        self._weather_client: OpenMeteoWeatherClient | None = None
         # Legacy per-VIN JSON store: read once for the one-time import, then left
         # untouched on disk as a downgrade/recovery fallback.
         self._legacy_store: Store[Any] = Store(
@@ -137,6 +190,7 @@ class DriveStore:
         self._gap_snap_seeded = False
         self._places_seeded = False
         self._routes_seeded = False
+        self._weather_client: OpenMeteoWeatherClient | None = None
 
     # -- sync, cache-only accessors (never touch SQLite) ---------------------
 
@@ -459,14 +513,287 @@ class DriveStore:
         )
         await self.async_refresh_cache()
         self.hass.bus.async_fire(RIVIAN_ANALYTICS_UPDATED_EVENT, {"vin": self.vin})
+        if self._place_geocoding and session.kind == "dc" and session.lat is not None:
+            self.hass.async_create_background_task(
+                self._async_enrich_stations_safe(),
+                name=f"rivian charger lookup {self.vin}",
+            )
+        if session.lat is not None:
+            self.hass.async_create_background_task(
+                self._async_fill_session_temperatures_safe(),
+                name=f"rivian charging weather {self.vin}",
+            )
 
-    async def async_charging_session_intervals(self) -> list[tuple[float, float]]:
+    async def _async_fill_session_temperatures_safe(self) -> None:
+        """Best-effort background run of ``async_fill_session_temperatures``."""
+        try:
+            result = await self.async_fill_session_temperatures()
+            if result.get("updated"):
+                self.hass.bus.async_fire(
+                    RIVIAN_ANALYTICS_UPDATED_EVENT, {"vin": self.vin}
+                )
+        except Exception:
+            _LOGGER.exception(
+                "Charging weather lookup failed for VIN %s (non-fatal)", self.vin
+            )
+
+    async def async_fill_session_temperatures(
+        self, max_requests: int = SESSION_WEATHER_MAX_REQUESTS
+    ) -> dict[str, Any]:
+        """Fill located sessions' outside temperature from Open-Meteo.
+
+        Add-only: only sessions with no ``outside_temp_f`` yet. Grouped by
+        ~11 km location tile, in windows of at most
+        ``WEATHER_BACKFILL_WINDOW_DAYS``, one archive request per window; when
+        the archive doesn't have the hours yet (the last few days) the forecast
+        API's past days fill them. At most ``max_requests`` requests, 1 s apart,
+        stopping after ``WEATHER_BACKFILL_MAX_FAILURES`` failures in a row; a
+        session still without a temperature is retried on the next run. Returns ``{"sessions", "updated", "requests"}``.
+        """
+        result: dict[str, Any] = {"sessions": 0, "updated": 0, "requests": 0}
+        if not self.weather_lookups:
+            return result
+        if not self._loaded:
+            await self.async_load()
+        now_ts = datetime.now(UTC).timestamp()
+        candidates = await self.hass.async_add_executor_job(
+            self._db.sessions_needing_outside_temp, self.vin, now_ts
+        )
+        result["sessions"] = len(candidates)
+        tiles: dict[tuple[float, float], list[dict[str, Any]]] = {}
+        for row in candidates:
+            tiles.setdefault((round(row["lat"], 1), round(row["lon"], 1)), []).append(
+                row
+            )
+        client = self.get_weather_client()
+        failures = 0
+
+        async def request(coro: Any) -> Any:
+            nonlocal failures
+            if result["requests"]:
+                await asyncio.sleep(WEATHER_BACKFILL_REQUEST_INTERVAL_S)
+            result["requests"] += 1
+            data = await coro
+            failures = 0 if data else failures + 1
+            return data
+
+        for rows in tiles.values():
+            rows.sort(key=lambda r: r["start_ts"])
+            windows: list[list[dict[str, Any]]] = []
+            for row in rows:
+                if (
+                    windows
+                    and row["start_ts"] - windows[-1][0]["start_ts"]
+                    <= WEATHER_BACKFILL_WINDOW_DAYS * 86400.0
+                ):
+                    windows[-1].append(row)
+                else:
+                    windows.append([row])
+            for window in windows:
+                if (
+                    result["requests"] >= max_requests
+                    or failures >= WEATHER_BACKFILL_MAX_FAILURES
+                ):
+                    return result
+                lat, lon = window[0]["lat"], window[0]["lon"]
+                end_ts = max(r["end_ts"] or r["start_ts"] for r in window)
+                start_date = datetime.fromtimestamp(
+                    window[0]["start_ts"] - 3600.0, UTC
+                ).date()
+                end_date = datetime.fromtimestamp(end_ts + 3600.0, UTC).date()
+                temps: dict[str, float] = {}
+                if (
+                    now_ts - window[0]["start_ts"]
+                    > SESSION_WEATHER_RECENT_DAYS * 86400.0
+                ):
+                    hourly = await request(
+                        client.async_get_historical_temperatures(
+                            lat, lon, start_date.isoformat(), end_date.isoformat()
+                        )
+                    )
+                    temps = dict(hourly or {})
+                missing = [
+                    r
+                    for r in window
+                    if battery_analytics.mean_hourly_temp(
+                        temps, r["start_ts"], r["end_ts"]
+                    )
+                    is None
+                ]
+                if missing and now_ts - end_ts <= 90 * 86400.0:
+                    past_days = int((now_ts - missing[0]["start_ts"]) // 86400) + 2
+                    recent = await request(
+                        client.async_get_recent_hourly_temperatures(lat, lon, past_days)
+                    )
+                    temps.update(recent or {})
+                updates = []
+                for r in window:
+                    value = battery_analytics.mean_hourly_temp(
+                        temps, r["start_ts"], r["end_ts"]
+                    )
+                    if value is not None:
+                        updates.append((r["session_id"], value))
+                for session_id, value in updates:
+                    await self.hass.async_add_executor_job(
+                        self._db.update_session_fields,
+                        self.vin,
+                        session_id,
+                        {"outside_temp_f": value},
+                    )
+                result["updated"] += len(updates)
+        return result
+
+    async def _async_enrich_stations_safe(self) -> None:
+        """Best-effort: name the station of newly finished fast charges via OSM."""
+        try:
+            if await charger_lookup.async_enrich_sessions(
+                self.hass, self._db, self.vin
+            ):
+                self.hass.bus.async_fire(
+                    RIVIAN_ANALYTICS_UPDATED_EVENT, {"vin": self.vin}
+                )
+        except Exception:
+            _LOGGER.exception("Charger lookup failed for VIN %s (non-fatal)", self.vin)
+
+    async def async_list_charging_sessions(
+        self, since_ts: float | None = None, until_ts: float | None = None
+    ) -> list[dict[str, Any]]:
+        """Return this VIN's charging sessions (DC and AC), ascending, with place labels."""
+        if not self._loaded:
+            await self.async_load()
+        return await self.hass.async_add_executor_job(
+            self._db.list_charging_sessions, self.vin, since_ts, until_ts
+        )
+
+    async def async_capacity_history(self) -> list[dict[str, Any]]:
+        """Return this VIN's stored per-day capacity history (kept forever)."""
+        if not self._loaded:
+            await self.async_load()
+        return await self.hass.async_add_executor_job(
+            self._db.capacity_history_rows, self.vin
+        )
+
+    async def async_charging_session_intervals(
+        self, exclude_inferred: bool = False
+    ) -> list[tuple[float, float]]:
         """Return every stored charging session's (start_ts, end_ts)."""
         if not self._loaded:
             await self.async_load()
         return await self.hass.async_add_executor_job(
-            self._db.charging_session_intervals, self.vin
+            self._db.charging_session_intervals, self.vin, exclude_inferred
         )
+
+    async def async_infer_charging_sessions(
+        self, reader: Any = None, *, full: bool = False
+    ) -> dict[str, int] | None:
+        """Store the charges the battery-level history shows but nothing recorded.
+
+        Returns None with no battery-level
+        sensor statistics. Reads the ``{vin}-battery_level`` statistics (hourly
+        over the whole history, 5-minute over the last ~10 days), runs
+        ``battery_analytics.detect_charge_spans`` against the recorded
+        sessions (inferred ones excluded: they are re-derived) and replaces the
+        VIN's ``source='inferred'`` sessions with the result (see
+        ``AnalyticsDatabase.replace_inferred_sessions``). Fires the update event
+        when the stored set changed. Returns ``{"detected", "changed", "full"}``.
+
+        The first run for a VIN (no ``inferred_scan:<vin>`` meta stamp, or one
+        from an older ``INFER_VERSION``) scans the whole history; after that a
+        run re-checks only the last ``INFER_RESCAN_DAYS`` before the previous
+        run and replaces just the inferred rows starting after its overlap
+        day. ``full=True`` forces a whole-history scan.
+        """
+        if not self._loaded:
+            await self.async_load()
+        entity_id = er.async_get(self.hass).async_get_entity_id(
+            "sensor", DOMAIN, f"{self.vin}-battery_level"
+        )
+        if not entity_id:
+            return None
+        now_ts = dt_util.utcnow().timestamp()
+        stamp = await self.hass.async_add_executor_job(
+            self._db.get_inferred_scan, self.vin
+        )
+        incremental = (
+            not full
+            and stamp is not None
+            and stamp.get("version") == INFER_VERSION
+            and isinstance(stamp.get("through"), (int, float))
+        )
+        keep_from: float | None = None
+        if incremental:
+            start_ts = stamp["through"] - INFER_RESCAN_DAYS * 86400.0
+            keep_from = start_ts + INFER_OVERLAP_DAYS * 86400.0
+        else:
+            first = await self.hass.async_add_executor_job(
+                self._db.earliest_activity_ts, self.vin
+            )
+            floor_ts = now_ts - INFER_MAX_HISTORY_DAYS * 86400.0
+            start_ts = max(first - 86400.0, floor_ts) if first else floor_ts
+        points = await async_soc_history(
+            self.hass, entity_id, start_ts, now_ts, reader=reader
+        )
+        if not points:
+            return None
+        recorded = await self.async_charging_session_intervals(exclude_inferred=True)
+        drive_ends = await self.async_drive_end_times(
+            start_ts - battery_analytics.DETECT_DC_DRIVE_GAP_S, now_ts
+        )
+        capacity = self.last_drive.battery_capacity_kwh if self.last_drive else None
+        spans = battery_analytics.detect_charge_spans(
+            points, recorded, capacity or None, drive_ends=drive_ends
+        )
+        if keep_from is not None:
+            spans = [s for s in spans if s["start_ts"] >= keep_from]
+        records: list[ChargingSessionRecord] = []
+        for span in spans:
+            location = await self.hass.async_add_executor_job(
+                self._db.last_drive_end_location,
+                self.vin,
+                span["start_ts"],
+                INFER_LOCATION_MAX_AGE_S,
+            )
+            records.append(_inferred_record(self.vin, span, location))
+        changed = await self.hass.async_add_executor_job(
+            self._db.replace_inferred_sessions, self.vin, records, keep_from
+        )
+        await self.hass.async_add_executor_job(
+            self._db.set_inferred_scan,
+            self.vin,
+            {"version": INFER_VERSION, "through": now_ts},
+        )
+        if changed:
+            await self.async_refresh_cache()
+            self.hass.bus.async_fire(RIVIAN_ANALYTICS_UPDATED_EVENT, {"vin": self.vin})
+        return {
+            "detected": len(spans),
+            "changed": int(bool(changed)),
+            "full": int(not incremental),
+        }
+
+    async def async_drive_end_times(
+        self, start_ts: float, end_ts: float
+    ) -> list[float]:
+        """Return the end times of this VIN's drives ending in a window."""
+        if not self._loaded:
+            await self.async_load()
+        return await self.hass.async_add_executor_job(
+            self._db.drive_end_times, self.vin, start_ts, end_ts
+        )
+
+    async def async_soc_events(self, start_ts: float, end_ts: float) -> dict[str, Any]:
+        """Return the drives/sessions overlapping a window (synthesized SoC timeline)."""
+        if not self._loaded:
+            await self.async_load()
+        return await self.hass.async_add_executor_job(
+            self._db.soc_events, self.vin, start_ts, end_ts
+        )
+
+    async def async_capacity_rows(self) -> list[dict[str, Any]]:
+        """Return each drive's capacity/range readings for the battery-health series."""
+        if not self._loaded:
+            await self.async_load()
+        return await self.hass.async_add_executor_job(self._db.capacity_rows, self.vin)
 
     async def async_reset(self) -> None:
         """Delete all analytics rows for this VIN and reset the hot cache."""
@@ -1248,6 +1575,18 @@ class DriveStore:
         )
         self._fire_dataset_updated()
         return result
+
+    async def async_delete_dcfc_session(self, session_id: str) -> int:
+        """Delete one DC fast-charge session; return rows removed (0 or 1)."""
+        if not self._loaded:
+            await self.async_load()
+        removed = await self.hass.async_add_executor_job(
+            self._db.delete_dcfc_session, self.vin, session_id
+        )
+        if removed:
+            await self.async_refresh_cache()
+            self.hass.bus.async_fire(RIVIAN_ANALYTICS_UPDATED_EVENT, {"vin": self.vin})
+        return removed
 
     async def async_delete_vehicle_history(self) -> None:
         """Delete all analytics data for this VIN and clear its long-term statistics.

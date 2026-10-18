@@ -4372,7 +4372,7 @@ class TestRoutes:
 
 
 class TestDeleteDrivesDayPlaceSession:
-    """delete_drives/delete_day/delete_place, and delete_vin's cleanup."""
+    """delete_drives/delete_day/delete_place/delete_dcfc_session, and delete_vin's cleanup."""
 
     def test_delete_drives_removes_rows_tracks_and_rebuilds(
         self, analytics_db: Any
@@ -4572,6 +4572,26 @@ class TestDeleteDrivesDayPlaceSession:
     def test_delete_place_unknown_id_raises(self, analytics_db: Any) -> None:
         with pytest.raises(ValueError):
             analytics_db.delete_place("real", 999999)
+
+    def test_delete_dcfc_session(self, analytics_db: Any) -> None:
+        session = ChargingSessionRecord(
+            session_id="sess1",
+            start_time=_timed("2026-02-01", 10),
+            end_time=_timed("2026-02-01", 10, 30),
+            start_soc=35.0,
+            end_soc=75.0,
+            energy_added_kwh=50.0,
+            max_power_kw=150.0,
+            avg_power_kw=100.0,
+        )
+        analytics_db.upsert_dcfc_sessions(TEST_VIN, [session])
+        assert analytics_db.delete_dcfc_session(TEST_VIN, "sess1") == 1
+        assert analytics_db.delete_dcfc_session(TEST_VIN, "sess1") == 0
+        with analytics_db._lock:
+            count = analytics_db._conn.execute(
+                "SELECT COUNT(*) FROM dcfc_sessions WHERE vin = ?", (TEST_VIN,)
+            ).fetchone()[0]
+        assert count == 0
 
     def test_delete_vin_clears_pictures_and_meta(self, analytics_db: Any) -> None:
         from custom_components.rivian.analytics_db import VehiclePicture

@@ -527,3 +527,113 @@ def async_clear_statistics(hass: HomeAssistant, vin: str) -> None:
         recorder.get_instance(hass).async_clear_statistics(list(ids.as_tuple()))
     except Exception as err:  # noqa: BLE001 - statistics must never break a delete
         _LOGGER.warning("Failed to clear long-term statistics for VIN %s: %s", vin, err)
+
+
+_PERIOD_HALF_SECONDS: Final[dict[str, float]] = {
+    "5minute": 150.0,
+    "hour": 1800.0,
+    "day": 43200.0,
+}
+
+
+async def async_entity_statistics(
+    hass: HomeAssistant,
+    entity_id: str,
+    start_ts: float,
+    end_ts: float,
+    period: str,
+    stat_type: str = "mean",
+) -> list[tuple[float, float]]:
+    """Read one sensor's recorder statistics as ``(epoch_seconds, value)`` pairs.
+
+    ``period`` is a recorder period (``5minute``/``hour``/``day``) and
+    ``stat_type`` the statistic to read (``mean``, ``max`` ...); a row without
+    it falls back to its ``state``. For ``mean`` the timestamp is the bucket's
+    midpoint, for ``max`` its start. Returns ``[]`` when the recorder is not
+    loaded, the entity has no statistics or anything fails -- never raises.
+    """
+    if "recorder" not in hass.config.components:
+        return []
+    try:
+        result = await recorder.get_instance(hass).async_add_executor_job(
+            statistics_during_period,
+            hass,
+            dt_util.utc_from_timestamp(start_ts),
+            dt_util.utc_from_timestamp(end_ts),
+            {entity_id},
+            period,
+            None,
+            {stat_type, "state"},
+        )
+    except Exception as err:  # noqa: BLE001 - statistics must never break a request
+        _LOGGER.warning("Failed to read statistics for %s: %s", entity_id, err)
+        return []
+    points: list[tuple[float, float]] = []
+    for row in result.get(entity_id, []):
+        start = _coerce_stat_start(row.get("start"))
+        value = row.get(stat_type)
+        if value is None:
+            value = row.get("state")
+        if start is None or value is None:
+            continue
+        offset = _PERIOD_HALF_SECONDS.get(period, 0.0) if stat_type == "mean" else 0.0
+        points.append((start.timestamp() + offset, float(value)))
+    points.sort(key=lambda p: p[0])
+    return points
+
+
+# A 5-minute series starting later than this after the window's start gets
+# its leading part filled from hourly statistics.
+SOC_FILL_GAP_S: Final[float] = 3600.0
+# The recorder keeps 5-minute statistics only about this long.
+SOC_FINE_DAYS: Final[int] = 10
+
+
+async def async_soc_points(
+    hass: HomeAssistant,
+    entity_id: str,
+    start_ts: float,
+    end_ts: float,
+    *,
+    fine: bool,
+    reader: Any = None,
+) -> list[tuple[float, float]]:
+    """Battery-% points for a window: 5-minute when ``fine`` else hourly.
+
+    The recorder keeps 5-minute statistics only ~10 days, so a fine read of
+    anything older gets few or none: the uncovered start is filled with hourly
+    statistics (kept forever) rather than left to the drive/session estimate,
+    which turns any charge that was never recorded as a session into a
+    vertical jump. ``reader`` replaces :func:`async_entity_statistics`
+    (callers that let tests patch their own module's reader pass it).
+    """
+    read = reader or async_entity_statistics
+    points = await read(
+        hass, entity_id, start_ts, end_ts, "5minute" if fine else "hour", "mean"
+    )
+    if fine and (not points or points[0][0] - start_ts > SOC_FILL_GAP_S):
+        first = points[0][0] if points else end_ts
+        hourly = await read(hass, entity_id, start_ts, first, "hour", "mean")
+        points = [p for p in hourly if p[0] < first] + list(points)
+    return points
+
+
+async def async_soc_history(
+    hass: HomeAssistant,
+    entity_id: str,
+    start_ts: float,
+    end_ts: float,
+    *,
+    reader: Any = None,
+) -> list[tuple[float, float]]:
+    """Battery-% over a long history: hourly, with 5-minute over the last ~10 days."""
+    fine_start = max(start_ts, end_ts - SOC_FINE_DAYS * 86400.0)
+    coarse = await async_soc_points(
+        hass, entity_id, start_ts, end_ts, fine=False, reader=reader
+    )
+    fine = await async_soc_points(
+        hass, entity_id, fine_start, end_ts, fine=True, reader=reader
+    )
+    if not fine:
+        return coarse
+    return [p for p in coarse if p[0] < fine[0][0]] + list(fine)
