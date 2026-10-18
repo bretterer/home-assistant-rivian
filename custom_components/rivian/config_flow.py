@@ -24,11 +24,15 @@ from homeassistant.helpers.schema_config_entry_flow import (
     SchemaOptionsFlowHandler,
 )
 from homeassistant.helpers.selector import (
+    BooleanSelector,
     DeviceFilterSelectorConfig,
     DeviceSelector,
     DeviceSelectorConfig,
     EntitySelector,
     EntitySelectorConfig,
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
     SelectSelector,
     SelectSelectorConfig,
     SelectSelectorMode,
@@ -53,6 +57,31 @@ from .helpers import get_rivian_api_from_entry, has_verified_2fa
 _LOGGER = logging.getLogger(__name__)
 
 
+# Number of days of drive/vampire-drain/DCFC history the analytics database keeps
+# before pruning; 0 means keep forever. __init__.py imports the option names
+# below from this module.
+CONF_ANALYTICS_RETENTION_DAYS = "analytics_retention_days"
+DEFAULT_ANALYTICS_RETENTION_DAYS = 365
+ANALYTICS_RETENTION_DAYS_MIN = 0
+ANALYTICS_RETENTION_DAYS_MAX = 3650
+
+# GPS route (drive_tracks) storage options.
+CONF_TRACK_CAPTURE = "track_capture"
+DEFAULT_TRACK_CAPTURE = True
+CONF_TRACK_RETENTION_DAYS = "track_retention_days"
+DEFAULT_TRACK_RETENTION_DAYS = 365  # 0 = keep as long as the drive itself
+TRACK_RETENTION_DAYS_MIN = 0
+TRACK_RETENTION_DAYS_MAX = 3650
+CONF_TRACK_FULL_DETAIL_DAYS = "track_full_detail_days"
+DEFAULT_TRACK_FULL_DETAIL_DAYS = 0  # 0 = never thin
+TRACK_FULL_DETAIL_DAYS_MIN = 0
+TRACK_FULL_DETAIL_DAYS_MAX = 3650
+
+# Whether drives get weather (temperature, wind, rain) from the public
+# Open-Meteo API.
+CONF_WEATHER_LOOKUPS = "weather_lookups"
+DEFAULT_WEATHER_LOOKUPS = True
+
 STEP_OTP_DATA_SCHEMA = vol.Schema({vol.Required(CONF_OTP): str})
 R1S = DeviceFilterSelectorConfig(integration=DOMAIN, manufacturer="Rivian", model="R1S")
 R1T = DeviceFilterSelectorConfig(integration=DOMAIN, manufacturer="Rivian", model="R1T")
@@ -72,6 +101,42 @@ OPTIONS_SCHEMA = vol.Schema(
         vol.Optional(CONF_ZONE): EntitySelector(
             EntitySelectorConfig(domain=ZONE_DOMAIN, multiple=True)
         ),
+        vol.Optional(
+            CONF_ANALYTICS_RETENTION_DAYS, default=DEFAULT_ANALYTICS_RETENTION_DAYS
+        ): NumberSelector(
+            NumberSelectorConfig(
+                min=ANALYTICS_RETENTION_DAYS_MIN,
+                max=ANALYTICS_RETENTION_DAYS_MAX,
+                step=1,
+                mode=NumberSelectorMode.BOX,
+            )
+        ),
+        vol.Optional(
+            CONF_TRACK_CAPTURE, default=DEFAULT_TRACK_CAPTURE
+        ): BooleanSelector(),
+        vol.Optional(
+            CONF_TRACK_RETENTION_DAYS, default=DEFAULT_TRACK_RETENTION_DAYS
+        ): NumberSelector(
+            NumberSelectorConfig(
+                min=TRACK_RETENTION_DAYS_MIN,
+                max=TRACK_RETENTION_DAYS_MAX,
+                step=1,
+                mode=NumberSelectorMode.BOX,
+            )
+        ),
+        vol.Optional(
+            CONF_TRACK_FULL_DETAIL_DAYS, default=DEFAULT_TRACK_FULL_DETAIL_DAYS
+        ): NumberSelector(
+            NumberSelectorConfig(
+                min=TRACK_FULL_DETAIL_DAYS_MIN,
+                max=TRACK_FULL_DETAIL_DAYS_MAX,
+                step=1,
+                mode=NumberSelectorMode.BOX,
+            )
+        ),
+        vol.Optional(
+            CONF_WEATHER_LOOKUPS, default=DEFAULT_WEATHER_LOOKUPS
+        ): BooleanSelector(),
     }
 )
 
