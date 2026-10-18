@@ -10,8 +10,8 @@
  * broken down per car ("79 A · 12 B"). The category list comes from the
  * server (`categories` in the `rivian/places/list` reply).
  *
- * Backend calls (all via `hass.callWS`; places take a `dataset`, 'real' by
- * default -- every dataset represented in the selection is queried and the
+ * Backend calls (all via `hass.callWS`; places take a `dataset`, 'real' or
+ * 'demo' -- every dataset represented in the selection is queried and the
  * results are concatenated, an edit goes to the place's own dataset):
  *   - `rivian/places/list {dataset, vins}` -- open to all users.
  *   - `rivian/places/update`, `rivian/places/create`, `rivian/places/merge`,
@@ -73,16 +73,22 @@ export function categoryIcon(category, categories = FALLBACK_CATEGORIES) {
 
 /**
  * The datasets a vehicle selection spans, as `[{dataset, vins}]`: real
- * vehicles' places never mix with other datasets', so each dataset
- * represented in the selection is queried separately.
+ * vehicles' places and demo vehicles' places never mix, so each dataset
+ * represented in the selection is queried separately (real first).
  */
 export function datasetGroups(vehicles, vins) {
   const list = Array.isArray(vehicles) ? vehicles : [];
   const real = [];
+  const demo = [];
   for (const vin of Array.isArray(vins) ? vins : []) {
-    if (list.some((v) => v.vin === vin)) real.push(vin);
+    const vehicle = list.find((v) => v.vin === vin);
+    if (!vehicle) continue;
+    (vehicle.is_demo ? demo : real).push(vin);
   }
-  return real.length ? [{ dataset: "real", vins: real }] : [];
+  const groups = [];
+  if (real.length) groups.push({ dataset: "real", vins: real });
+  if (demo.length) groups.push({ dataset: "demo", vins: demo });
+  return groups;
 }
 
 /**

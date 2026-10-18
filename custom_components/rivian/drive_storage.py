@@ -29,7 +29,12 @@ from .analytics_db import (
     HotCache,
     VehiclePicture,
 )
-from .const import ATTR_DRIVE_STORE, DOMAIN, RIVIAN_ANALYTICS_UPDATED_EVENT
+from .const import (
+    ATTR_DEMO_STORES,
+    ATTR_DRIVE_STORE,
+    DOMAIN,
+    RIVIAN_ANALYTICS_UPDATED_EVENT,
+)
 from .drive_conditions import archive_samples
 from .drive_models import (
     AggregatedDriveStats,
@@ -39,7 +44,7 @@ from .drive_models import (
 )
 from .drive_track import DriveTrack
 from .energy_model import EnergyModelParams
-from .places import DATASET_REAL
+from .places import DATASET_DEMO, DATASET_REAL
 from .statistics import (
     async_clear_statistics,
     async_rewrite_statistics,
@@ -162,18 +167,26 @@ class DriveStore:
         vin: str,
         db: AnalyticsDatabase,
         place_geocoding: bool = True,
+        is_demo: bool = False,
         weather_lookups: bool = True,
     ) -> None:
-        """Initialize DriveStore for a specific vehicle VIN against a shared AnalyticsDatabase."""
+        """Initialize DriveStore for a specific vehicle VIN against a shared AnalyticsDatabase.
+
+        ``is_demo`` marks a detached store for a synthetic demo vehicle (see
+        ``demo.py``). It never receives the user's HA zones (they would put
+        the user's real home on the demo map), never geocodes and never
+        queries Overpass: every zone-sync entry point is a no-op for it.
+        """
         self.hass = hass
         self.vin = vin
         self._db = db
+        self.is_demo = is_demo
         # Places and routes belong to no vehicle; the only partition is this
-        # dataset.
-        self.dataset = DATASET_REAL
-        self._place_geocoding = place_geocoding
-        # The weather_lookups option: off sends nothing to Open-Meteo
-        self.weather_lookups = weather_lookups
+        # dataset, so the demo cars' made-up places never mix with real ones.
+        self.dataset = DATASET_DEMO if is_demo else DATASET_REAL
+        self._place_geocoding = False if is_demo else place_geocoding
+        # Demo vehicles carry their weather in the fixture
+        self.weather_lookups = False if is_demo else weather_lookups
         # Legacy per-VIN JSON store: read once for the one-time import, then left
         # untouched on disk as a downgrade/recovery fallback.
         self._legacy_store: Store[Any] = Store(
@@ -353,10 +366,11 @@ class DriveStore:
 
         Mirrors ``_async_maybe_recompute_stats_once``: guarded per store
         instance, stamped in ``meta`` as ``weather_version:<vin>`` once a run
-        finishes without a network failure.
+        finishes without a network failure, and never run for a demo VIN
+        (demo drives get their conditions from the fixture).
         """
         # Off: not stamped, so turning weather lookups on later seeds it then
-        if self._weather_seeded or not self.weather_lookups:
+        if self._weather_seeded or self.is_demo or not self.weather_lookups:
             return
         self._weather_seeded = True
         self.hass.async_create_background_task(
@@ -398,7 +412,7 @@ class DriveStore:
         windows of at most ``WEATHER_BACKFILL_WINDOW_DAYS`` days: one request
         per window, ``WEATHER_BACKFILL_REQUEST_INTERVAL_S`` apart, stopping
         early after ``WEATHER_BACKFILL_MAX_FAILURES`` failed requests in a row.
-        Returns ``{"drives", "updated", "requests",
+        A demo store does nothing. Returns ``{"drives", "updated", "requests",
         "failed_requests", "complete"}`` (``complete`` is False if any request
         failed, so the one-time seed is retried on the next start).
         """
@@ -409,6 +423,8 @@ class DriveStore:
             "failed_requests": 0,
             "complete": True,
         }
+        if self.is_demo:
+            return result
         if not self.weather_lookups:
             # Not complete: the seed runs once weather lookups are turned on
             return {**result, "complete": False, "disabled": True}
@@ -663,12 +679,17 @@ class DriveStore:
         )
         await self.async_refresh_cache()
         self.hass.bus.async_fire(RIVIAN_ANALYTICS_UPDATED_EVENT, {"vin": self.vin})
-        if self._place_geocoding and session.kind == "dc" and session.lat is not None:
+        if (
+            self._place_geocoding
+            and not self.is_demo
+            and session.kind == "dc"
+            and session.lat is not None
+        ):
             self.hass.async_create_background_task(
                 self._async_enrich_stations_safe(),
                 name=f"rivian charger lookup {self.vin}",
             )
-        if session.lat is not None:
+        if not self.is_demo and session.lat is not None:
             self.hass.async_create_background_task(
                 self._async_fill_session_temperatures_safe(),
                 name=f"rivian charging weather {self.vin}",
@@ -698,10 +719,11 @@ class DriveStore:
         the archive doesn't have the hours yet (the last few days) the forecast
         API's past days fill them. At most ``max_requests`` requests, 1 s apart,
         stopping after ``WEATHER_BACKFILL_MAX_FAILURES`` failures in a row; a
-        session still without a temperature is retried on the next run. Returns ``{"sessions", "updated", "requests"}``.
+        session still without a temperature is retried on the next run. A demo
+        store does nothing. Returns ``{"sessions", "updated", "requests"}``.
         """
         result: dict[str, Any] = {"sessions": 0, "updated": 0, "requests": 0}
-        if not self.weather_lookups:
+        if self.is_demo or not self.weather_lookups:
             return result
         if not self._loaded:
             await self.async_load()
@@ -842,8 +864,8 @@ class DriveStore:
     ) -> dict[str, int] | None:
         """Store the charges the battery-level history shows but nothing recorded.
 
-        Returns None with no battery-level
-        sensor statistics. Reads the ``{vin}-battery_level`` statistics (hourly
+        Real vehicles only (None for a demo store or with no battery-level
+        sensor statistics). Reads the ``{vin}-battery_level`` statistics (hourly
         over the whole history, 5-minute over the last ~10 days), runs
         ``battery_analytics.detect_charge_spans`` against the recorded
         sessions (inferred ones excluded: they are re-derived) and replaces the
@@ -857,6 +879,8 @@ class DriveStore:
         run and replaces just the inferred rows starting after its overlap
         day. ``full=True`` forces a whole-history scan.
         """
+        if self.is_demo:
+            return None
         if not self._loaded:
             await self.async_load()
         entity_id = er.async_get(self.hass).async_get_entity_id(
@@ -1309,7 +1333,7 @@ class DriveStore:
         per store instance, and covers routes stored before this feature
         existed without blocking setup.
         """
-        if self._gap_snap_seeded:
+        if self._gap_snap_seeded or self.is_demo:
             return
         self._gap_snap_seeded = True
         self.hass.async_create_background_task(
@@ -1467,10 +1491,15 @@ class DriveStore:
             self._routes_seeded = True
             return
         try:
-            zones = read_zone_states(self.hass)
-            result = await self.async_sync_zones(zones)
-            if result.get("places"):
-                self._fire_dataset_updated()
+            if not self.is_demo:
+                zones = read_zone_states(self.hass)
+                result = await self.async_sync_zones(zones)
+                if result.get("places"):
+                    self._fire_dataset_updated()
+            else:
+                result = await self.async_rebuild_places()
+                if result.get("places"):
+                    self._fire_dataset_updated()
             await self.async_geocode_places()
         except Exception:
             _LOGGER.exception("Places seed failed for VIN %s (non-fatal)", self.vin)
@@ -1491,6 +1520,9 @@ class DriveStore:
         the background first-load seed fires conditionally (see
         ``_async_seed_places_safe``).
         """
+        if self.is_demo:
+            # Privacy: demo vehicles never see the user's real zones.
+            return {"places": 0}
         if not self._loaded:
             await self.async_load()
         return await self.hass.async_add_executor_job(
@@ -1519,11 +1551,15 @@ class DriveStore:
         """
         domain_data = self.hass.data.get(DOMAIN, {})
         vins: dict[str, None] = {self.vin: None}
-        for entry_data in domain_data.values():
-            if not isinstance(entry_data, dict):
-                continue
-            for store in (entry_data.get(ATTR_DRIVE_STORE) or {}).values():
-                vins[store.vin] = None
+        if self.is_demo:
+            for vin in domain_data.get(ATTR_DEMO_STORES) or {}:
+                vins[vin] = None
+        else:
+            for entry_data in domain_data.values():
+                if not isinstance(entry_data, dict):
+                    continue
+                for store in (entry_data.get(ATTR_DRIVE_STORE) or {}).values():
+                    vins[store.vin] = None
         for vin in vins:
             self.hass.bus.async_fire(RIVIAN_ANALYTICS_UPDATED_EVENT, {"vin": vin})
 
@@ -1745,8 +1781,9 @@ class DriveStore:
     async def async_delete_vehicle_history(self) -> None:
         """Delete all analytics data for this VIN and clear its long-term statistics.
 
-        Used by the Overview tab's "Delete vehicle history" action. The
-        vehicle keeps recording new drives afterward.
+        Used by the Overview tab's "Delete vehicle history" action. A real
+        vehicle keeps recording new drives afterward; a demo vehicle's
+        removal (Step B) also drops it from the registry and dashboard.
         """
         if not self._loaded:
             await self.async_load()

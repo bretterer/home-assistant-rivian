@@ -9,6 +9,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.storage import Store
 
 from .const import ATTR_VEHICLE, DASHBOARD_SCHEMA_VERSION, DOMAIN
+from .demo import get_demo_vehicles
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -157,8 +158,13 @@ def _model_str(v_info: dict[str, Any]) -> str:
 
 
 def _collect_vehicle_models(hass: HomeAssistant) -> dict[str, str]:
-    """Map every discovered VIN to its "<year> <model>" label, if known."""
+    """Map every discovered VIN to its "<year> <model>" label, if known.
+
+    Demo vehicles (see ``demo.py``) contribute their model name (e.g. "R2").
+    """
     models: dict[str, str] = {}
+    for demo in get_demo_vehicles(hass):
+        models[demo["vin"]] = demo.get("model", "")
     for entry_data in hass.data.get(DOMAIN, {}).values():
         if not isinstance(entry_data, dict) or ATTR_VEHICLE not in entry_data:
             continue
@@ -360,6 +366,14 @@ async def async_discover_vehicle_prefixes(
                 if entry and entry.unique_id.endswith("-last_drive_efficiency"):
                     vin = entry.unique_id[: -len("-last_drive_efficiency")]
                 results.append((v_name, prefix, vin, ""))
+
+    # Demo vehicles (no entities, no config entry of their own) join the
+    # real ones under the first real vehicle's entry id.
+    known_vins = {vin for (_n, _p, vin, _e) in results}
+    entry_id = next((eid for (_n, _p, _v, eid) in results if eid), "")
+    for demo in get_demo_vehicles(hass):
+        if demo["vin"] not in known_vins:
+            results.append((demo["name"], "", demo["vin"], entry_id))
 
     return results
 

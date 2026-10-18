@@ -46,6 +46,8 @@ ATTR_COORDINATOR = "coordinator"
 ATTR_ANALYTICS_DB = (
     "_analytics_db"  # the shared AnalyticsDatabase, under hass.data[DOMAIN]
 )
+ATTR_DEMO_STORES = "_demo_stores"  # {vin: DriveStore}, under hass.data[DOMAIN]
+ATTR_DEMO_VEHICLES = "_demo_vehicles"  # [{vin, name, model}], under hass.data[DOMAIN]
 ATTR_DRIVE_STORE = "drive_store"
 ATTR_DRIVE_TRACKER = "drive_tracker"
 ATTR_USER = "user"

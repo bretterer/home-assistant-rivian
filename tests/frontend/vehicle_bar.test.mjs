@@ -29,8 +29,8 @@ import {
 
 const VEHICLES = [
   { vin: "VA", name: "Rivi", model: "R1S", letter: "A", color: "#1b6ac9", color_dark: "#5aa0f0", picture_entity: "image.rivi_picture" },
-  { vin: "VB", name: "Test R2", model: "R2", letter: "B", color: "#c9561b", color_dark: "#f0925a", picture_url: "https://x/y.png" },
-  { vin: "VC", name: "Test R1T", model: "R1T", letter: "C", color: "#2a9d5c" },
+  { vin: "VB", name: "Demo R2", model: "R2", letter: "B", color: "#c9561b", color_dark: "#f0925a", picture_url: "https://x/y.png", is_demo: true },
+  { vin: "VC", name: "Demo R1T", model: "R1T", letter: "C", color: "#2a9d5c" },
 ];
 
 // -- fakes ------------------------------------------------------------------
@@ -119,7 +119,7 @@ test("vehicleLetter / chipLabel / chipTitle / vehicleByVin", () => {
   assert.equal(chipLabel({ model: "R1T" }), "R1T");
   assert.equal(chipTitle(VEHICLES[0]), "A · Rivi (R1S)");
   assert.equal(chipTitle({ letter: "D", name: "R2", model: "R2" }), "D · R2");
-  assert.equal(vehicleByVin(VEHICLES, "VB").name, "Test R2");
+  assert.equal(vehicleByVin(VEHICLES, "VB").name, "Demo R2");
   assert.equal(vehicleByVin(VEHICLES, "ZZ"), null);
 });
 

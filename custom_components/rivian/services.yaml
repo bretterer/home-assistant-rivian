@@ -169,6 +169,22 @@ rebuild_routes:
       selector:
         text:
 
+create_demo_data:
+  name: Create demo vehicles
+  description: Installs two synthetic demo vehicles (a Demo R2 and a Demo R1T for a made-up household in Eagle, ID) with about ten days of drives, routes, places and a DC fast-charge session, so the dashboard can be shown without revealing real locations. They appear in the vehicle picker and the Rivian dashboard is regenerated. Re-running replaces the demo data. Administrators only.
+
+delete_demo_data:
+  name: Delete demo vehicles
+  description: Completely removes the demo vehicles (their drives, routes, places, heat map and long-term statistics), then regenerates the Rivian dashboard without them. Never touches a real vehicle. Administrators only.
+  fields:
+    vin:
+      name: Vehicle VIN
+      description: Specific demo vehicle VIN to remove (leave blank to remove all demo vehicles).
+      required: false
+      example: "DEMO0R2EAGLE00001"
+      selector:
+        text:
+
 import_charging_history:
   name: Import charging history from Rivian
   description: Imports the Rivian app's completed charging sessions (home and public) and merges them with the ones recorded here. A session that overlaps a stored one adds its vendor, home/public flag and measured energy; a missing one is added. Then looks up the station (brand, network, name, maximum kW) of fast charges from OpenStreetMap. Also runs once a day. Real vehicles only; never sends payment or account details.

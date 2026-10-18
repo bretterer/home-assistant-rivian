@@ -351,6 +351,15 @@ class TestDemoIsolation:
         assert labels[rows[DEMO_1]] == "Demo Home"
         assert labels[rows[VIN_A]] == "Real Home"
 
+    def test_clear_dataset_removes_only_that_datasets_places(
+        self, analytics_db: Any
+    ) -> None:
+        analytics_db.create_place("real", HOME[0], HOME[1], "Real Home")
+        analytics_db.create_place("demo", GYM[0], GYM[1], "Demo Gym")
+        analytics_db.clear_dataset("demo")
+        assert analytics_db.list_places("demo") == []
+        assert [p["name"] for p in analytics_db.list_places("real")] == ["Real Home"]
+
 
 # -- categories ------------------------------------------------------------------
 

@@ -1136,8 +1136,9 @@ def test_schemas_reject_malformed_heat_requests(
 class _FakePlacesStore:
     """The slice of DriveStore's async surface the places handlers call."""
 
-    def __init__(self, vin: str = VIN) -> None:
+    def __init__(self, vin: str = VIN, is_demo: bool = False) -> None:
         self.vin = vin
+        self.is_demo = is_demo
         self.list_vins: Any = "unset"
         self.fired = 0
         self.places: list[dict[str, Any]] = [
@@ -1414,8 +1415,9 @@ def test_places_schemas_reject_malformed_messages(
 class _FakeRoutesStore:
     """The slice of DriveStore's async surface the routes handlers call."""
 
-    def __init__(self, vin: str = VIN) -> None:
+    def __init__(self, vin: str = VIN, is_demo: bool = False) -> None:
         self.vin = vin
+        self.is_demo = is_demo
         self.list_vins: Any = "unset"
         self.detail_vins: Any = "unset"
         self.routes: list[dict[str, Any]] = [
@@ -1591,6 +1593,7 @@ class _FakeDeleteStore:
 
     def __init__(self, vin: str = VIN) -> None:
         self.vin = vin
+        self.is_demo = False
         self.deleted_drive_ids: list[str] = []
         self.deleted_days: list[Any] = []
         self.deleted_place_ids: list[int] = []
@@ -1831,7 +1834,6 @@ def test_delete_schemas_reject_malformed_messages(
 # -- multi-VIN reads (`vins`) and rivian/vehicles/list --------------------------
 
 THIRD_VIN = "7PDSGABA8NN555555"
-FOURTH_VIN = "7PDSGABA8NN444444"
 
 
 def _hass_with_stores(*stores: Any) -> Any:
@@ -2246,6 +2248,7 @@ class _MetaStore:
 
 def _vehicles_hass(
     real: list[tuple[str, str, str]],
+    demos: list[dict[str, str]],
     meta: dict[str, str],
 ) -> Any:
     stores = {vin: _MetaStore(vin, meta) for vin, _n, _m in real}
@@ -2259,6 +2262,7 @@ def _vehicles_hass(
                     },
                     ATTR_DRIVE_STORE: stores,
                 },
+                "_demo_vehicles": demos,
             }
         },
         bus=_FakeBus(),
@@ -2276,25 +2280,39 @@ def _registry(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-async def test_vehicles_list_orders_vehicles_with_letters_and_colors(
+DEMOS = [
+    {"vin": "DEMO0R2EAGLE00001", "name": "Demo R2", "model": "R2"},
+    {"vin": "DEMO1R1TEAGLE0002", "name": "Demo R1T", "model": "R1T"},
+]
+
+
+async def test_vehicles_list_orders_real_then_demo_with_letters_and_colors(
     _registry: None,
 ) -> None:
     meta: dict[str, str] = {}
     hass = _vehicles_hass(
-        [(VIN, "Rivi", "R1S"), (OTHER_VIN, "Otto", "R1T"), (THIRD_VIN, "New", "R2")],
-        meta,
+        [(VIN, "Rivi", "R1S"), (OTHER_VIN, "Otto", "R1T")], DEMOS, meta
     )
     connection = _FakeConnection()
 
     await _websocket_vehicles_list(hass, connection, {"id": 1})
 
     result = connection.results[1]
-    assert [v["vin"] for v in result] == [VIN, OTHER_VIN, THIRD_VIN]
-    assert [v["letter"] for v in result] == ["A", "B", "C"]
-    assert [v["name"] for v in result] == ["Rivi", "Otto", "New"]
-    assert [(v["color"], v["color_dark"]) for v in result] == list(VEHICLE_PALETTE[:3])
+    assert [v["vin"] for v in result] == [
+        VIN,
+        OTHER_VIN,
+        "DEMO0R2EAGLE00001",
+        "DEMO1R1TEAGLE0002",
+    ]
+    assert [v["letter"] for v in result] == ["A", "B", "C", "D"]
+    assert [v["name"] for v in result] == ["Rivi", "Otto", "Demo R2", "Demo R1T"]
+    assert [v["is_demo"] for v in result] == [False, False, True, True]
+    assert [(v["color"], v["color_dark"]) for v in result] == list(VEHICLE_PALETTE[:4])
     assert result[0]["picture_entity"] == "image.rivi_picture"
+    assert result[0]["picture_url"] is None
     assert result[1]["picture_entity"] is None
+    assert result[2]["picture_entity"] is None
+    assert "/rivian_static/demo-r2.svg" in result[2]["picture_url"]
     assert set(result[0]) == {
         "vin",
         "name",
@@ -2302,7 +2320,9 @@ async def test_vehicles_list_orders_vehicles_with_letters_and_colors(
         "letter",
         "color",
         "color_dark",
+        "is_demo",
         "picture_entity",
+        "picture_url",
     }
 
 
@@ -2312,27 +2332,32 @@ async def test_vehicle_colors_are_stable_and_slots_are_reused(_registry: None) -
     meta: dict[str, str] = {}
     real = [(VIN, "Rivi", "R1S"), (OTHER_VIN, "Otto", "R1T")]
 
-    real.append((THIRD_VIN, "New", "R2"))
-    hass = _vehicles_hass(real, meta)
+    hass = _vehicles_hass(real, DEMOS, meta)
     await _websocket_vehicles_list(hass, _FakeConnection(), {"id": 1})
-    assert json.loads(meta["vehicle_colors"]) == {VIN: 0, OTHER_VIN: 1, THIRD_VIN: 2}
+    assert json.loads(meta["vehicle_colors"]) == {
+        VIN: 0,
+        OTHER_VIN: 1,
+        "DEMO0R2EAGLE00001": 2,
+        "DEMO1R1TEAGLE0002": 3,
+    }
 
     # Removing Otto never repaints the others.
-    hass = _vehicles_hass([real[0], real[2]], meta)
+    hass = _vehicles_hass([real[0]], DEMOS, meta)
     connection = _FakeConnection()
     await _websocket_vehicles_list(hass, connection, {"id": 2})
     colors = {v["vin"]: v["color"] for v in connection.results[2]}
-    assert colors[THIRD_VIN] == VEHICLE_PALETTE[2][0]
+    assert colors["DEMO0R2EAGLE00001"] == VEHICLE_PALETTE[2][0]
+    assert colors["DEMO1R1TEAGLE0002"] == VEHICLE_PALETTE[3][0]
     # Letters follow display order; colors do not.
-    assert [v["letter"] for v in connection.results[2]] == ["A", "B"]
+    assert [v["letter"] for v in connection.results[2]] == ["A", "B", "C"]
 
     # A newly added vehicle takes the lowest slot no known VIN holds: Otto
     # keeps slot 1 while absent, so it comes back in the same color.
-    hass = _vehicles_hass([real[0], (FOURTH_VIN, "Newer", "R2")], meta)
+    hass = _vehicles_hass([real[0], (THIRD_VIN, "New", "R2")], DEMOS, meta)
     connection = _FakeConnection()
     await _websocket_vehicles_list(hass, connection, {"id": 3})
     colors = {v["vin"]: v["color"] for v in connection.results[3]}
-    assert colors[FOURTH_VIN] == VEHICLE_PALETTE[3][0]
+    assert colors[THIRD_VIN] == VEHICLE_PALETTE[4][0]
     assert colors[VIN] == VEHICLE_PALETTE[0][0]
 
 
@@ -2361,11 +2386,12 @@ def test_assign_vehicle_slots_keeps_an_absent_vehicles_slot() -> None:
 
 async def test_places_list_vins_and_dataset_resolution() -> None:
     real = _FakePlacesStore(VIN)
-    other = _FakePlacesStore(OTHER_VIN)
+    demo = _FakePlacesStore("DEMO0R2EAGLE00001", is_demo=True)
     hass = SimpleNamespace(
         data={
             DOMAIN: {
-                "entry": {ATTR_DRIVE_STORE: {real.vin: real, other.vin: other}},
+                "entry": {ATTR_DRIVE_STORE: {real.vin: real}},
+                "_demo_stores": {demo.vin: demo},
             }
         },
         bus=_FakeBus(),
@@ -2373,17 +2399,25 @@ async def test_places_list_vins_and_dataset_resolution() -> None:
 
     connection = _admin_connection(is_admin=False)
     await ws_api_module._websocket_places_list(
-        hass, connection, {"id": 1, "vins": [VIN, OTHER_VIN]}
+        hass, connection, {"id": 1, "vins": [VIN, demo.vin]}
     )
-    assert real.list_vins == [VIN, OTHER_VIN]
+    # The first vehicle picks the dataset; the other dataset's vins are dropped.
+    assert real.list_vins == [VIN]
     assert connection.results[1]["dataset"] == "real"
+
+    connection = _admin_connection(is_admin=False)
+    await ws_api_module._websocket_places_list(
+        hass, connection, {"id": 2, "dataset": "demo"}
+    )
+    assert demo.list_vins is None
+    assert connection.results[2]["dataset"] == "demo"
 
     # `vin` is an alias that implies the vehicle's dataset.
     connection = _admin_connection(is_admin=False)
     await ws_api_module._websocket_places_list(
-        hass, connection, {"id": 3, "vin": OTHER_VIN}
+        hass, connection, {"id": 3, "vin": demo.vin}
     )
-    assert connection.results[3]["dataset"] == "real"
+    assert connection.results[3]["dataset"] == "demo"
 
     connection = _admin_connection(is_admin=False)
     await ws_api_module._websocket_places_list(hass, connection, {"id": 4})

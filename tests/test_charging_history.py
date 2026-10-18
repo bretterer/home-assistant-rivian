@@ -654,6 +654,7 @@ async def test_ws_sessions_payload_fields_and_filters() -> None:
 
     class Store:
         vin = "V"
+        is_demo = False
         last_drive = SimpleNamespace(battery_capacity_kwh=135.0)
 
         async def async_list_charging_sessions(

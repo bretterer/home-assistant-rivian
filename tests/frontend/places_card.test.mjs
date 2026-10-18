@@ -204,8 +204,9 @@ import {
 } from "../../custom_components/rivian/frontend/rivian-places-card.js";
 
 const VEHICLES = [
-  { vin: "VA", letter: "A", color: "#1b6ac9" },
-  { vin: "VB", letter: "B", color: "#c9561b" },
+  { vin: "VA", letter: "A", color: "#1b6ac9", is_demo: false },
+  { vin: "VB", letter: "B", color: "#c9561b", is_demo: false },
+  { vin: "DD", letter: "C", color: "#2a9d5c", is_demo: true },
 ];
 
 test("categoryList: the server's list wins, else the fallback", () => {
@@ -252,14 +253,19 @@ test("visitsByVehicle: unselected, zero and missing visits are dropped", () => {
   assert.equal(formatVisitsByVehicle(unknown), "2");
 });
 
-test("datasetGroups: the selection is queried as the real dataset", () => {
+test("datasetGroups: real and demo selections are queried separately", () => {
   assert.deepEqual(datasetGroups(VEHICLES, ["VA", "VB"]), [{ dataset: "real", vins: ["VA", "VB"] }]);
+  assert.deepEqual(datasetGroups(VEHICLES, ["DD"]), [{ dataset: "demo", vins: ["DD"] }]);
+  assert.deepEqual(datasetGroups(VEHICLES, ["DD", "VA"]), [
+    { dataset: "real", vins: ["VA"] },
+    { dataset: "demo", vins: ["DD"] },
+  ]);
   assert.deepEqual(datasetGroups(VEHICLES, ["??"]), []);
 });
 
 test("sameDataset: merging stays within one dataset", () => {
   assert.equal(sameDataset({ dataset: "real" }, { dataset: "real" }), true);
-  assert.equal(sameDataset({ dataset: "real" }, { dataset: "other" }), false);
+  assert.equal(sameDataset({ dataset: "real" }, { dataset: "demo" }), false);
   assert.equal(sameDataset({}, { dataset: "real" }), true);
 });
 

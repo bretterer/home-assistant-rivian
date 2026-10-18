@@ -109,7 +109,7 @@ GAPS_TO_SNAP_DEFAULT_LIMIT: Final[int] = 20
 # Bump when a places definition changes (mirrors DRIVE_STATS_VERSION): every
 # VIN then gets one deterministic rebuild_places() in the background.
 PLACES_VERSION: Final[int] = 1
-# The ``meta`` row listing the synthetic demo vehicles (kept for stored data written by earlier versions).
+# The ``meta`` row listing the synthetic demo vehicles (written by demo.py).
 # Which dataset a VIN's places/routes belong to is derived from it.
 DEMO_VEHICLES_META_KEY: Final[str] = "demo_vehicles"
 # A place keeps its numbered label and is retried no sooner than this after a
@@ -1814,7 +1814,7 @@ class AnalyticsDatabase:
         """Return the drives and charging sessions overlapping a window.
 
         Feeds the synthesized battery-% timeline of vehicles without recorder
-        statistics. A drive carries its stored route preview's
+        statistics (the demo cars). A drive carries its stored route preview's
         SoC points when it has a route. Reaches a few days before ``start_ts``
         so the series has a value at the window's start.
         """
@@ -2977,11 +2977,14 @@ class AnalyticsDatabase:
     ) -> list[dict[str, Any]]:
         """Routed drives since ``since_ts`` with any condition column still NULL.
 
-        Oldest first.
+        Oldest first. Empty for a demo VIN: demo drives get their conditions
+        from the fixture and must never reach the network.
         """
         self._assert_executor_thread()
         null_clause = " OR ".join(f"d.{c} IS NULL" for c in _CONDITION_COLUMNS)
         with self._lock:
+            if vin in self._demo_vins_locked():
+                return []
             rows = self._conn.execute(
                 f"""
                 SELECT d.drive_id AS drive_id, d.start_ts AS start_ts,
@@ -3004,12 +3007,15 @@ class AnalyticsDatabase:
 
         ``items`` is ``[(drive_id, samples)]``; a drive with no samples still
         gets its ``expected_kwh``. Add-only: a column that already holds a
-        value is never overwritten. Tracks are decoded and
+        value is never overwritten. Skips a demo VIN. Tracks are decoded and
         the physics run outside the write lock, one batch write at the end.
         """
         self._assert_executor_thread()
         if self.read_only:
             return 0
+        with self._lock:
+            if vin in self._demo_vins_locked():
+                return 0
         params = self.get_energy_model(vin) or ENERGY_MODEL_DEFAULT_PARAMS
         updates: list[tuple[str, dict[str, float | None]]] = []
         for drive_id, samples in items:
@@ -4462,7 +4468,7 @@ class AnalyticsDatabase:
     # Places and routes belong to no vehicle. The only partition is the
     # ``dataset`` ('real' | 'demo'), so the synthetic demo cars' made-up places
     # never label, or mix with, the household's real ones. Which VINs are demo
-    # vehicles is the ``demo_vehicles`` meta row.
+    # vehicles is the ``demo_vehicles`` meta row (see demo.py).
 
     def _demo_vins_locked(self) -> set[str]:
         """Return the registered demo VINs. Caller must hold ``self._lock``."""
@@ -4494,6 +4500,30 @@ class AnalyticsDatabase:
         if not demo:
             return "1", []
         return f"{column} NOT IN ({placeholders})", demo
+
+    def clear_dataset(self, dataset: str) -> None:
+        """Delete every place and route of a dataset (and its rebuild stamps).
+
+        Used when the last demo vehicle is removed. Drives are untouched
+        (``delete_vin`` removes those); their place/route ids are cleared.
+        """
+        self._assert_executor_thread()
+        if self.read_only:
+            _LOGGER.warning("Analytics database is read-only; clear_dataset skipped")
+            return
+        with self._rebuild_lock, self._lock, self._transaction():
+            clause, params = self._dataset_drive_clause(dataset)
+            self._conn.execute("DELETE FROM places WHERE dataset = ?", (dataset,))
+            self._conn.execute("DELETE FROM routes WHERE dataset = ?", (dataset,))
+            self._conn.execute(
+                f"UPDATE drives SET start_place_id = NULL, end_place_id = NULL, "
+                f"route_id = NULL WHERE {clause}",
+                params,
+            )
+            self._conn.execute(
+                "DELETE FROM meta WHERE key IN (?, ?)",
+                (self._places_meta_key(dataset), self._routes_meta_key(dataset)),
+            )
 
     # -- favorite places -------------------------------------------------------
 

@@ -101,8 +101,8 @@ def registered(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-async def _store(mock_hass: Any, db: Any) -> DriveStore:
-    store = DriveStore(mock_hass, VIN, db)
+async def _store(mock_hass: Any, db: Any, demo: bool = False) -> DriveStore:
+    store = DriveStore(mock_hass, VIN, db, is_demo=demo)
     await store.async_load()
     return store
 
@@ -249,6 +249,14 @@ def test_replace_since_keeps_older_inferred_rows(analytics_db: Any) -> None:
         if s["source"] == "inferred"
     )
     assert ids == [f"inferred:{VIN}:1000000", f"inferred:{VIN}:2100000"]
+
+
+async def test_demo_store_is_skipped(
+    mock_hass: Any, analytics_db: Any, reader: Any, registered: None
+) -> None:
+    store = await _store(mock_hass, analytics_db, demo=True)
+    assert await store.async_infer_charging_sessions(reader=reader) is None
+    assert _inferred(analytics_db) == []
 
 
 # -- WebSocket payload ------------------------------------------------------------------

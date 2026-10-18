@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime, timedelta
+from itertools import pairwise
 import sqlite3
 from types import SimpleNamespace
 from typing import Any
@@ -18,7 +19,7 @@ from custom_components.rivian import (
     websocket_api as ws_api_module,
 )
 from custom_components.rivian.analytics_db import SCHEMA_VERSION, AnalyticsDatabase
-from custom_components.rivian.const import ATTR_DRIVE_STORE, ATTR_VEHICLE, DOMAIN
+from custom_components.rivian.const import ATTR_DRIVE_STORE, DOMAIN
 from custom_components.rivian.drive_models import ChargingSample, ChargingSessionRecord
 from custom_components.rivian.drive_storage import DriveStore
 from custom_components.rivian.drive_tracker import DriveTracker
@@ -643,6 +644,7 @@ class _Store:
         self,
         vin: str,
         *,
+        is_demo: bool = False,
         sessions: list[dict[str, Any]] | None = None,
         events: dict[str, Any] | None = None,
         capacity_rows: list[dict[str, Any]] | None = None,
@@ -651,6 +653,7 @@ class _Store:
     ) -> None:
         self._history = history or []
         self.vin = vin
+        self.is_demo = is_demo
         self._sessions = sessions or []
         self._events = events or {"drives": [], "sessions": []}
         self._capacity_rows = capacity_rows or []
@@ -689,14 +692,10 @@ class _Store:
         return self._capacity_rows
 
 
-def _hass(*stores: Any, models: list[dict[str, str]] | None = None) -> Any:
+def _hass(*stores: Any, demo: list[dict[str, str]] | None = None) -> Any:
     domain: dict[str, Any] = {"entry": {ATTR_DRIVE_STORE: {s.vin: s for s in stores}}}
-    if models is not None:
-        # Keyed by Rivian's vehicle id, like the real entry data.
-        domain["entry"][ATTR_VEHICLE] = {
-            f"vehicle-{i}": {"vin": m["vin"], "model": m["model"]}
-            for i, m in enumerate(models)
-        }
+    if demo is not None:
+        domain["_demo_vehicles"] = demo
     return SimpleNamespace(data={DOMAIN: domain}, bus=None)
 
 
@@ -730,7 +729,7 @@ async def test_ws_sessions_expected_counts_and_dc_only_curves() -> None:
         _stored("dc1", "dc", 5000.0, (10.0, 80.0), 29),
     ]
     store = _Store("R2VIN", sessions=sessions, capacity=87.9)
-    hass = _hass(store, models=[{"vin": "R2VIN", "model": "R2"}])
+    hass = _hass(store, demo=[{"vin": "R2VIN", "name": "R2", "model": "R2"}])
     conn = _Conn()
 
     await ws_api_module._websocket_charging_sessions(
@@ -758,7 +757,7 @@ async def test_ws_sessions_expected_counts_and_dc_only_curves() -> None:
 async def test_ws_reference_maps_pack_per_vehicle() -> None:
     r2 = _Store("R2VIN", capacity=87.9)
     r1 = _Store("R1VIN", capacity=135.0)
-    hass = _hass(r2, r1, models=[{"vin": "R2VIN", "model": "R2"}])
+    hass = _hass(r2, r1, demo=[{"vin": "R2VIN", "name": "R2", "model": "R2"}])
     conn = _Conn()
 
     await ws_api_module._websocket_charging_reference(
@@ -773,12 +772,13 @@ async def test_ws_reference_maps_pack_per_vehicle() -> None:
 
 
 @pytest.mark.asyncio
-async def test_ws_soc_timeline_uses_statistics_and_synthesizes_without(
+async def test_ws_soc_timeline_uses_statistics_for_real_and_synthesizes_for_demo(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     real = _Store("REAL")
-    no_stats = _Store(
-        "NOSTATS",
+    demo_store = _Store(
+        "DEMO",
+        is_demo=True,
         events={
             "drives": [
                 {
@@ -792,7 +792,7 @@ async def test_ws_soc_timeline_uses_statistics_and_synthesizes_without(
             "sessions": [],
         },
     )
-    hass = _hass(real, no_stats)
+    hass = _hass(real, demo_store)
 
     registry = SimpleNamespace(
         async_get_entity_id=lambda domain, platform, unique_id: (
@@ -816,7 +816,7 @@ async def test_ws_soc_timeline_uses_statistics_and_synthesizes_without(
     await ws_api_module._websocket_battery_soc_timeline(
         hass,
         conn,
-        {"id": 1, "vins": ["REAL", "NOSTATS"], "start": 0.0, "end": 5 * 86400.0},
+        {"id": 1, "vins": ["REAL", "DEMO"], "start": 0.0, "end": 5 * 86400.0},
     )
 
     out = conn.results[1]
@@ -824,12 +824,12 @@ async def test_ws_soc_timeline_uses_statistics_and_synthesizes_without(
     assert out["series"]["REAL"]["points"] == [[0, 50.0], [600, 50.0]]
     assert out["time_in_band"]["REAL"]["b20_80"] == 1.0
     assert calls == [("sensor.real_battery_level", "5minute", "mean", 5 * 86400.0)]
-    assert out["series"]["NOSTATS"]["source"] == "synthesized"
+    assert out["series"]["DEMO"]["source"] == "synthesized"
     # Starts at the first recorded event, not the open-ended request start.
-    assert out["series"]["NOSTATS"]["points"][0] == [1000, 80.0]
-    assert out["time_in_band"]["NOSTATS"] is not None
-    # Flat statistics hold no charge; a vehicle without statistics is never "detected".
-    assert out["detected"] == {"REAL": [], "NOSTATS": []}
+    assert out["series"]["DEMO"]["points"][0] == [1000, 80.0]
+    assert out["time_in_band"]["DEMO"] is not None
+    # Flat statistics hold no charge; a demo vehicle is never "detected".
+    assert out["detected"] == {"REAL": [], "DEMO": []}
 
     # A window longer than ten days reads hourly statistics.
     calls.clear()
@@ -1005,6 +1005,89 @@ def test_charging_session_record_round_trips_and_derives_kind() -> None:
     assert again.kind == "ac" and again.is_dcfc is False and again.source == "live"
     legacy = ChargingSessionRecord.from_dict({"session_id": "old", "is_dcfc": True})
     assert legacy.kind == "dc" and legacy.lat is None
+
+
+# -- demo fixture -----------------------------------------------------------------------------------
+
+
+def test_demo_fixture_has_ac_sessions_an_r2_fast_charge_and_continuous_soc() -> None:
+    from custom_components.rivian import demo
+
+    fixture = demo.load_fixture()
+    vehicles = {v["vin"]: v for v in fixture["vehicles"]}
+    r2 = vehicles["DEMO0R2EAGLE00001"]
+    r1t = vehicles["DEMO1R1TEAGLE0002"]
+    assert len(r2["drives"]) == 7 and len(r1t["drives"]) == 9
+
+    allowed_places = {"home", "charger", "ran_boise", "tesla_meridian", "tesla_nampa"}
+    for vehicle in (r2, r1t):
+        kinds = [s.get("kind", "dc") for s in vehicle["charging_sessions"]]
+        assert kinds.count("ac") >= 10 and kinds.count("dc") >= 4
+        for s in vehicle["charging_sessions"]:
+            assert s["place"] in allowed_places
+            if s.get("kind") == "ac":
+                assert s["place"] == "home" and s["is_home"] == 1
+                assert s["vendor"] == "Rivian Wall Charger"
+                assert s["max_power_kw"] < 22.0 and len(s["samples"]) <= 20
+                assert s["end_soc"] == 80.0
+            else:
+                assert s["is_home"] == 0 and s["network"] and s["station_name"]
+                assert s["charger_max_kw"] and s["max_power_kw"] <= s["charger_max_kw"]
+    # Both cars fast-charge at several brands.
+    r1t_nets = {s["network"] for s in r1t["charging_sessions"] if s.get("kind") != "ac"}
+    r2_nets = {s["network"] for s in r2["charging_sessions"] if s.get("kind") != "ac"}
+    assert {"Rivian Adventure Network", "Tesla Supercharger"} <= r1t_nets
+    assert {"Electrify America", "Tesla Supercharger"} <= r2_nets
+    versions = {
+        s.get("station_version") for v in (r1t, r2) for s in v["charging_sessions"]
+    }
+    assert {"V3", "V4"} <= versions
+
+    # The R2's fast charge follows its (approximate) reference curve.
+    dc = next(
+        s
+        for s in r2["charging_sessions"]
+        if s.get("kind") == "dc" and s["day_offset"] == 3
+    )
+    assert dc["place"] == "charger" and dc["start_soc"] < 30 and dc["end_soc"] == 70.0
+    ref = charge_curves.reference("r2")
+    for sample in dc["samples"][:-1]:
+        assert sample["power_kw"] <= charge_curves.power_at(ref, sample["soc"]) * 1.001
+
+    # Reported capacity follows the year's slow fade; the history covers a
+    # year with seasonal-ready temperature noise and both temperature sources.
+    for vehicle, (first, last) in (
+        (r1t, (135.0, 134.2)),
+        (r2, (87.9, 87.5)),
+    ):
+        caps = [d["battery_capacity_kwh"] for d in vehicle["drives"]]
+        assert caps == sorted(caps, reverse=True)
+        assert caps[-1] == pytest.approx(last, abs=0.05)
+        history = vehicle["capacity_history"]
+        assert len(history) == 365
+        assert history[0]["kwh"] == first
+        assert history[-1]["kwh"] == pytest.approx(last, abs=0.05)
+        assert {h["temp_source"] for h in history} == {"battery", "outside"}
+        assert len({h["day_offset"] for h in history}) == 365
+
+    # SoC is continuous inside the recorded window: a drive starts where the
+    # previous drive or the charging session in between (by time) left the
+    # pack. Before it, sessions are separated by unrecorded driving, so the
+    # level may only drop between them.
+    for vehicle in (r2, r1t):
+        events = [
+            (d["day_offset"], d["start_s"], d["start_soc"], d["end_soc"])
+            for d in vehicle["drives"]
+        ] + [
+            (s["day_offset"], s["start_s"], s["start_soc"], s["end_soc"])
+            for s in vehicle["charging_sessions"]
+        ]
+        events.sort(key=lambda e: (e[0], e[1]))
+        for prev, nxt in pairwise(events):
+            if prev[0] >= 0:
+                assert nxt[2] == pytest.approx(prev[3], abs=0.15), (prev, nxt)
+            else:
+                assert 0 <= prev[3] - nxt[2] <= 70, (prev, nxt)
 
 
 H = 3600.0

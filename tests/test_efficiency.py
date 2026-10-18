@@ -4,6 +4,7 @@ the schema v12 conditions columns, the weather backfill and the WS payload."""
 from __future__ import annotations
 
 from datetime import UTC
+import json
 import sqlite3
 from types import SimpleNamespace
 from typing import Any, Self
@@ -620,7 +621,7 @@ def _hourly_for(ts: float) -> dict[str, dict[str, float]]:
 
 
 async def _store_with_routed_drives(
-    mock_hass: Any, analytics_db: Any, vin: str
+    mock_hass: Any, analytics_db: Any, vin: str, *, demo: bool = False
 ) -> tuple[DriveStore, float]:
     import time
 
@@ -635,7 +636,11 @@ async def _store_with_routed_drives(
     analytics_db.upsert_tracks(
         vin, [("r1", track), ("r2", _north_track(60, t0=now - 2 * 86400))]
     )
-    store = DriveStore(mock_hass, vin, analytics_db)
+    if demo:
+        analytics_db.set_meta(
+            "demo_vehicles", json.dumps([{"vin": vin, "name": "D", "model": "R2"}])
+        )
+    store = DriveStore(mock_hass, vin, analytics_db, is_demo=demo)
     store._weather_seeded = True  # the test drives the backfill itself
     await store.async_load()
     return store, now
@@ -680,3 +685,38 @@ async def test_backfill_weather_still_scores_drives_when_the_archive_fails(
     result = await store.async_backfill_weather(30)
     assert result["failed_requests"] == 1 and result["complete"] is False
     assert result["updated"] == 0
+
+
+async def test_backfill_weather_skips_demo_vehicles(
+    mock_hass: Any, analytics_db: Any
+) -> None:
+    store, now = await _store_with_routed_drives(
+        mock_hass, analytics_db, "DEMO0R2EAGLE00001", demo=True
+    )
+    fake = _FakeWeather(_hourly_for(now - 3 * 86400))
+    store._weather_client = fake  # type: ignore[assignment]
+    result = await store.async_backfill_weather(30)
+    assert result["drives"] == 0 and result["updated"] == 0 and fake.calls == []
+    # Even called directly at the database level, a demo VIN is never touched.
+    assert analytics_db.drives_for_weather_backfill("DEMO0R2EAGLE00001", 0.0) == []
+    assert analytics_db.apply_weather_backfill("DEMO0R2EAGLE00001", [("r1", [])]) == 0
+
+
+def test_demo_fixture_drives_carry_conditions() -> None:
+    from pathlib import Path
+
+    fixture = json.loads(
+        (
+            Path(__file__).parent.parent
+            / "custom_components"
+            / "rivian"
+            / "demo"
+            / "demo_data.json"
+        ).read_text(encoding="utf-8")
+    )
+    drives = [d for v in fixture["vehicles"] for d in v["drives"]]
+    assert len(drives) == 16
+    for drive in drives:
+        for key in _NEW_COLUMNS:
+            assert drive[key] is not None, (drive["drive_id"], key)
+        assert 0.9 < drive["air_density"] < 1.3

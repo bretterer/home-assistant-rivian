@@ -159,7 +159,7 @@ async def test_ws_session_payload_has_type_rates_and_temperatures() -> None:
     store = _Store("V", sessions=[l1, l2, dc], capacity=135.0)
     conn = _Conn()
     await ws_api_module._websocket_charging_sessions(
-        _hass(store, models=[{"vin": "V", "model": "R1T"}]),
+        _hass(store, demo=[{"vin": "V", "name": "V", "model": "R1T"}]),
         conn,
         {"id": 1, "vins": ["V"]},
     )

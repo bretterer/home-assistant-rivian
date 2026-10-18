@@ -13,8 +13,8 @@
  * shared vehicle bar, ordered by *their* drive counts (each car's favorites
  * are the routes it drives most); with several cars every drive is drawn and
  * colored in its own vehicle's color and the stats panel adds per-vehicle
- * best/average rows. Each dataset represented in the selection is queried
- * separately and the results are concatenated.
+ * best/average rows. A mixed real + demo selection queries each dataset
+ * ('real' / 'demo') separately and concatenates the results.
  *
  * Backend calls (all via `hass.callWS`):
  *   - `rivian/routes/list {dataset, vins}` -- open to all users.
@@ -99,16 +99,22 @@ export function sortRoutes(routes) {
 
 /**
  * The datasets a vehicle selection spans, as `[{dataset, vins}]` (real
- * first): routes of different datasets never mix, so each is queried
+ * first): real and demo vehicles' routes never mix, so each is queried
  * separately.
  */
 export function datasetGroups(vehicles, vins) {
   const list = Array.isArray(vehicles) ? vehicles : [];
   const real = [];
+  const demo = [];
   for (const vin of Array.isArray(vins) ? vins : []) {
-    if (list.some((v) => v.vin === vin)) real.push(vin);
+    const vehicle = list.find((v) => v.vin === vin);
+    if (!vehicle) continue;
+    (vehicle.is_demo ? demo : real).push(vin);
   }
-  return real.length ? [{ dataset: "real", vins: real }] : [];
+  const groups = [];
+  if (real.length) groups.push({ dataset: "real", vins: real });
+  if (demo.length) groups.push({ dataset: "demo", vins: demo });
+  return groups;
 }
 
 function _vehicleParts(vehicle) {
