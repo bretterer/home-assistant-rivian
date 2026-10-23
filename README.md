@@ -104,6 +104,10 @@ Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
 | Cabin climate preconditioning type                  | Sensor         |                                                                                                                                |
 | Cabin temperature                                   | Sensor         |                                                                                                                                |
 | Car wash mode                                       | Binary sensor  | On/off status                                                                                                                  |
+| Cellular carrier                                    | Sensor         |                                                                                                                                |
+| Cellular mode                                       | Sensor         |                                                                                                                                |
+| Cellular signal bars                                | Sensor         |                                                                                                                                |
+| Cellular signal strength                            | Sensor         |                                                                                                                                |
 | Charge port                                         | Binary sensor  | Open/closed status, R1T and R1S only                                                                                           |
 | Charge port door next action                        | Sensor         | R1T and R1S only                                                                                                               |
 | Charger connection                                  | Binary sensor  | Plugged in/unplugged status                                                                                                    |
@@ -215,6 +219,13 @@ Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
 | Vented seat front right                             | Binary sensor  | Running/not running status                                                                                                     |
 | Voltage                                             | Sensor         | Wallbox voltage                                                                                                                |
 | Voltage maximum                                     | Sensor         | Wallbox maximum voltage                                                                                                        |
+| Wi-Fi connection status                             | Sensor         |                                                                                                                                |
+| Wi-Fi frequency                                     | Sensor         |                                                                                                                                |
+| Wi-Fi link speed                                    | Sensor         |                                                                                                                                |
+| Wi-Fi network\*                                     | Sensor         | Network name (SSID)                                                                                                            |
+| Wi-Fi security                                      | Sensor         |                                                                                                                                |
+| Wi-Fi signal bars                                   | Sensor         |                                                                                                                                |
+| Wi-Fi signal strength                               | Sensor         |                                                                                                                                |
 | Window calibration front left state                 | Sensor         |                                                                                                                                |
 | Window calibration front right state                | Sensor         |                                                                                                                                |
 | Window calibration liftgate state                   | Sensor         | R2 only                                                                                                                        |
