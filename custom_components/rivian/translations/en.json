@@ -312,6 +312,24 @@
           "level_2": "Medium",
           "level_3": "High"
         }
+      },
+      "seat_third_row_left_heat": {
+        "name": "Seat 3rd row left heat",
+        "state": {
+          "off": "Off",
+          "level_1": "Low",
+          "level_2": "Medium",
+          "level_3": "High"
+        }
+      },
+      "seat_third_row_right_heat": {
+        "name": "Seat 3rd row right heat",
+        "state": {
+          "off": "Off",
+          "level_1": "Low",
+          "level_2": "Medium",
+          "level_3": "High"
+        }
       }
     },
     "sensor": {
