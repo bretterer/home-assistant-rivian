@@ -354,6 +354,12 @@
             },
             "window_rear_calibrated": {
                 "default": "mdi:window-closed"
+            },
+            "charging_trip_target_soc": {
+                "default": "mdi:battery-arrow-up"
+            },
+            "charging_trip_target_time_remaining": {
+                "default": "mdi:timer-sand"
             }
         },
         "switch": {
