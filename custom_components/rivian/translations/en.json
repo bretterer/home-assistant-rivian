@@ -204,6 +204,12 @@
       },
       "window_rear_closed": {
         "name": "Window liftgate"
+      },
+      "consecutive_alarm_disabled_notification": {
+        "name": "Consecutive alarm disabled notification"
+      },
+      "passive_entry_bluetooth_in_ccc": {
+        "name": "Bluetooth passive entry with digital key"
       }
     },
     "button": {
@@ -951,6 +957,58 @@
         "state": {
           "calibrated": "Calibrated",
           "not_calibrated": "Not calibrated"
+        }
+      },
+      "vas_secure_element_faulted": {
+        "name": "Vehicle access secure element fault",
+        "state": {
+          "no_failure": "No fault",
+          "lost_communication": "Lost communication",
+          "applet_not_programmed": "Applet not programmed",
+          "not_configured": "Not configured",
+          "attack_counter": "Attack counter",
+          "ursk_decrypt_failure": "URSK decryption failure"
+        }
+      },
+      "vas_access_can_faulted": {
+        "name": "Vehicle access CAN fault",
+        "state": {
+          "no_failure": "No fault",
+          "failure": "Fault"
+        }
+      },
+      "secure_immobilizer_status": {
+        "name": "Immobilizer status",
+        "state": {
+          "not_assigned": "Not assigned",
+          "not_authorized": "Not authorized",
+          "authorized_to_drive": "Authorized to drive"
+        }
+      },
+      "passive_entry_unlock_fail_reason": {
+        "name": "Passive entry unlock fail reason",
+        "state": {
+          "not_in_park": "Not in park",
+          "at_home_disable": "Disabled at home",
+          "passenger_in_seat": "Passenger in seat",
+          "device_not_enabled": "Device not enabled",
+          "transport_mode": "Transport mode",
+          "car_wash_mode": "Car wash mode",
+          "camp_mode": "Camp mode",
+          "active_ota": "Software update in progress",
+          "show_and_tell_mode": "Show and tell mode",
+          "rcvd_rssi_pending": "Signal strength pending",
+          "lock_only_at_home": "Lock only at home",
+          "car_costume_mode": "Car costume mode",
+          "slept_immediate": "Slept immediately"
+        }
+      },
+      "ccc_passive_permission_status": {
+        "name": "Digital key passive entry permission",
+        "state": {
+          "sna": "Not available",
+          "disabled": "Disabled",
+          "enabled": "Enabled"
         }
       }
     },
