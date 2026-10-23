@@ -246,8 +246,46 @@ def _setup_mock_environment() -> None:
         exc_mod = DynamicExceptionModule("homeassistant.exceptions", is_package=False)
         exc_mod.ConfigEntryNotReady = type("ConfigEntryNotReady", (Exception,), {})  # type: ignore[attr-defined]
         exc_mod.ConfigEntryAuthFailed = type("ConfigEntryAuthFailed", (Exception,), {})  # type: ignore[attr-defined]
+
+        class Unauthorized(Exception):
+            """Mirror HA's Unauthorized, which takes keyword-only details."""
+
+            def __init__(
+                self,
+                context: Any = None,
+                user_id: str | None = None,
+                entity_id: str | None = None,
+                config_entry_id: str | None = None,
+                perm_category: str | None = None,
+                permission: str | None = None,
+            ) -> None:
+                super().__init__(self.__class__.__name__)
+                self.context = context
+                self.user_id = user_id
+                self.perm_category = perm_category
+                self.permission = permission
+
+        exc_mod.Unauthorized = Unauthorized  # type: ignore[attr-defined]
+        exc_mod.UnknownUser = type("UnknownUser", (Unauthorized,), {})  # type: ignore[attr-defined]
         sys.modules["homeassistant.exceptions"] = exc_mod
         ha_mod.exceptions = exc_mod  # type: ignore[attr-defined]
+
+        # auth permission constants used by service permission checks
+        auth_mod = DynamicModule("homeassistant.auth", is_package=True)
+        permissions_mod = DynamicModule(
+            "homeassistant.auth.permissions", is_package=True
+        )
+        permissions_const_mod = DynamicModule(
+            "homeassistant.auth.permissions.const", is_package=False
+        )
+        permissions_const_mod.CAT_ENTITIES = "entities"  # type: ignore[attr-defined]
+        permissions_const_mod.POLICY_CONTROL = "control"  # type: ignore[attr-defined]
+        permissions_mod.const = permissions_const_mod  # type: ignore[attr-defined]
+        auth_mod.permissions = permissions_mod  # type: ignore[attr-defined]
+        ha_mod.auth = auth_mod  # type: ignore[attr-defined]
+        sys.modules["homeassistant.auth"] = auth_mod
+        sys.modules["homeassistant.auth.permissions"] = permissions_mod
+        sys.modules["homeassistant.auth.permissions.const"] = permissions_const_mod
 
         # config_entries
         config_entries_mod = DynamicModule(
@@ -782,6 +820,14 @@ def _setup_mock_environment() -> None:
         dt_mod.utcnow = _utcnow  # type: ignore[attr-defined]
         sys.modules["homeassistant.util.dt"] = dt_mod
         util_mod.dt = dt_mod  # type: ignore[attr-defined]
+
+        # homeassistant.util.unit_conversion: services.py converts action
+        # temperatures; only needs to import cleanly here.
+        unit_conversion_mod = DynamicModule(
+            "homeassistant.util.unit_conversion", is_package=False
+        )
+        sys.modules["homeassistant.util.unit_conversion"] = unit_conversion_mod
+        util_mod.unit_conversion = unit_conversion_mod  # type: ignore[attr-defined]
 
         # homeassistant.components.recorder: backs statistics.py similarly.
         recorder_pkg_mod = DynamicModule(
