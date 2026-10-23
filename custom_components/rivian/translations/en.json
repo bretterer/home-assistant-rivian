@@ -946,6 +946,14 @@
           "charging_disabled_not_parked": "Charging disabled (not in park)"
         }
       },
+      "charging_time_estimation_validity": {
+        "name": "Charging time remaining validity",
+        "state": {
+          "valid": "Valid",
+          "invalid": "Invalid",
+          "pack_discharging": "Battery discharging"
+        }
+      },
       "window_rear_calibrated": {
         "name": "Window calibration liftgate state",
         "state": {

@@ -788,6 +788,18 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
                 "charging_disabled_not_parked",
             ],
         ),
+        RivianSensorEntityDescription(
+            key="charging_time_estimation_validity",
+            translation_key="charging_time_estimation_validity",
+            field="chargingTimeEstimationValidity",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            device_class=SensorDeviceClass.ENUM,
+            options=[
+                "valid",
+                "invalid",
+                "pack_discharging",
+            ],
+        ),
     ),
     # The R2 has a manual charge port door and doesn't get GraphQL vehicle state
     # updates for the install type
