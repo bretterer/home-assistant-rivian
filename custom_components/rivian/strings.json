@@ -251,6 +251,11 @@
         "name": "Closures"
       }
     },
+    "notify": {
+      "navigation": {
+        "name": "Send destination"
+      }
+    },
     "number": {
       "charging_schedule_amperage": {
         "name": "Charging schedule amperage"

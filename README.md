@@ -265,6 +265,18 @@ These controls need a phone key paired over Bluetooth (see [Remote Vehicle Contr
 | Wake                       | Button  | Wake vehicle                                                                                                                                             |
 | Windows                    | Cover   | Vent/close all windows                                                                                                                                   |
 
+### Send Destination
+
+Each vehicle has a "Send destination" notify entity, which sends a destination to the vehicle's navigation. It goes through the Rivian cloud and needs no paired phone key. The message is the destination: an address, a place, or coordinates as `latitude,longitude`, which Rivian parses.
+
+```yaml
+action: notify.send_message
+target:
+  entity_id: notify.r1t_send_destination
+data:
+  message: "1 Ferry Building, San Francisco, CA"
+```
+
 ## Special Thanks
 
 - [jrgutier](https://github.com/jrgutier) - Helped with getting information on the Rivian API
