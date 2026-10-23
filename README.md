@@ -25,7 +25,7 @@ This integration is provided out of love and passion towards the Rivian ownershi
 
 This integration will not share user or vehicle data outside Home Assistant, a single-user environment hosted and running within an owner's private network and hardware systems.
 
-![Home Assistant Rivian Card](.github/images/home_assistant_rivian_entity_card.png)
+![Home Assistant Rivian Card](.github/images/home_assistant_rivian_entity_card.jpg)
 
 ## Installation
 
@@ -58,7 +58,7 @@ The configuration flow is as follows:
 
 In addition to viewing vehicle data, it is also possible to issue certain vehicle commands remotely via Home Assistant as you would in the Rivian mobile app.
 
-**Note:** Gen2 (2025) models are not curently supported for Remote Vehicle Control due to changes in their bluetooth hardware that have not been implemented yet. They are not able to particpate in the secure pairing process required.
+**Note:** Remote vehicle control isn't supported yet for Gen2 R1T and R1S vehicles (2025 model year and later) or the R2. Their Bluetooth hardware changed, and how they complete the secure pairing process hasn't been figured out yet.
 
 To enable this feature, you need to have:
 
@@ -79,159 +79,191 @@ Note: If you are having issues with pairing your vehicle, we recommend investing
 
 ## Available Sensors
 
-| Name                                                | Domain         | Description                            |
-| --------------------------------------------------- | -------------- | -------------------------------------- |
-| 12V Battery Health                                  | Sensor         |                                        |
-| Active driver                                       | Sensor         | The name of the active driver.         |
-| Altitude                                            | Sensor         |                                        |
-| Battery Capactiy                                    | Sensor         |                                        |
-| Battery State of Charge                             | Sensor         |                                        |
-| Battery State of Charge Limit                       | Sensor         |                                        |
-| Battery Thermal Runaway Propagation                 | Sensor         |                                        |
-| Battery Thermal Status                              | Sensor         |                                        |
-| Bearing                                             | Sensor         |                                        |
-| Bluetooth Module Failure Status Door Front Left     | Sensor         |                                        |
-| Bluetooth Module Failure Status Door Front Right    | Sensor         |                                        |
-| Bluetooth Module Failure Status Fascia Front        | Sensor         |                                        |
-| Bluetooth Module Failure Status Fascia Rear         | Sensor         |                                        |
-| Bluetooth Module Failure Status Instrument Controls | Sensor         |                                        |
-| Brake Fluid Level Low                               | Sensor         |                                        |
-| Cabin Climate Preconditioning                       | Binary Sensor  | Running/not running status             |
-| Cabin Climate Preconditioning Type                  | Sensor         |                                        |
-| Cabin Temperature                                   | Sensor         |                                        |
-| Car Wash Mode                                       | Binary Sensor  | On/off status                          |
-| Charger Connection                                  | Binary Sensor  | Plugged in/unplugged status            |
-| Charger Derate Status                               | Sensor         |                                        |
-| Charging Status                                     | Binary Sensor  | Charging/not charging status           |
-| Charging Schedule Days                              | Sensor         |                                        |
-| Charging Time Remaining                             | Sensor         |                                        |
-| Closure State                                       | Binary Sensor  | Open/closed status of all closures     |
-| Defrost/Defog                                       | Binary Sensor  | Running/not running status             |
-| Door Front Left                                     | Binary Sensor  | Open/closed status                     |
-| Door Front Left Lock                                | Binary Sensor  | Locked/unlocked status                 |
-| Door Front Right                                    | Binary Sensor  | Open/closed status                     |
-| Door Front Right Lock                               | Binary Sensor  | Locked/unlocked status                 |
-| Door Rear Left                                      | Binary Sensor  | Open/closed status                     |
-| Door Rear Left Lock                                 | Binary Sensor  | Locked/unlocked status                 |
-| Door Rear Right                                     | Binary Sensor  | Open/closed status                     |
-| Door Rear Right Lock                                | Binary Sensor  | Locked/unlocked status                 |
-| Door State                                          | Binary Sensor  | Open/closed status of all doors        |
-| Drive Mode                                          | Sensor         |                                        |
-| Driver Temperature                                  | Sensor         |                                        |
-| Estimated Vehicle Range                             | Sensor         |                                        |
-| Front Trunk                                         | Binary Sensor  | Open/closed status                     |
-| Front Trunk Lock                                    | Binary Sensor  | Locked/unlocked status                 |
-| Gear Guard                                          | Binary Sensor  | Locked/unlocked status                 |
-| Gear Guard Alarm                                    | Binary Sensor  | Tampered/clear status                  |
-| Gear Guard Video Mode                               | Sensor         |                                        |
-| Gear Guard Video Status                             | Sensor         |                                        |
-| Gear Guard Video Terms Accepted\*                   | Sensor         |                                        |
-| Gear Selector                                       | Sensor         |                                        |
-| Gear Tunnel Left                                    | Binary Sensor  | Open/closed status, R1T only           |
-| Gear Tunnel Left Lock                               | Binary Sensor  | Locked/unlocked status, R1T only       |
-| Gear Tunnel Right                                   | Binary Sensor  | Open/closed status, R1T only           |
-| Gear Tunnel Right Lock                              | Binary Sensor  | Locked/unlocked status, R1T only       |
-| Heated Seat 3rd Row Left                            | Binary Sensor  | Running/not running status, R1S only   |
-| Heated Seat 3rd Row Right                           | Binary Sensor  | Running/not running status, R1S only   |
-| Heated Seat Front Left                              | Binary Sensor  | Running/not running status             |
-| Heated Seat Front Right                             | Binary Sensor  | Running/not running status             |
-| Heated Seat Rear Left                               | Binary Sensor  | Running/not running status             |
-| Heated Seat Rear Right                              | Binary Sensor  | Running/not running status             |
-| Heated Steering Wheel                               | Binary Sensor  | Running/not running status             |
-| In Use State                                        | Binary Sensor  | Moving/stopped status                  |
-| Liftgate                                            | Binary Sensor  | Open/close status                      |
-| Liftgate Lock                                       | Binary Sensor  | Locked/unlocked status                 |
-| Liftgate Next Action                                | Sensor         |                                        |
-| Limited Acceleration (Cold)                         | Sensor         |                                        |
-| Limited Regenerative Braking (Cold)                 | Sensor         |                                        |
-| Location                                            | Device Tracker |                                        |
-| Locked State                                        | Binary Sensor  | Locked/unlocked status of all closures |
-| Odometer                                            | Sensor         |                                        |
-| Pet Mode                                            | Binary Sensor  | Running/not running status             |
-| Pet Mode Temperature Status                         | Sensor         |                                        |
-| Power State                                         | Sensor         |                                        |
-| Range Threshold                                     | Sensor         |                                        |
-| Remote Charging Available                           | Sensor         |                                        |
-| Service Mode                                        | Sensor         |                                        |
-| Software                                            | Update         |                                        |
-| Software OTA - Available Version\*                  | Sensor         |                                        |
-| Software OTA - Available Version Git Hash\*         | Sensor         |                                        |
-| Software OTA - Available Version Number\*           | Sensor         |                                        |
-| Software OTA - Available Version Week\*             | Sensor         |                                        |
-| Software OTA - Available Version Year\*             | Sensor         |                                        |
-| Software OTA - Current Version\*                    | Sensor         |                                        |
-| Software OTA - Current Version Git Hash\*           | Sensor         |                                        |
-| Software OTA - Current Version Number\*             | Sensor         |                                        |
-| Software OTA - Current Version Week\*               | Sensor         |                                        |
-| Software OTA - Current Version Year\*               | Sensor         |                                        |
-| Software OTA - Download Progress                    | Sensor         |                                        |
-| Software OTA - Install Duration                     | Sensor         |                                        |
-| Software OTA - Install Progress\*                   | Sensor         |                                        |
-| Software OTA - Install Ready                        | Sensor         |                                        |
-| Software OTA - Install Time                         | Sensor         |                                        |
-| Software OTA - Install Type                         | Sensor         |                                        |
-| Software OTA - Status                               | Sensor         |                                        |
-| Software OTA - Status Current                       | Sensor         |                                        |
-| Speed                                               | Sensor         |                                        |
-| Tailgate                                            | Binary Sensor  | Open/close status                      |
-| Tailgate Lock                                       | Binary Sensor  | Locked/unlocked status                 |
-| Tire Pressure Front Left                            | Sensor         |                                        |
-| Tire Pressure Front Left Validity                   | Binary Sensor  | OK/problem status                      |
-| Tire Pressure Front Right                           | Sensor         |                                        |
-| Tire Pressure Front Right Validity                  | Binary Sensor  | OK/problem status                      |
-| Tire Pressure Rear Left                             | Sensor         |                                        |
-| Tire Pressure Rear Left Validity                    | Binary Sensor  | OK/problem status                      |
-| Tire Pressure Rear Right                            | Sensor         |                                        |
-| Tire Pressure Rear Right Validity                   | Binary Sensor  | OK/problem status                      |
-| Tonneau                                             | Binary Sensor  | Open/close status, R1T only            |
-| Tonneau Lock                                        | Binary Sensor  | Locked/unlocked status, R1T only       |
-| Trailer Status                                      | Sensor         |                                        |
-| Vented Seat Front Left                              | Binary Sensor  | Running/not running status             |
-| Vented Seat Front Right                             | Binary Sensor  | Running/not running status             |
-| Window Calibration Front Left State                 | Sensor         |                                        |
-| Window Calibration Front Right State                | Sensor         |                                        |
-| Window Calibration Rear Left State                  | Sensor         |                                        |
-| Window Calibration Rear Right State                 | Sensor         |                                        |
-| Window Front Left                                   | Binary Sensor  | Open/close status                      |
-| Window Front Right                                  | Binary Sensor  | Open/close status                      |
-| Window Rear Left                                    | Binary Sensor  | Open/close status                      |
-| Window Rear Right                                   | Binary Sensor  | Open/close status                      |
-| Windows Next Action                                 | Sensor         |                                        |
-| Wiper Fluid Level                                   | Binary Sensor  | OK/problem status                      |
+Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
+
+| Name                                                | Domain         | Description                                                                                                                    |
+| --------------------------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| 12V battery health                                  | Sensor         |                                                                                                                                |
+| Active driver                                       | Sensor         | The name of the active driver.                                                                                                 |
+| Altitude                                            | Sensor         |                                                                                                                                |
+| Amperage                                            | Sensor         | Wallbox current                                                                                                                |
+| Amperage maximum                                    | Sensor         | Wallbox maximum current                                                                                                        |
+| Battery capacity                                    | Sensor         |                                                                                                                                |
+| Battery state of charge                             | Sensor         |                                                                                                                                |
+| Battery state of charge limit                       | Sensor         |                                                                                                                                |
+| Battery thermal runaway propagation                 | Sensor         |                                                                                                                                |
+| Battery thermal status                              | Sensor         |                                                                                                                                |
+| Bearing                                             | Sensor         |                                                                                                                                |
+| Bluetooth module failure status door front left     | Sensor         |                                                                                                                                |
+| Bluetooth module failure status door front right    | Sensor         |                                                                                                                                |
+| Bluetooth module failure status fascia front        | Sensor         |                                                                                                                                |
+| Bluetooth module failure status fascia rear         | Sensor         |                                                                                                                                |
+| Bluetooth module failure status instrument controls | Sensor         |                                                                                                                                |
+| Brake fluid level                                   | Sensor         |                                                                                                                                |
+| Cabin climate preconditioning                       | Binary sensor  | Running/not running status                                                                                                     |
+| Cabin climate preconditioning type                  | Sensor         |                                                                                                                                |
+| Cabin temperature                                   | Sensor         |                                                                                                                                |
+| Car wash mode                                       | Binary sensor  | On/off status                                                                                                                  |
+| Charge port                                         | Binary sensor  | Open/closed status, R1T and R1S only                                                                                           |
+| Charge port door next action                        | Sensor         | R1T and R1S only                                                                                                               |
+| Charger connection                                  | Binary sensor  | Plugged in/unplugged status                                                                                                    |
+| Charger derate status                               | Sensor         |                                                                                                                                |
+| Charger state                                       | Sensor         | Detailed charging state: charging, scheduled, complete, waiting on charger, errors, etc.                                       |
+| Charging cost                                       | Sensor         | Cost of the current or last charging session                                                                                   |
+| Charging energy delivered                           | Sensor         | Energy delivered in the current or last charging session                                                                       |
+| Charging fault                                      | Sensor         | Why charging is disabled or reduced, if it is                                                                                  |
+| Charging range added                                | Sensor         | Range added in the current or last charging session                                                                            |
+| Charging rate                                       | Sensor         | Range added per hour while charging                                                                                            |
+| Charging schedule days                              | Sensor         |                                                                                                                                |
+| Charging speed                                      | Sensor         | Charging power                                                                                                                 |
+| Charging start time                                 | Sensor         | Start of the current or last charging session                                                                                  |
+| Charging status                                     | Binary sensor  | Charging/not charging status                                                                                                   |
+| Charging status                                     | Sensor         | Wallbox status: available, plugged in, charging, etc.                                                                          |
+| Charging time elapsed                               | Sensor         | Time spent actively charging in the current or last session                                                                    |
+| Charging time remaining                             | Sensor         |                                                                                                                                |
+| Closure state                                       | Binary sensor  | Open/closed status of all closures                                                                                             |
+| Cold range notification                             | Sensor         | Whether cold weather is reducing range                                                                                         |
+| Defrost/defog                                       | Binary sensor  | Running/not running status                                                                                                     |
+| Destination                                         | Sensor         | Final stop of the active navigation trip                                                                                       |
+| Destination ETA                                     | Sensor         | Estimated arrival at the destination                                                                                           |
+| Door front left                                     | Binary sensor  | Open/closed status                                                                                                             |
+| Door front left lock                                | Binary sensor  | Locked/unlocked status                                                                                                         |
+| Door front right                                    | Binary sensor  | Open/closed status                                                                                                             |
+| Door front right lock                               | Binary sensor  | Locked/unlocked status                                                                                                         |
+| Door rear left                                      | Binary sensor  | Open/closed status                                                                                                             |
+| Door rear left lock                                 | Binary sensor  | Locked/unlocked status                                                                                                         |
+| Door rear right                                     | Binary sensor  | Open/closed status                                                                                                             |
+| Door rear right lock                                | Binary sensor  | Locked/unlocked status                                                                                                         |
+| Door state                                          | Binary sensor  | Open/closed status of all doors                                                                                                |
+| Drive mode                                          | Sensor         |                                                                                                                                |
+| Driver temperature                                  | Sensor         |                                                                                                                                |
+| Drivers                                             | Sensor         | Number of drivers with access to the vehicle                                                                                   |
+| Estimated vehicle range                             | Sensor         |                                                                                                                                |
+| Front trunk                                         | Binary sensor  | Open/closed status                                                                                                             |
+| Front trunk lock                                    | Binary sensor  | Locked/unlocked status                                                                                                         |
+| Front trunk next action                             | Sensor         |                                                                                                                                |
+| Gear Guard                                          | Binary sensor  | Locked/unlocked status, R1T and R1S only                                                                                       |
+| Gear Guard alarm                                    | Binary sensor  | Tampered/clear status                                                                                                          |
+| Gear Guard video mode                               | Sensor         |                                                                                                                                |
+| Gear Guard video status                             | Sensor         |                                                                                                                                |
+| Gear Guard video terms accepted\*                   | Sensor         |                                                                                                                                |
+| Gear selector                                       | Sensor         |                                                                                                                                |
+| Gear tunnel left                                    | Binary sensor  | Open/closed status, R1T only                                                                                                   |
+| Gear tunnel left lock                               | Binary sensor  | Locked/unlocked status, R1T only                                                                                               |
+| Gear tunnel left next action                        | Sensor         | R1T only                                                                                                                       |
+| Gear tunnel right                                   | Binary sensor  | Open/closed status, R1T only                                                                                                   |
+| Gear tunnel right lock                              | Binary sensor  | Locked/unlocked status, R1T only                                                                                               |
+| Gear tunnel right next action                       | Sensor         | R1T only                                                                                                                       |
+| Heated seat 3rd row left                            | Binary sensor  | Running/not running status, R1S only                                                                                           |
+| Heated seat 3rd row right                           | Binary sensor  | Running/not running status, R1S only                                                                                           |
+| Heated seat front left                              | Binary sensor  | Running/not running status                                                                                                     |
+| Heated seat front right                             | Binary sensor  | Running/not running status                                                                                                     |
+| Heated seat rear left                               | Binary sensor  | Running/not running status                                                                                                     |
+| Heated seat rear right                              | Binary sensor  | Running/not running status                                                                                                     |
+| Heated steering wheel                               | Binary sensor  | Running/not running status                                                                                                     |
+| In use state                                        | Binary sensor  | Moving/stopped status                                                                                                          |
+| Keys                                                | Sensor         | Number of phone keys across all drivers                                                                                        |
+| Liftgate                                            | Binary sensor  | Open/close status, R1S and R2 only                                                                                             |
+| Liftgate lock                                       | Binary sensor  | Locked/unlocked status, R1S and R2 only                                                                                        |
+| Liftgate next action                                | Sensor         | R1S and R2 only                                                                                                                |
+| Limited acceleration (cold)                         | Sensor         |                                                                                                                                |
+| Limited regenerative braking (cold)                 | Sensor         |                                                                                                                                |
+| Locked state                                        | Binary sensor  | Locked/unlocked status of all closures                                                                                         |
+| Next stop                                           | Sensor         | Next stop of the active navigation trip, including charging stops, past the one the vehicle is at (its `arrived_at` attribute) |
+| Next stop ETA                                       | Sensor         | Estimated arrival at the next stop                                                                                             |
+| No updates since                                    | Sensor         | When the vehicle last reported data; empty unless that was over 10 minutes ago                                                 |
+| Odometer                                            | Sensor         |                                                                                                                                |
+| Pet mode                                            | Binary sensor  | Running/not running status                                                                                                     |
+| Pet mode temperature status                         | Sensor         |                                                                                                                                |
+| Power                                               | Sensor         | Wallbox power                                                                                                                  |
+| Power maximum                                       | Sensor         | Wallbox maximum power                                                                                                          |
+| Power state                                         | Sensor         |                                                                                                                                |
+| Range threshold                                     | Sensor         |                                                                                                                                |
+| Rear hitch status                                   | Sensor         | Nothing, an accessory or a trailer on the hitch                                                                                |
+| Remote charging available                           | Sensor         |                                                                                                                                |
+| Service mode                                        | Sensor         |                                                                                                                                |
+| Software                                            | Update         |                                                                                                                                |
+| Software OTA - Download progress                    | Sensor         |                                                                                                                                |
+| Software OTA - Install duration                     | Sensor         |                                                                                                                                |
+| Software OTA - Install ready                        | Sensor         |                                                                                                                                |
+| Software OTA - Install time                         | Sensor         |                                                                                                                                |
+| Software OTA - Install type                         | Sensor         | R1T and R1S only                                                                                                               |
+| Software OTA - Last install result                  | Sensor         |                                                                                                                                |
+| Software OTA - Status                               | Sensor         |                                                                                                                                |
+| Speed                                               | Sensor         |                                                                                                                                |
+| Tailgate                                            | Binary sensor  | Open/close status, R1T only                                                                                                    |
+| Tailgate lock                                       | Binary sensor  | Locked/unlocked status, R1T and R1S only                                                                                       |
+| Tailgate next action                                | Sensor         | R1T only                                                                                                                       |
+| Tire pressure front left                            | Sensor         |                                                                                                                                |
+| Tire pressure front left status                     | Sensor         | OK/warning status                                                                                                              |
+| Tire pressure front left validity                   | Binary sensor  | OK/problem status                                                                                                              |
+| Tire pressure front right                           | Sensor         |                                                                                                                                |
+| Tire pressure front right status                    | Sensor         | OK/warning status                                                                                                              |
+| Tire pressure front right validity                  | Binary sensor  | OK/problem status                                                                                                              |
+| Tire pressure rear left                             | Sensor         |                                                                                                                                |
+| Tire pressure rear left status                      | Sensor         | OK/warning status                                                                                                              |
+| Tire pressure rear left validity                    | Binary sensor  | OK/problem status                                                                                                              |
+| Tire pressure rear right                            | Sensor         |                                                                                                                                |
+| Tire pressure rear right status                     | Sensor         | OK/warning status                                                                                                              |
+| Tire pressure rear right validity                   | Binary sensor  | OK/problem status                                                                                                              |
+| Tonneau                                             | Binary sensor  | Open/close status, R1T with a powered tonneau only                                                                             |
+| Tonneau lock                                        | Binary sensor  | Locked/unlocked status, R1T with a powered tonneau only                                                                        |
+| Trailer status                                      | Sensor         |                                                                                                                                |
+| _Vehicle name_                                      | Device tracker | Vehicle location, named after the vehicle itself                                                                               |
+| Vehicle updates                                     | Binary sensor  | OK/problem status: a problem when nothing has arrived from Rivian for 10 minutes                                               |
+| Vented seat front left                              | Binary sensor  | Running/not running status                                                                                                     |
+| Vented seat front right                             | Binary sensor  | Running/not running status                                                                                                     |
+| Voltage                                             | Sensor         | Wallbox voltage                                                                                                                |
+| Voltage maximum                                     | Sensor         | Wallbox maximum voltage                                                                                                        |
+| Window calibration front left state                 | Sensor         |                                                                                                                                |
+| Window calibration front right state                | Sensor         |                                                                                                                                |
+| Window calibration liftgate state                   | Sensor         | R2 only                                                                                                                        |
+| Window calibration rear left state                  | Sensor         |                                                                                                                                |
+| Window calibration rear right state                 | Sensor         |                                                                                                                                |
+| Window front left                                   | Binary sensor  | Open/close status                                                                                                              |
+| Window front right                                  | Binary sensor  | Open/close status                                                                                                              |
+| Window liftgate                                     | Binary sensor  | Open/closed status, R2 only                                                                                                    |
+| Window rear left                                    | Binary sensor  | Open/close status                                                                                                              |
+| Window rear right                                   | Binary sensor  | Open/close status                                                                                                              |
+| Windows next action                                 | Sensor         |                                                                                                                                |
+| Wiper fluid level                                   | Binary sensor  | OK/problem status                                                                                                              |
 
 \* Disabled by default
 
 ### Remote Vehicle Controls
 
-| Name                           | Domain  | Description                                                                                                                                               |
-| ------------------------------ | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Alarm                          | Switch  | Sound/mute alarm                                                                                                                                          |
-| Cabin Climate                  | Climate | Adjust cabin temperature/preset                                                                                                                           |
-| Charge Limit                   | Number  | Set battery charge limit percent                                                                                                                          |
-| Charging Enabled               | Switch  | Enable/disable charging while vehicle plugged in and below battery state of charge limit                                                                  |
-| Charging Schedule Amperage     | Number  | Set charging schedule amperage limit                                                                                                                      |
-| Charging Schedule Enabled      | Switch  | Enable/disable charging schedule                                                                                                                          |
-| Charging Schedule End          | Time    | Set charging schedule end time                                                                                                                            |
-| Charging Schedule Start        | Time    | Set charging schedule start time                                                                                                                          |
-| Closures                       | Lock    | Lock/unlock all closures                                                                                                                                  |
-| Drop Tailgate                  | Button  | Drop tailgate                                                                                                                                             |
-| Front Trunk                    | Cover   | Open/close front trunk                                                                                                                                    |
-| Gear Guard Video               | Switch  | Enable/disable gear guard video                                                                                                                           |
-| Liftgate                       | Cover   | Open/close liftgate, R1S only                                                                                                                             |
-| Open Gear Tunnel Left          | Button  | Open left gear tunnel                                                                                                                                     |
-| Open Gear Tunnel Right         | Button  | Open right gear tunnel                                                                                                                                    |
-| Pair                           | Button  | Inititate Bluetooth pairing from Home Assistant. When pairing is identified as completed, this entity will no longer be created and can safely be deleted |
-| Seat Front Left Heat           | Select  | Set front left seat heat level                                                                                                                            |
-| Seat Front Left Vent           | Select  | Set front right seat vent level                                                                                                                           |
-| Seat Front Right Heat          | Select  | Set front right seat heat level                                                                                                                           |
-| Seat Front Right Vent          | Select  | Set front right seat vent level                                                                                                                           |
-| Seat Rear Left Heat            | Select  | Set rear left seat heat level                                                                                                                             |
-| Seat Rear Right Heat           | Select  | Set rear right seat heat level                                                                                                                            |
-| Software                       | Update  | Trigger OTA update, if available                                                                                                                          |
-| Steering Wheel Heat            | Switch  | Turn on/off steering wheel heat                                                                                                                           |
-| Tonneau                        | Cover   | Open/close powered tonneau, R1T only                                                                                                                      |
-| Wake                           | Button  | Wake vehicle                                                                                                                                              |
-| Windows                        | Cover   | Vent/close all windows                                                                                                                                    |
+These controls need a phone key paired over Bluetooth (see [Remote Vehicle Control](#remote-vehicle-control)), which isn't possible yet for Gen2 R1T and R1S vehicles or the R2. Otherwise, they're available for all models unless noted, and some also depend on the features your vehicle reports.
+
+| Name                       | Domain  | Description                                                                                                                                              |
+| -------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Alarm                      | Switch  | Sound/mute alarm                                                                                                                                         |
+| Cabin climate              | Climate | Adjust cabin temperature/preset                                                                                                                          |
+| Charge limit               | Number  | Set battery charge limit percent                                                                                                                         |
+| Charge port door           | Cover   | Open/close the powered charge port door, R1T and R1S only                                                                                                |
+| Charging enabled           | Switch  | Enable/disable charging while vehicle plugged in and below battery state of charge limit                                                                 |
+| Charging schedule amperage | Number  | Set charging schedule amperage limit                                                                                                                     |
+| Charging schedule enabled  | Switch  | Enable/disable charging schedule                                                                                                                         |
+| Charging schedule end      | Time    | Set charging schedule end time                                                                                                                           |
+| Charging schedule start    | Time    | Set charging schedule start time                                                                                                                         |
+| Closures                   | Lock    | Lock/unlock all closures                                                                                                                                 |
+| Drop tailgate              | Button  | Drop tailgate, R1T only                                                                                                                                  |
+| Front trunk                | Cover   | Open/close front trunk                                                                                                                                   |
+| Gear Guard video           | Switch  | Enable/disable gear guard video                                                                                                                          |
+| Liftgate                   | Cover   | Open/close liftgate, R1S and R2 only                                                                                                                     |
+| Open gear tunnel left      | Button  | Open left gear tunnel, R1T only                                                                                                                          |
+| Open gear tunnel right     | Button  | Open right gear tunnel, R1T only                                                                                                                         |
+| Pair                       | Button  | Initiate Bluetooth pairing from Home Assistant. When pairing is identified as completed, this entity will no longer be created and can safely be deleted |
+| Seat front left heat       | Select  | Set front left seat heat level                                                                                                                           |
+| Seat front left vent       | Select  | Set front left seat vent level                                                                                                                           |
+| Seat front right heat      | Select  | Set front right seat heat level                                                                                                                          |
+| Seat front right vent      | Select  | Set front right seat vent level                                                                                                                          |
+| Seat rear left heat        | Select  | Set rear left seat heat level                                                                                                                            |
+| Seat rear right heat       | Select  | Set rear right seat heat level                                                                                                                           |
+| Software                   | Update  | Trigger OTA update, if available                                                                                                                         |
+| Steering wheel heat        | Switch  | Turn on/off steering wheel heat                                                                                                                          |
+| Tonneau                    | Cover   | Open/close tonneau, R1T with a powered tonneau only                                                                                                      |
+| Wake                       | Button  | Wake vehicle                                                                                                                                             |
+| Windows                    | Cover   | Vent/close all windows                                                                                                                                   |
 
 ## Special Thanks
 

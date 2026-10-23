@@ -23,14 +23,13 @@ from .const import ATTR_COORDINATOR, ATTR_VEHICLE, DOMAIN
 from .coordinator import VehicleCoordinator
 from .entity import RivianVehicleEntity
 
-INSTALLING_STATUS = ("Install_Countdown", "Awaiting_Install", "Installing")
-READY_FOR_INSTALL = ("Ready_To_Install", "Scheduled_To_Install")
+INSTALLING_STATUS = ("install_countdown", "awaiting_install", "installing")
+READY_FOR_INSTALL = ("ready_to_install", "scheduled_to_install")
 
 UPDATE_DESCRIPTION = UpdateEntityDescription(
     key="software_ota",
-    name="Software",
+    translation_key="software_ota",
     device_class=UpdateDeviceClass.FIRMWARE,
-    entity_category=EntityCategory.DIAGNOSTIC,
 )
 
 
@@ -52,6 +51,7 @@ async def async_setup_entry(
 class RivianUpdateEntity(RivianVehicleEntity, UpdateEntity):
     """Rivian Update Entity."""
 
+    _attr_auto_update = True
     _attr_supported_features = Feature.PROGRESS | Feature.RELEASE_NOTES
 
     _rivian_software_url: str
@@ -66,16 +66,25 @@ class RivianUpdateEntity(RivianVehicleEntity, UpdateEntity):
         """Construct a Rivian vehicle update entity."""
         super().__init__(coordinator, config_entry, description, vehicle)
         self.can_install = vehicle.get("phone_identity_id") is not None
+        # A setting while it can install updates, otherwise read-only information
+        self._attr_entity_category = (
+            EntityCategory.CONFIG if self.can_install else EntityCategory.DIAGNOSTIC
+        )
         self._update_version_info()
 
     def _update_version_info(self) -> None:
-        current_version = self._get_value("otaCurrentVersion")
-        if (latest_version := self._get_value("otaAvailableVersion")) == "0.0.0":
+        if not (current_version := self._get_value("otaCurrentVersion")):
+            return
+        if (latest_version := self._get_value("otaAvailableVersion")) in (
+            None,
+            "0.0.0",
+        ):
             latest_version = current_version
-        current_hash = self._get_value("otaCurrentVersionGitHash")
-        if (latest_hash := self._get_value("otaAvailableVersionGitHash")) == "":
+        current_hash = self._get_value("otaCurrentVersionGitHash") or ""
+        if not (latest_hash := self._get_value("otaAvailableVersionGitHash")):
             latest_hash = current_hash
-        show_hash = (current_version, current_hash) != (latest_version, latest_hash)
+        # Only needed to tell builds of the same version apart
+        show_hash = current_version == latest_version and current_hash != latest_hash
 
         self._attr_installed_version = current_version + (
             f" ({current_hash})" if show_hash else ""
@@ -83,9 +92,9 @@ class RivianUpdateEntity(RivianVehicleEntity, UpdateEntity):
         self._attr_latest_version = latest_version + (
             f" ({latest_hash})" if show_hash else ""
         )
-        self._rivian_software_url = (
-            f"https://rivian.software/{latest_version.replace('.', '-')}/"
-        )
+        # year.week.number -> year-week
+        year_week = "-".join(latest_version.split(".")[:2])
+        self._rivian_software_url = f"https://riviantrackr.com/{year_week}"
 
         self._attr_extra_state_attributes = {
             "current_version": {
@@ -103,16 +112,25 @@ class RivianUpdateEntity(RivianVehicleEntity, UpdateEntity):
         }
 
     @property
-    def in_progress(self) -> bool | int:
-        """Update installation progress."""
-        if self._get_value("otaStatus") in INSTALLING_STATUS:
+    def in_progress(self) -> bool:
+        """Return True while an update is installing."""
+        return self._get_value("otaStatus") in INSTALLING_STATUS
+
+    @property
+    def update_percentage(self) -> int | None:
+        """Return the installation progress, if installing and reported."""
+        if self.in_progress:
             return self._get_value("otaInstallProgress")
-        return False
+        return None
 
     @property
     def supported_features(self) -> Feature:
         """Flag supported features."""
-        if self.can_install and self._get_value("otaStatus") in READY_FOR_INSTALL:
+        if (
+            self.can_install
+            and self._get_value("otaStatus") in READY_FOR_INSTALL
+            and self._get_value("gearStatus") == "park"
+        ):
             return self._attr_supported_features | Feature.INSTALL
         return self._attr_supported_features
 
@@ -126,6 +144,8 @@ class RivianUpdateEntity(RivianVehicleEntity, UpdateEntity):
             raise RivianBadRequestError(
                 f"Software update is {status}, please try again later"
             )
+        if self._get_value("gearStatus") != "park":
+            raise RivianBadRequestError("Vehicle must be in park to install updates")
         await self.coordinator.send_vehicle_command(
             VehicleCommand.OTA_INSTALL_NOW_ACKNOWLEDGE
         )

@@ -1,8 +1,118 @@
 {
     "entity": {
+        "binary_sensor": {
+            "defrost_defog_status": {
+                "default": "mdi:car-defrost-front"
+            },
+            "seat_front_left_heat": {
+                "default": "mdi:car-seat-heater"
+            },
+            "seat_front_left_vent": {
+                "default": "mdi:car-seat-cooler"
+            },
+            "seat_front_right_heat": {
+                "default": "mdi:car-seat-heater"
+            },
+            "seat_front_right_vent": {
+                "default": "mdi:car-seat-cooler"
+            },
+            "seat_rear_left_heat": {
+                "default": "mdi:car-seat-heater"
+            },
+            "seat_rear_right_heat": {
+                "default": "mdi:car-seat-heater"
+            },
+            "steering_wheel_heat": {
+                "default": "mdi:steering"
+            },
+            "wiper_fluid_state": {
+                "default": "mdi:wiper-wash"
+            },
+            "car_wash_mode": {
+                "default": "mdi:car-wash"
+            },
+            "seat_third_row_left_heat": {
+                "default": "mdi:car-seat-heater"
+            },
+            "seat_third_row_right_heat": {
+                "default": "mdi:car-seat-heater"
+            },
+            "door_front_left_locked": {
+                "default": "mdi:car-door-lock",
+                "state": {
+                    "on": "mdi:car-door-lock-open"
+                }
+            },
+            "door_front_right_locked": {
+                "default": "mdi:car-door-lock",
+                "state": {
+                    "on": "mdi:car-door-lock-open"
+                }
+            },
+            "door_rear_left_locked": {
+                "default": "mdi:car-door-lock",
+                "state": {
+                    "on": "mdi:car-door-lock-open"
+                }
+            },
+            "door_rear_right_locked": {
+                "default": "mdi:car-door-lock",
+                "state": {
+                    "on": "mdi:car-door-lock-open"
+                }
+            },
+            "pet_mode_status": {
+                "default": "mdi:dog-side",
+                "state": {
+                    "off": "mdi:dog-side-off"
+                }
+            },
+            "vehicle_updates": {
+                "default": "mdi:cloud-check-outline",
+                "state": {
+                    "on": "mdi:cloud-alert-outline"
+                }
+            }
+        },
+        "button": {
+            "wake": {
+                "default": "mdi:weather-night"
+            }
+        },
         "number": {
             "charging_schedule_amperage": {
                 "default": "mdi:current-ac"
+            },
+            "charge_limit": {
+                "default": "mdi:battery-charging",
+                "range": {
+                    "50": "mdi:battery-charging-50",
+                    "60": "mdi:battery-charging-60",
+                    "70": "mdi:battery-charging-70",
+                    "80": "mdi:battery-charging-80",
+                    "90": "mdi:battery-charging-90",
+                    "100": "mdi:battery-charging-100"
+                }
+            }
+        },
+        "select": {
+            "seat_front_left_heat": {
+                "default": "mdi:car-seat-heater"
+            },
+            "seat_front_left_vent": {
+                "default": "mdi:car-seat-cooler"
+            },
+            "seat_front_right_heat": {
+                "default": "mdi:car-seat-heater"
+            },
+            "seat_front_right_vent": {
+                "default": "mdi:car-seat-cooler"
+            },
+            "seat_rear_left_heat": {
+                "default": "mdi:car-seat-heater"
+            },
+            "seat_rear_right_heat": {
+                "default": "mdi:car-seat-heater"
             }
         },
         "sensor": {
@@ -11,11 +121,256 @@
             },
             "charging_schedule_days": {
                 "default": "mdi:calendar-range"
+            },
+            "next_stop": {
+                "default": "mdi:map-marker-right"
+            },
+            "next_stop_eta": {
+                "default": "mdi:clock-outline"
+            },
+            "destination": {
+                "default": "mdi:flag-checkered"
+            },
+            "destination_eta": {
+                "default": "mdi:clock-end"
+            },
+            "altitude": {
+                "default": "mdi:altimeter"
+            },
+            "battery_thermal_status": {
+                "default": "mdi:battery-alert"
+            },
+            "battery_thermal_runaway_propagation": {
+                "default": "mdi:battery-alert"
+            },
+            "battery_limit": {
+                "default": "mdi:battery-charging",
+                "range": {
+                    "50": "mdi:battery-charging-50",
+                    "60": "mdi:battery-charging-60",
+                    "70": "mdi:battery-charging-70",
+                    "80": "mdi:battery-charging-80",
+                    "90": "mdi:battery-charging-90",
+                    "100": "mdi:battery-charging-100"
+                }
+            },
+            "battery_capacity": {
+                "default": "mdi:battery-check"
+            },
+            "bearing": {
+                "default": "mdi:compass"
+            },
+            "brake_fluid_low": {
+                "default": "mdi:car-brake-fluid-level"
+            },
+            "cabin_preconditioning_type": {
+                "default": "mdi:thermostat"
+            },
+            "charger_derate_status": {
+                "default": "mdi:ev-station"
+            },
+            "distance_to_empty": {
+                "default": "mdi:map-marker-distance"
+            },
+            "drive_mode": {
+                "default": "mdi:car-speed-limiter"
+            },
+            "gear_status": {
+                "default": "mdi:car-shift-pattern"
+            },
+            "trailer_status": {
+                "default": "mdi:truck-trailer"
+            },
+            "gear_guard_video_mode": {
+                "default": "mdi:cctv"
+            },
+            "gear_guard_video_status": {
+                "default": "mdi:cctv"
+            },
+            "gear_guard_video_terms_accepted": {
+                "default": "mdi:cctv"
+            },
+            "ota_current_status": {
+                "default": "mdi:package"
+            },
+            "ota_download_progress": {
+                "default": "mdi:progress-download"
+            },
+            "ota_install_duration": {
+                "default": "mdi:wrench-clock"
+            },
+            "ota_install_ready": {
+                "default": "mdi:progress-check"
+            },
+            "ota_install_time": {
+                "default": "mdi:clock"
+            },
+            "ota_status": {
+                "default": "mdi:package"
+            },
+            "pet_mode_temperature_status": {
+                "default": "mdi:dog-side"
+            },
+            "power_state": {
+                "default": "mdi:power"
+            },
+            "range_threshold": {
+                "default": "mdi:map-marker-distance"
+            },
+            "remote_charging_available": {
+                "default": "mdi:battery-charging-wireless-80"
+            },
+            "service_mode": {
+                "default": "mdi:account-wrench"
+            },
+            "tire_pressure_front_left": {
+                "default": "mdi:tire"
+            },
+            "tire_pressure_front_right": {
+                "default": "mdi:tire"
+            },
+            "tire_pressure_rear_left": {
+                "default": "mdi:tire"
+            },
+            "tire_pressure_rear_right": {
+                "default": "mdi:tire"
+            },
+            "tire_pressure_status_front_left": {
+                "default": "mdi:tire"
+            },
+            "tire_pressure_status_front_right": {
+                "default": "mdi:tire"
+            },
+            "tire_pressure_status_rear_left": {
+                "default": "mdi:tire"
+            },
+            "tire_pressure_status_rear_right": {
+                "default": "mdi:tire"
+            },
+            "vehicle_mileage": {
+                "default": "mdi:counter"
+            },
+            "window_front_left_calibrated": {
+                "default": "mdi:window-closed"
+            },
+            "window_front_right_calibrated": {
+                "default": "mdi:window-closed"
+            },
+            "window_rear_left_calibrated": {
+                "default": "mdi:window-closed"
+            },
+            "window_rear_right_calibrated": {
+                "default": "mdi:window-closed"
+            },
+            "windows_next_action": {
+                "default": "mdi:window-closed"
+            },
+            "twelve_volt_battery_health": {
+                "default": "mdi:car-battery"
+            },
+            "limited_acceleration_cold": {
+                "default": "mdi:snowflake-thermometer"
+            },
+            "limited_regen_braking_cold": {
+                "default": "mdi:snowflake-thermometer"
+            },
+            "bluetooth_front_fascia_hardware_failure_status": {
+                "default": "mdi:bluetooth"
+            },
+            "bluetooth_rear_fascia_hardware_failure_status": {
+                "default": "mdi:bluetooth"
+            },
+            "bluetooth_instrument_controls_hardware_failure_status": {
+                "default": "mdi:bluetooth"
+            },
+            "bluetooth_right_front_door_hardware_failure_status": {
+                "default": "mdi:bluetooth"
+            },
+            "bluetooth_left_front_door_hardware_failure_status": {
+                "default": "mdi:bluetooth"
+            },
+            "ota_install_type": {
+                "default": "mdi:package"
+            },
+            "liftgate_next_action": {
+                "default": "mdi:gesture-tap-button"
+            },
+            "charging_status": {
+                "default": "mdi:ev-plug-type1"
+            },
+            "drivers": {
+                "default": "mdi:account-multiple"
+            },
+            "keys": {
+                "default": "mdi:car-key"
+            },
+            "frunk_next_action": {
+                "default": "mdi:gesture-tap-button"
+            },
+            "charge_port_door_next_action": {
+                "default": "mdi:gesture-tap-button"
+            },
+            "gear_tunnel_left_next_action": {
+                "default": "mdi:gesture-tap-button"
+            },
+            "gear_tunnel_right_next_action": {
+                "default": "mdi:gesture-tap-button"
+            },
+            "tailgate_next_action": {
+                "default": "mdi:gesture-tap-button"
+            },
+            "rear_hitch_status": {
+                "default": "mdi:truck-trailer",
+                "state": {
+                    "not_present": "mdi:truck-outline"
+                }
+            },
+            "cold_range_notification": {
+                "default": "mdi:snowflake-thermometer",
+                "state": {
+                    "normal_range": "mdi:thermometer"
+                }
+            },
+            "charger_state": {
+                "default": "mdi:ev-station",
+                "state": {
+                    "charging_active": "mdi:battery-charging",
+                    "charging_complete": "mdi:battery-check",
+                    "charging_connecting": "mdi:battery-sync",
+                    "waiting_on_charger": "mdi:battery-sync",
+                    "charging_scheduled": "mdi:battery-clock",
+                    "smart_charging_paused": "mdi:battery-clock",
+                    "smart_charging_active": "mdi:battery-charging"
+                }
+            },
+            "no_updates_since": {
+                "default": "mdi:clock-alert-outline"
+            },
+            "charging_fault": {
+                "default": "mdi:power-plug-off-outline",
+                "state": {
+                    "none": "mdi:power-plug-outline"
+                }
+            },
+            "window_rear_calibrated": {
+                "default": "mdi:window-closed"
             }
         },
         "switch": {
             "charging_schedule_enabled": {
                 "default": "mdi:calendar-clock"
+            },
+            "alarm": {
+                "default": "mdi:alarm-light"
+            },
+            "charging_enabled": {
+                "default": "mdi:lightning-bolt"
+            },
+            "gear_guard_video": {
+                "default": "mdi:cctv"
+            },
+            "steering_wheel_heat": {
+                "default": "mdi:steering"
             }
         },
         "time": {

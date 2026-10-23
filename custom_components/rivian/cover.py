@@ -35,7 +35,7 @@ COVERS: Final[dict[str | None, tuple[RivianCoverEntityDescription, ...]]] = {
         RivianCoverEntityDescription(
             key="frunk",
             device_class=CoverDeviceClass.DOOR,
-            name="Front Trunk",
+            translation_key="frunk",
             is_closed=lambda coor: coor.get("closureFrunkClosed") != "open",
             close_cover=lambda coor: coor.send_vehicle_command(
                 command=VehicleCommand.CLOSE_FRUNK
@@ -47,7 +47,7 @@ COVERS: Final[dict[str | None, tuple[RivianCoverEntityDescription, ...]]] = {
         RivianCoverEntityDescription(
             key="windows",
             device_class=CoverDeviceClass.WINDOW,
-            name="Windows",
+            translation_key="windows",
             is_closed=lambda coor: not any(coor.get(key) == "open" for key in WINDOWS),
             close_cover=lambda coor: coor.send_vehicle_command(
                 command=VehicleCommand.CLOSE_ALL_WINDOWS
@@ -63,6 +63,17 @@ COVERS: Final[dict[str | None, tuple[RivianCoverEntityDescription, ...]]] = {
             device_class=CoverDeviceClass.DOOR,
             translation_key="charge_port",
             is_closed=lambda coor: coor.get("chargePortState") != "open",
+            # The next action, not chargePortState, which can stay "opening"
+            # until a cable is plugged in
+            is_opening=lambda coor: (
+                coor.get("closureChargePortDoorNextAction") == "opening"
+            ),
+            is_closing=lambda coor: (
+                coor.get("closureChargePortDoorNextAction") == "closing"
+            ),
+            can_close=lambda coor: (
+                coor.get("closureChargePortDoorNextAction") != "close_not_available"
+            ),
             close_cover=lambda coor: coor.send_vehicle_command(
                 command=VehicleCommand.CLOSE_CHARGE_PORT_DOOR
             ),
@@ -75,7 +86,7 @@ COVERS: Final[dict[str | None, tuple[RivianCoverEntityDescription, ...]]] = {
         RivianCoverEntityDescription(
             key="liftgate",
             device_class=CoverDeviceClass.DOOR,
-            name="Liftgate",
+            translation_key="liftgate",
             is_closed=lambda coor: coor.get("closureLiftgateClosed") != "open",
             close_cover=lambda coor: coor.send_vehicle_command(
                 command=VehicleCommand.CLOSE_LIFTGATE
@@ -89,7 +100,7 @@ COVERS: Final[dict[str | None, tuple[RivianCoverEntityDescription, ...]]] = {
         RivianCoverEntityDescription(
             key="tonneau",
             device_class=CoverDeviceClass.DOOR,
-            name="Tonneau",
+            translation_key="tonneau",
             is_closed=lambda coor: coor.get("closureTonneauClosed") != "open",
             close_cover=lambda coor: coor.send_vehicle_command(
                 command=VehicleCommand.CLOSE_TONNEAU_COVER
@@ -131,6 +142,29 @@ class RivianCoverEntity(RivianVehicleControlEntity, CoverEntity):
     def is_closed(self) -> bool:
         """Return if the cover is closed or not."""
         return self.entity_description.is_closed(self.coordinator)
+
+    @property
+    def is_opening(self) -> bool | None:
+        """Return if the cover is opening or not."""
+        if is_opening := self.entity_description.is_opening:
+            return is_opening(self.coordinator)
+        return super().is_opening
+
+    @property
+    def is_closing(self) -> bool | None:
+        """Return if the cover is closing or not."""
+        if is_closing := self.entity_description.is_closing:
+            return is_closing(self.coordinator)
+        return super().is_closing
+
+    @property
+    def supported_features(self) -> CoverEntityFeature:
+        """Flag supported features."""
+        if (can_close := self.entity_description.can_close) and not can_close(
+            self.coordinator
+        ):
+            return CoverEntityFeature.OPEN
+        return self._attr_supported_features
 
     async def async_close_cover(self, **kwargs: Any) -> None:
         """Close the cover."""
