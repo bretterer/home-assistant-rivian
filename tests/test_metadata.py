@@ -35,6 +35,7 @@ def test_manifest_basics() -> None:
     assert manifest["domain"] == "rivian"
     assert manifest["config_flow"] is True
     assert "version" in manifest
+    assert manifest["iot_class"] == "cloud_push"
     assert any(
         req.startswith("rivian-python-client") for req in manifest["requirements"]
     )
