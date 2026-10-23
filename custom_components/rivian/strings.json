@@ -158,6 +158,9 @@
       "car_wash_mode": {
         "name": "Car wash mode"
       },
+      "cabin_ventilation_enabled": {
+        "name": "Auto cabin ventilation"
+      },
       "charge_port": {
         "name": "Charge port"
       },
@@ -946,6 +949,34 @@
           "charging_disabled_partial_connection": "Charging disabled (partial connection)",
           "charging_disabled_not_parked": "Charging disabled (not in park)"
         }
+      },
+      "gear_guard_streaming_consent": {
+        "name": "Gear Guard streaming consent",
+        "state": {
+          "unknown": "Unknown",
+          "not_applicable": "Not applicable",
+          "consented": "Consented",
+          "not_consented": "Not consented"
+        }
+      },
+      "gear_guard_streaming_daily_limit": {
+        "name": "Gear Guard streaming daily limit",
+        "state": {
+          "not_hit": "Not reached",
+          "hit": "Reached"
+        }
+      },
+      "gear_guard_streaming_limit_reset_time": {
+        "name": "Gear Guard streaming limit reset"
+      },
+      "parked_energy_last_24_hours": {
+        "name": "Parked energy last 24 hours"
+      },
+      "parked_energy_last_8_hours": {
+        "name": "Parked energy last 8 hours"
+      },
+      "parked_energy_park_session": {
+        "name": "Parked energy park session"
       },
       "window_rear_calibrated": {
         "name": "Window calibration liftgate state",
