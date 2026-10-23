@@ -370,6 +370,13 @@
           "set": "Fault"
         }
       },
+      "bluetooth_overhead_console_hardware_failure_status": {
+        "name": "Bluetooth module failure status overhead console",
+        "state": {
+          "dtc_not_set": "No fault",
+          "set": "Fault"
+        }
+      },
       "bluetooth_rear_fascia_hardware_failure_status": {
         "name": "Bluetooth module failure status fascia rear",
         "state": {
