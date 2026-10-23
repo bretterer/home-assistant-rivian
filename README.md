@@ -245,6 +245,7 @@ These controls need a phone key paired over Bluetooth (see [Remote Vehicle Contr
 | Charging schedule enabled  | Switch  | Enable/disable charging schedule                                                                                                                         |
 | Charging schedule end      | Time    | Set charging schedule end time                                                                                                                           |
 | Charging schedule start    | Time    | Set charging schedule start time                                                                                                                         |
+| Climate hold duration      | Number  | Set how long a climate hold lasts, 2 to 8 hours. This does not start a climate hold                                                                      |
 | Closures                   | Lock    | Lock/unlock all closures                                                                                                                                 |
 | Drop tailgate              | Button  | Drop tailgate, R1T only                                                                                                                                  |
 | Front trunk                | Cover   | Open/close front trunk                                                                                                                                   |
