@@ -214,6 +214,7 @@ def _setup_mock_environment() -> None:
             DEVICE_TRACKER = "device_tracker"
             IMAGE = "image"
             LOCK = "lock"
+            NOTIFY = "notify"
             NUMBER = "number"
             SELECT = "select"
             SENSOR = "sensor"
@@ -679,6 +680,7 @@ def _setup_mock_environment() -> None:
             "device_tracker": EntityDescription,
             "image": EntityDescription,
             "lock": LockEntityDescription,
+            "notify": EntityDescription,
             "number": NumberEntityDescription,
             "select": SelectEntityDescription,
             "sensor": SensorEntityDescription,
