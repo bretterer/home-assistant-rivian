@@ -205,6 +205,9 @@
       },
       "window_rear_closed": {
         "name": "Window liftgate"
+      },
+      "battery_needs_lfp_calibration": {
+        "name": "Battery needs LFP calibration"
       }
     },
     "button": {
@@ -953,6 +956,24 @@
           "calibrated": "Calibrated",
           "not_calibrated": "Not calibrated"
         }
+      },
+      "battery_cell_type": {
+        "name": "Battery cell type",
+        "state": {
+          "50g": "50G",
+          "53g": "53G",
+          "g124": "G124",
+          "lg_4695": "LG 4695"
+        }
+      },
+      "cold_weather_soc_green": {
+        "name": "Cold weather state of charge (green)"
+      },
+      "cold_weather_soc_blue": {
+        "name": "Cold weather state of charge (blue)"
+      },
+      "cold_range_impact": {
+        "name": "Cold range impact"
       }
     },
     "switch": {

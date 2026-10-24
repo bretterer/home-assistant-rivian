@@ -89,6 +89,8 @@ Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
 | Amperage                                            | Sensor         | Wallbox current                                                                                                                |
 | Amperage maximum                                    | Sensor         | Wallbox maximum current                                                                                                        |
 | Battery capacity                                    | Sensor         |                                                                                                                                |
+| Battery cell type                                   | Sensor         |                                                                                                                                |
+| Battery needs LFP calibration\*                     | Binary sensor  | Whether the LFP battery needs a calibration charge                                                                             |
 | Battery state of charge                             | Sensor         |                                                                                                                                |
 | Battery state of charge limit                       | Sensor         |                                                                                                                                |
 | Battery thermal runaway propagation                 | Sensor         |                                                                                                                                |
@@ -122,7 +124,10 @@ Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
 | Charging time elapsed                               | Sensor         | Time spent actively charging in the current or last session                                                                    |
 | Charging time remaining                             | Sensor         |                                                                                                                                |
 | Closure state                                       | Binary sensor  | Open/closed status of all closures                                                                                             |
+| Cold range impact                                   | Sensor         | Range lost to cold weather                                                                                                     |
 | Cold range notification                             | Sensor         | Whether cold weather is reducing range                                                                                         |
+| Cold weather state of charge (blue)\*               | Sensor         | The blue value of the app's cold weather graph                                                                                 |
+| Cold weather state of charge (green)\*              | Sensor         | The green value of the app's cold weather graph                                                                                |
 | Defrost/defog                                       | Binary sensor  | Running/not running status                                                                                                     |
 | Destination                                         | Sensor         | Final stop of the active navigation trip                                                                                       |
 | Destination ETA                                     | Sensor         | Estimated arrival at the destination                                                                                           |
