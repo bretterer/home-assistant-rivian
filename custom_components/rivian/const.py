@@ -689,6 +689,14 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
             options=BTM_FAILURE_STATUS_OPTIONS,
         ),
         RivianSensorEntityDescription(
+            key="bluetooth_overhead_console_hardware_failure_status",
+            translation_key="bluetooth_overhead_console_hardware_failure_status",
+            field="btmOcHardwareFailureStatus",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            device_class=SensorDeviceClass.ENUM,
+            options=BTM_FAILURE_STATUS_OPTIONS,
+        ),
+        RivianSensorEntityDescription(
             key="frunk_next_action",
             translation_key="frunk_next_action",
             field="closureFrunkNextAction",
@@ -1325,6 +1333,7 @@ BTM_FAILURE_STATUS_FIELDS: Final[frozenset[str]] = frozenset(
         "btmFfHardwareFailureStatus",
         "btmIcHardwareFailureStatus",
         "btmLfdHardwareFailureStatus",
+        "btmOcHardwareFailureStatus",
         "btmRfHardwareFailureStatus",
         "btmRfdHardwareFailureStatus",
     }
