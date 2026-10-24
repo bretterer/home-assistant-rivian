@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
+from aiohttp import ContentTypeError
 import pytest
 from rivian.exceptions import RivianApiException
 
@@ -78,6 +79,19 @@ async def test_a_rejected_destination_raises(result: int | None) -> None:
 async def test_an_api_error_raises() -> None:
     error = RivianApiException("Timeout occurred while connecting to Rivian API.")
     entity = make_entity(side_effect=error)
+
+    with pytest.raises(
+        HomeAssistantError, match="Unable to send the destination"
+    ) as err:
+        await entity.async_send_message(DESTINATION)
+    assert err.value.__cause__ is error
+
+
+async def test_a_non_json_response_raises() -> None:
+    error = ContentTypeError(MagicMock(), (), message="Attempt to decode JSON")
+    entity = make_entity(
+        return_value=SimpleNamespace(json=AsyncMock(side_effect=error))
+    )
 
     with pytest.raises(
         HomeAssistantError, match="Unable to send the destination"

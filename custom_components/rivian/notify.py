@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from typing import Any, Final
 
-from rivian.exceptions import RivianApiException
-
 from homeassistant.components.notify import NotifyEntity, NotifyEntityDescription
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -51,7 +49,7 @@ class RivianSendDestinationEntity(RivianVehicleEntity, NotifyEntity):
                 message, self.coordinator.vehicle_id
             )
             res_json = await response.json()
-        except RivianApiException as err:
+        except Exception as err:
             raise HomeAssistantError(f"Unable to send the destination: {err}") from err
         data = (res_json.get("data") or {}).get("parseAndShareLocationToVehicle") or {}
         result = (data.get("publishResponse") or {}).get("result")
