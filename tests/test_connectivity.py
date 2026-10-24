@@ -65,7 +65,7 @@ NETWORK_STATE = {
     "cellularSignalStrength": -95,
 }
 STATES = {
-    "wifi_signal": -61,
+    "wifi_signal_strength": -61,
     "wifi_antenna_bars": "level_3",
     "wifi_frequency": 5200,
     "wifi_link_speed": 260,
@@ -139,7 +139,7 @@ def test_ssid_is_disabled_by_default() -> None:
 @pytest.mark.parametrize(
     ("key", "field"),
     [
-        ("wifi_signal", "wifiSignal"),
+        ("wifi_signal_strength", "wifiSignal"),
         ("cellular_signal_strength", "cellularSignalStrength"),
     ],
 )

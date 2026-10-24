@@ -792,8 +792,8 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
             ],
         ),
         RivianSensorEntityDescription(
-            key="wifi_signal",
-            translation_key="wifi_signal",
+            key="wifi_signal_strength",
+            translation_key="wifi_signal_strength",
             field="wifiSignal",
             entity_category=EntityCategory.DIAGNOSTIC,
             device_class=SensorDeviceClass.SIGNAL_STRENGTH,

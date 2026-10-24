@@ -953,7 +953,7 @@
           "not_calibrated": "Not calibrated"
         }
       },
-      "wifi_signal": {
+      "wifi_signal_strength": {
         "name": "Wi-Fi signal strength"
       },
       "wifi_antenna_bars": {

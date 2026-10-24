@@ -355,7 +355,7 @@
             "window_rear_calibrated": {
                 "default": "mdi:window-closed"
             },
-            "wifi_signal": {
+            "wifi_signal_strength": {
                 "default": "mdi:wifi"
             },
             "wifi_antenna_bars": {
