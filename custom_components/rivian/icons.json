@@ -113,6 +113,12 @@
             },
             "seat_rear_right_heat": {
                 "default": "mdi:car-seat-heater"
+            },
+            "seat_third_row_left_heat": {
+                "default": "mdi:car-seat-heater"
+            },
+            "seat_third_row_right_heat": {
+                "default": "mdi:car-seat-heater"
             }
         },
         "sensor": {
