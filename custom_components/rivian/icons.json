@@ -83,9 +83,6 @@
             "charging_schedule_amperage": {
                 "default": "mdi:current-ac"
             },
-            "climate_hold_duration": {
-                "default": "mdi:timer-cog-outline"
-            },
             "charge_limit": {
                 "default": "mdi:battery-charging",
                 "range": {
@@ -96,6 +93,9 @@
                     "90": "mdi:battery-charging-90",
                     "100": "mdi:battery-charging-100"
                 }
+            },
+            "climate_hold_duration": {
+                "default": "mdi:timer-cog-outline"
             }
         },
         "select": {

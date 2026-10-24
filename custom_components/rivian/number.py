@@ -149,7 +149,13 @@ class RivianClimateHoldDurationEntity(RivianVehicleEntity, NumberEntity):
 
     async def async_set_native_value(self, value: float) -> None:
         """Set new value."""
-        if not await self.entity_description.set_fn(self.coordinator, value):
+        try:
+            success = await self.entity_description.set_fn(self.coordinator, value)
+        except Exception as err:
+            raise HomeAssistantError(
+                f"Unable to set the climate hold duration: {err}"
+            ) from err
+        if not success:
             raise HomeAssistantError("Unable to set the climate hold duration")
 
 

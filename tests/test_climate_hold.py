@@ -7,6 +7,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from rivian.exceptions import RivianBadRequestError
 
 from custom_components.rivian import coordinator, number
 from homeassistant.exceptions import HomeAssistantError
@@ -91,3 +92,14 @@ async def test_set_duration_fails(coor: coordinator.VehicleCoordinator) -> None:
 
     with pytest.raises(HomeAssistantError):
         await make_number(coor).async_set_native_value(240.0)
+
+
+async def test_set_duration_error(coor: coordinator.VehicleCoordinator) -> None:
+    """A client error raises a Home Assistant error."""
+    coor.api.set_climate_hold_duration = AsyncMock(
+        side_effect=RivianBadRequestError("duration must be a multiple of 15")
+    )
+
+    with pytest.raises(HomeAssistantError) as exc_info:
+        await make_number(coor).async_set_native_value(125.0)
+    assert isinstance(exc_info.value.__cause__, RivianBadRequestError)
