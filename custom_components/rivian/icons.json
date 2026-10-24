@@ -354,6 +354,25 @@
             },
             "window_rear_calibrated": {
                 "default": "mdi:window-closed"
+            },
+            "known_location": {
+                "default": "mdi:map-marker",
+                "state": {
+                    "home": "mdi:home-map-marker",
+                    "work": "mdi:office-building-marker"
+                }
+            },
+            "gnss_error_position_vertical": {
+                "default": "mdi:arrow-up-down"
+            },
+            "gnss_error_position_horizontal": {
+                "default": "mdi:arrow-left-right"
+            },
+            "gnss_error_speed": {
+                "default": "mdi:speedometer"
+            },
+            "gnss_error_bearing": {
+                "default": "mdi:compass-outline"
             }
         },
         "switch": {
