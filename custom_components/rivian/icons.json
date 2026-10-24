@@ -67,6 +67,12 @@
                     "off": "mdi:dog-side-off"
                 }
             },
+            "cabin_ventilation_enabled": {
+                "default": "mdi:fan-auto",
+                "state": {
+                    "off": "mdi:fan-off"
+                }
+            },
             "vehicle_updates": {
                 "default": "mdi:cloud-check-outline",
                 "state": {
@@ -157,6 +163,15 @@
             "battery_capacity": {
                 "default": "mdi:battery-check"
             },
+            "parked_energy_last_24_hours": {
+                "default": "mdi:battery-clock"
+            },
+            "parked_energy_last_8_hours": {
+                "default": "mdi:battery-clock"
+            },
+            "parked_energy_park_session": {
+                "default": "mdi:battery-clock"
+            },
             "bearing": {
                 "default": "mdi:compass"
             },
@@ -189,6 +204,18 @@
             },
             "gear_guard_video_terms_accepted": {
                 "default": "mdi:cctv"
+            },
+            "gear_guard_streaming_consent": {
+                "default": "mdi:shield-account"
+            },
+            "gear_guard_streaming_daily_limit": {
+                "default": "mdi:timer-sand",
+                "state": {
+                    "hit": "mdi:timer-sand-complete"
+                }
+            },
+            "gear_guard_streaming_limit_reset_time": {
+                "default": "mdi:timer-refresh-outline"
             },
             "ota_current_status": {
                 "default": "mdi:package"
