@@ -343,6 +343,12 @@
                     "smart_charging_active": "mdi:battery-charging"
                 }
             },
+            "charging_time_estimation_validity": {
+                "default": "mdi:clock-alert-outline",
+                "state": {
+                    "valid": "mdi:clock-check-outline"
+                }
+            },
             "no_updates_since": {
                 "default": "mdi:clock-alert-outline"
             },
@@ -350,12 +356,6 @@
                 "default": "mdi:power-plug-off-outline",
                 "state": {
                     "none": "mdi:power-plug-outline"
-                }
-            },
-            "charging_time_estimation_validity": {
-                "default": "mdi:clock-alert-outline",
-                "state": {
-                    "valid": "mdi:clock-check-outline"
                 }
             },
             "window_rear_calibrated": {

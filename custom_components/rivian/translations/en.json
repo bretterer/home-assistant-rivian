@@ -731,6 +731,14 @@
       "time_to_end_of_charge": {
         "name": "Charging time remaining"
       },
+      "charging_time_estimation_validity": {
+        "name": "Charging time remaining validity",
+        "state": {
+          "valid": "Valid",
+          "invalid": "Invalid",
+          "pack_discharging": "Battery discharging"
+        }
+      },
       "tire_pressure_front_left": {
         "name": "Tire pressure front left"
       },
@@ -944,14 +952,6 @@
           "charging_degraded_ac": "AC charging reduced",
           "charging_disabled_partial_connection": "Charging disabled (partial connection)",
           "charging_disabled_not_parked": "Charging disabled (not in park)"
-        }
-      },
-      "charging_time_estimation_validity": {
-        "name": "Charging time remaining validity",
-        "state": {
-          "valid": "Valid",
-          "invalid": "Invalid",
-          "pack_discharging": "Battery discharging"
         }
       },
       "window_rear_calibrated": {

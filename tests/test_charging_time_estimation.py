@@ -57,8 +57,8 @@ def test_validity(coor: coordinator.VehicleCoordinator, validity: str) -> None:
     assert validity in DESCRIPTIONS["charging_time_estimation_validity"].options
 
 
-def test_unset_validity_keeps_the_last(coor: coordinator.VehicleCoordinator) -> None:
-    """An empty message (not charging) leaves the last reported validity."""
+def test_unset_validity_clears(coor: coordinator.VehicleCoordinator) -> None:
+    """An empty message (not charging) clears the last reported validity."""
     parallax(
         coor,
         "charging.session.time_estimation",
@@ -70,5 +70,6 @@ def test_unset_validity_keeps_the_last(coor: coordinator.VehicleCoordinator) -> 
         {"timeToEndOfCharge": 0, "chargingTimeEstimationValidity": None},
     )
 
-    assert coor.get("chargingTimeEstimationValidity") == "valid"
+    assert coor.get("chargingTimeEstimationValidity") is None
+    assert "chargingTimeEstimationValidity" not in coor.data
     assert coor.get("timeToEndOfCharge") == 0
