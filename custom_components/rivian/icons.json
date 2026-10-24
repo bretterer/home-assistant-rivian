@@ -356,7 +356,7 @@
                 "default": "mdi:window-closed"
             },
             "known_location": {
-                "default": "mdi:map-marker-question",
+                "default": "mdi:map-marker",
                 "state": {
                     "home": "mdi:home-map-marker",
                     "work": "mdi:office-building-marker"
