@@ -49,7 +49,7 @@ from .const import (
     PARALLAX_UNDEFINED_IS_VALID,
     VEHICLE_STATE_API_FIELDS,
 )
-from .helpers import redact
+from .helpers import has_powered_tonneau, redact
 
 _LOGGER = logging.getLogger(__name__)
 T = TypeVar("T", bound=dict[str, Any] | list[dict[str, Any]])
@@ -325,7 +325,8 @@ class UserCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
                     .get("vehicleState", {})
                     .get("supportedFeatures", [])
                     if supported_feature.get("status") == "AVAILABLE"
-                ],
+                ]
+                + (["TONNEAU_CMD"] if has_powered_tonneau(vehicle["vehicle"]) else []),
                 "vas_id": (vas := vehicle.get("vas", {})).get("vasVehicleId"),
                 "public_key": vas.get("vehiclePublicKey"),
             }
