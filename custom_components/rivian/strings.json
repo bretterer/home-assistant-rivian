@@ -257,6 +257,9 @@
       },
       "charge_limit": {
         "name": "Charge limit"
+      },
+      "climate_hold_duration": {
+        "name": "Climate hold duration"
       }
     },
     "select": {
