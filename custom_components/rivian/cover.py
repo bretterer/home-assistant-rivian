@@ -37,6 +37,8 @@ COVERS: Final[dict[str | None, tuple[RivianCoverEntityDescription, ...]]] = {
             device_class=CoverDeviceClass.DOOR,
             translation_key="frunk",
             is_closed=lambda coor: coor.get("closureFrunkClosed") != "open",
+            is_opening=lambda coor: coor.get("closureFrunkNextAction") == "opening",
+            is_closing=lambda coor: coor.get("closureFrunkNextAction") == "closing",
             close_cover=lambda coor: coor.send_vehicle_command(
                 command=VehicleCommand.CLOSE_FRUNK
             ),
@@ -49,6 +51,9 @@ COVERS: Final[dict[str | None, tuple[RivianCoverEntityDescription, ...]]] = {
             device_class=CoverDeviceClass.WINDOW,
             translation_key="windows",
             is_closed=lambda coor: not any(coor.get(key) == "open" for key in WINDOWS),
+            # Not "moving", which doesn't say which way
+            is_opening=lambda coor: coor.get("windowsNextAction") == "opening",
+            is_closing=lambda coor: coor.get("windowsNextAction") == "closing",
             close_cover=lambda coor: coor.send_vehicle_command(
                 command=VehicleCommand.CLOSE_ALL_WINDOWS
             ),
@@ -88,6 +93,14 @@ COVERS: Final[dict[str | None, tuple[RivianCoverEntityDescription, ...]]] = {
             device_class=CoverDeviceClass.DOOR,
             translation_key="liftgate",
             is_closed=lambda coor: coor.get("closureLiftgateClosed") != "open",
+            is_opening=lambda coor: (
+                coor.get("closureLiftgateNextAction")
+                in ("opening", "opening_pause_not_allowed")
+            ),
+            is_closing=lambda coor: (
+                coor.get("closureLiftgateNextAction")
+                in ("closing", "closing_pause_not_allowed")
+            ),
             close_cover=lambda coor: coor.send_vehicle_command(
                 command=VehicleCommand.CLOSE_LIFTGATE
             ),

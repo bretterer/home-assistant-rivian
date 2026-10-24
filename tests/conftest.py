@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from datetime import UTC
-from enum import StrEnum
+from enum import IntFlag, StrEnum
 import inspect
 import os
 import sys
@@ -704,6 +704,15 @@ def _setup_mock_environment() -> None:
             submod.SensorStateClass = DynamicEnum  # type: ignore[attr-defined]
             sys.modules[f"homeassistant.components.{comp_name}"] = submod
             setattr(comp_mod, comp_name, submod)
+
+        # cover: the feature flags RivianCoverEntity combines at import
+        class CoverEntityFeature(IntFlag):
+            """Mock CoverEntityFeature."""
+
+            OPEN = 1
+            CLOSE = 2
+
+        comp_mod.cover.CoverEntityFeature = CoverEntityFeature  # type: ignore[attr-defined]
 
         # homeassistant.components.websocket_api: backs websocket_api.py
         # (registered from __init__.py). No test in this suite exercises the
