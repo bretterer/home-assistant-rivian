@@ -86,9 +86,9 @@ Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
 | 12V battery health                                  | Sensor         |                                                                                                                                |
 | Active driver                                       | Sensor         | The name of the active driver.                                                                                                 |
 | Altitude                                            | Sensor         |                                                                                                                                |
-| Auto cabin ventilation                              | Binary sensor  | On/off status                                                                                                                  |
 | Amperage                                            | Sensor         | Wallbox current                                                                                                                |
 | Amperage maximum                                    | Sensor         | Wallbox maximum current                                                                                                        |
+| Auto cabin ventilation                              | Binary sensor  | On/off status                                                                                                                  |
 | Battery capacity                                    | Sensor         |                                                                                                                                |
 | Battery state of charge                             | Sensor         |                                                                                                                                |
 | Battery state of charge limit                       | Sensor         |                                                                                                                                |
@@ -145,7 +145,7 @@ Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
 | Front trunk next action                             | Sensor         |                                                                                                                                |
 | Gear Guard                                          | Binary sensor  | Locked/unlocked status, R1T and R1S only                                                                                       |
 | Gear Guard alarm                                    | Binary sensor  | Tampered/clear status                                                                                                          |
-| Gear Guard streaming consent                        | Sensor         | Whether Gear Guard live streaming is consented to in the vehicle                                                               |
+| Gear Guard streaming consent                        | Sensor         | Whether Gear Guard live streaming is consented to in the vehicle, or not set                                                   |
 | Gear Guard streaming daily limit                    | Sensor         | Whether the daily Gear Guard live streaming limit is reached                                                                   |
 | Gear Guard streaming limit reset                    | Sensor         | When the daily Gear Guard live streaming limit resets                                                                          |
 | Gear Guard video mode                               | Sensor         |                                                                                                                                |

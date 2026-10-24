@@ -71,20 +71,27 @@ def test_cabin_ventilation(coor: coordinator.VehicleCoordinator, enabled: bool) 
 
 
 @pytest.mark.parametrize(
-    "consent", ["unknown", "not_applicable", "consented", "not_consented"]
+    ("consent", "state"),
+    [
+        ("unknown", "not_set"),
+        ("not_applicable", "not_applicable"),
+        ("consented", "consented"),
+        ("not_consented", "not_consented"),
+    ],
 )
 def test_gear_guard_streaming_consent(
-    coor: coordinator.VehicleCoordinator, consent: str
+    coor: coordinator.VehicleCoordinator, consent: str, state: str
 ) -> None:
-    """The consent is kept as reported, and is one of the sensor's states."""
+    """The consent is one of the sensor's states, never HA's own "unknown"."""
     parallax(
         coor,
         "gearguard_streaming.privacy.gearguard_streaming_in_vehicle_consent",
         {"gearGuardStreamingConsent": consent},
     )
 
-    assert coor.get("gearGuardStreamingConsent") == consent
-    assert consent in SENSORS["gear_guard_streaming_consent"].options
+    assert sensor_value(coor, "gear_guard_streaming_consent") == state
+    assert state in SENSORS["gear_guard_streaming_consent"].options
+    assert "unknown" not in SENSORS["gear_guard_streaming_consent"].options
 
 
 def test_gear_guard_streaming_limit(coor: coordinator.VehicleCoordinator) -> None:

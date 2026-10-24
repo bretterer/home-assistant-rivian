@@ -841,13 +841,7 @@ def _setup_mock_environment() -> None:
         def _mock_generate_key_pair(*args: Any, **kwargs: Any) -> tuple[str, str]:
             return ("mock_public_key", "mock_private_key")
 
-        def _from_epoch(epoch: float) -> Any:
-            from datetime import datetime as _dt
-
-            return _dt.fromtimestamp(epoch, tz=UTC)
-
         utils_submod.generate_key_pair = _mock_generate_key_pair  # type: ignore[attr-defined]
-        utils_submod.from_epoch = _from_epoch  # type: ignore[attr-defined]
         rivian_mod.utils = utils_submod  # type: ignore[attr-defined]
         sys.modules["rivian.utils"] = utils_submod
 
