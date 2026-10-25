@@ -313,6 +313,24 @@
           "level_2": "[%key:common::state::medium%]",
           "level_3": "[%key:common::state::high%]"
         }
+      },
+      "seat_third_row_left_heat": {
+        "name": "Seat 3rd row left heat",
+        "state": {
+          "off": "[%key:common::state::off%]",
+          "level_1": "[%key:common::state::low%]",
+          "level_2": "[%key:common::state::medium%]",
+          "level_3": "[%key:common::state::high%]"
+        }
+      },
+      "seat_third_row_right_heat": {
+        "name": "Seat 3rd row right heat",
+        "state": {
+          "off": "[%key:common::state::off%]",
+          "level_1": "[%key:common::state::low%]",
+          "level_2": "[%key:common::state::medium%]",
+          "level_3": "[%key:common::state::high%]"
+        }
       }
     },
     "sensor": {
