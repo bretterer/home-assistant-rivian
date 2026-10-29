@@ -188,6 +188,41 @@ async def test_cleanup_deletes_expired_schedule_and_stops_timer(
     assert timers.calls == []
 
 
+async def test_missing_schedule_kept_until_expiry(timers: _Timers) -> None:
+    """A schedule list that briefly leaves out an owned schedule doesn't drop it.
+
+    Rivian's subscription has been seen sending an empty list for about a second
+    before the full list again. Forgetting the schedule then left it on the
+    vehicle, repeating weekly, with no cleanup timer.
+    """
+    expiry = time.time() + 600
+    coordinator = _cleanup_coordinator(owned={"temp": expiry}, schedules=[])
+
+    await coordinator._reconcile_and_cleanup()
+
+    assert coordinator._precondition_ids == {"temp": expiry}
+    assert 590 < timers.delay <= 600
+
+    coordinator._departure_schedules = [{"id": "temp"}]
+    coordinator._precondition_ids["temp"] = time.time() - 1  # now expired
+    await coordinator._reconcile_and_cleanup()
+
+    coordinator.delete_departure_schedule.assert_awaited_once_with("temp")
+    assert coordinator._precondition_ids == {}
+
+
+async def test_schedule_gone_at_expiry_is_forgotten(timers: _Timers) -> None:
+    """A schedule deleted elsewhere is dropped once expired, without deleting."""
+    coordinator = _cleanup_coordinator(owned={"temp": time.time() - 1}, schedules=[])
+
+    await coordinator._reconcile_and_cleanup()
+
+    coordinator.delete_departure_schedule.assert_not_awaited()
+    assert coordinator._precondition_ids == {}
+    coordinator._save_precondition_state.assert_awaited_once()
+    assert timers.calls == []
+
+
 async def test_failed_cleanup_deletion_is_retried(timers: _Timers) -> None:
     coordinator = _cleanup_coordinator(
         owned={"temp": time.time() - 1}, schedules=[{"id": "temp"}]

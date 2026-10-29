@@ -12,11 +12,12 @@ from rivian import Rivian
 from homeassistant.components.diagnostics.util import async_redact_data
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_EMAIL, CONF_LATITUDE, CONF_LONGITUDE, Platform
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.event import async_call_later
 
 from .const import (
     CONF_ACCESS_TOKEN,
@@ -29,6 +30,10 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+# How long a departure schedule must stay missing before its entity is removed.
+# Rivian has sent an empty schedule list for about a second before the full list.
+DEPARTURE_SCHEDULE_REMOVE_DELAY = 60
 
 TO_REDACT = {
     CONF_EMAIL,
@@ -169,35 +174,60 @@ def track_departure_schedule_entities(
 
     ``key`` is the unique-id segment the entities use (``{vin}-{key}_{schedule_id}``).
     Removing the registry entry removes the entity, which also clears schedules that
-    were deleted while Home Assistant was not running.
+    were deleted while Home Assistant was not running. Removal waits until a schedule
+    has been missing for DEPARTURE_SCHEDULE_REMOVE_DELAY, so a list that briefly
+    leaves it out doesn't lose the user's changes to the entity.
     """
     unique_id_prefix = f"{vin}-{key}_"
-    known_ids: set[str] | None = None
+    known_ids: set[str] = set()
+    cancel_removal: CALLBACK_TYPE | None = None
+
+    def _missing_entity_ids(schedule_ids: set[str]) -> list[str]:
+        registry = er.async_get(hass)
+        return [
+            reg_entry.entity_id
+            for reg_entry in er.async_entries_for_config_entry(registry, entry.entry_id)
+            if reg_entry.domain == platform
+            and reg_entry.unique_id.startswith(unique_id_prefix)
+            and reg_entry.unique_id.removeprefix(unique_id_prefix) not in schedule_ids
+        ]
 
     @callback
-    def _update() -> None:
-        nonlocal known_ids
+    def _cancel_removal() -> None:
+        nonlocal cancel_removal
+        if cancel_removal:
+            cancel_removal()
+            cancel_removal = None
+
+    @callback
+    def _remove_missing(_now: Any) -> None:
+        nonlocal cancel_removal
+        cancel_removal = None
         if (schedules := coordinator.departure_schedules) is None:
             return
         schedule_ids = {schedule["id"] for schedule in schedules}
-        if schedule_ids == known_ids:
-            return
-
         registry = er.async_get(hass)
-        for reg_entry in er.async_entries_for_config_entry(registry, entry.entry_id):
-            if (
-                reg_entry.domain == platform
-                and reg_entry.unique_id.startswith(unique_id_prefix)
-                and reg_entry.unique_id.removeprefix(unique_id_prefix)
-                not in schedule_ids
-            ):
-                registry.async_remove(reg_entry.entity_id)
+        for entity_id in _missing_entity_ids(schedule_ids):
+            registry.async_remove(entity_id)
+        # removed entities are added again if their schedule comes back
+        known_ids.intersection_update(schedule_ids)
 
-        async_add_entities(
-            entity_factory(schedule_id)
-            for schedule_id in schedule_ids - (known_ids or set())
-        )
-        known_ids = schedule_ids
+    @callback
+    def _update() -> None:
+        nonlocal cancel_removal
+        if (schedules := coordinator.departure_schedules) is None:
+            return
+        schedule_ids = {schedule["id"] for schedule in schedules}
+        if new_ids := schedule_ids - known_ids:
+            async_add_entities(entity_factory(schedule_id) for schedule_id in new_ids)
+            known_ids.update(new_ids)
+        if not _missing_entity_ids(schedule_ids):
+            _cancel_removal()
+        elif cancel_removal is None:
+            cancel_removal = async_call_later(
+                hass, DEPARTURE_SCHEDULE_REMOVE_DELAY, _remove_missing
+            )
 
     entry.async_on_unload(coordinator.async_add_listener(_update))
+    entry.async_on_unload(_cancel_removal)
     _update()
