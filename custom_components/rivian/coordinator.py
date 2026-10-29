@@ -819,9 +819,13 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         present_ids = {
             schedule.get("id") for schedule in self._departure_schedules or []
         }
-        # forget ids that no longer exist (deleted in the app or already removed)
+        # forget expired ids that no longer exist (deleted in the app or already
+        # removed). Keep unexpired ones: Rivian has sent an empty list for a moment
+        # before the full one, and dropping the id then leaves the schedule behind
         for schedule_id in [
-            sid for sid in self._precondition_ids if sid not in present_ids
+            sid
+            for sid, expiry in self._precondition_ids.items()
+            if sid not in present_ids and expiry <= now
         ]:
             del self._precondition_ids[schedule_id]
             changed = True
