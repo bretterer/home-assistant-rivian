@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Any, Final
 
 from homeassistant.components.binary_sensor import BinarySensorDeviceClass
@@ -11,6 +12,7 @@ from homeassistant.const import (
     PERCENTAGE,
     EntityCategory,
     UnitOfEnergy,
+    UnitOfEnergyDistance,
     UnitOfLength,
     UnitOfPressure,
     UnitOfSpeed,
@@ -30,9 +32,18 @@ ISSUE_URL = "https://github.com/bretterer/home-assistant-rivian/issues"
 ISSUE_STATE_VALUES_CHANGED = "state_values_changed"
 ISSUE_RATE_LIMITED = "rate_limited"
 
+# Fired with {"vin": ...} when a VIN's stored analytics change (drive completed,
+# backfill finished); the WebSocket subscribe command relays it to the frontend.
+RIVIAN_ANALYTICS_UPDATED_EVENT: Final[str] = "rivian_analytics_updated"
+
 # Attributes
 ATTR_API = "api"
 ATTR_COORDINATOR = "coordinator"
+ATTR_ANALYTICS_DB = (
+    "_analytics_db"  # the shared AnalyticsDatabase, under hass.data[DOMAIN]
+)
+ATTR_DRIVE_STORE = "drive_store"
+ATTR_DRIVE_TRACKER = "drive_tracker"
 ATTR_USER = "user"
 ATTR_VEHICLE = "vehicle"
 ATTR_WALLBOX = "wallbox"
@@ -1445,6 +1456,17 @@ VEHICLE_STATE_API_FIELDS: Final[set[str]] = {
     "otaInstallType",
 }
 
+# Driving fields GraphQL still sends every few seconds while driving, where
+# Parallax sends position and speed about once a minute and the odometer about
+# every two minutes. They're requested from GraphQL too. A GraphQL value only
+# replaces an older one, and Parallax's values are used once GraphQL's report
+# time for the field is older than GRAPHQL_FAST_FIELD_FRESHNESS, so Parallax
+# takes over if GraphQL stops or keeps resending a frozen value.
+VEHICLE_STATE_FAST_FIELDS: Final[frozenset[str]] = frozenset(
+    {"gnssLocation", "gnssSpeed", "gnssAltitude", "gnssBearing", "vehicleMileage"}
+)
+GRAPHQL_FAST_FIELD_FRESHNESS: Final[timedelta] = timedelta(minutes=2)
+
 CHARGING_STATE_KEYS: Final[frozenset[str]] = frozenset(
     {
         "activeChargingTime",
@@ -1487,3 +1509,75 @@ DEFAULT_CHARGING_SCHEDULE: Final[dict[str, Any]] = {
     "enabled": True,
     "weekDays": list(WEEK_DAYS_ORDERED),
 }
+
+MPGE_CONVERSION_FACTOR: Final[float] = 33.705
+
+DRIVE_SENSORS: Final[tuple[RivianSensorEntityDescription, ...]] = (
+    RivianSensorEntityDescription(
+        key="last_drive_efficiency",
+        field="last_drive_efficiency",
+        translation_key="last_drive_efficiency",
+        device_class=SensorDeviceClass.ENERGY_DISTANCE,
+        native_unit_of_measurement=UnitOfEnergyDistance.MILES_PER_KILO_WATT_HOUR,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=2,
+    ),
+    RivianSensorEntityDescription(
+        key="efficiency_30d",
+        field="efficiency_30d",
+        translation_key="efficiency_30d",
+        device_class=SensorDeviceClass.ENERGY_DISTANCE,
+        native_unit_of_measurement=UnitOfEnergyDistance.MILES_PER_KILO_WATT_HOUR,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=2,
+    ),
+    RivianSensorEntityDescription(
+        key="efficiency_all_time",
+        field="efficiency_all_time",
+        translation_key="efficiency_all_time",
+        device_class=SensorDeviceClass.ENERGY_DISTANCE,
+        native_unit_of_measurement=UnitOfEnergyDistance.MILES_PER_KILO_WATT_HOUR,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=2,
+    ),
+    RivianSensorEntityDescription(
+        key="last_drive_distance",
+        field="last_drive_distance",
+        translation_key="last_drive_distance",
+        device_class=SensorDeviceClass.DISTANCE,
+        native_unit_of_measurement=UnitOfLength.MILES,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+    ),
+    RivianSensorEntityDescription(
+        key="last_drive_mpge",
+        field="last_drive_mpge",
+        translation_key="last_drive_mpge",
+        native_unit_of_measurement="MPGe",
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+    ),
+    RivianSensorEntityDescription(
+        key="mpge_30d",
+        field="mpge_30d",
+        translation_key="mpge_30d",
+        native_unit_of_measurement="MPGe",
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+    ),
+    RivianSensorEntityDescription(
+        key="mpge_all_time",
+        field="mpge_all_time",
+        translation_key="mpge_all_time",
+        native_unit_of_measurement="MPGe",
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+    ),
+    RivianSensorEntityDescription(
+        key="drive_status",
+        field="drive_status",
+        translation_key="drive_status",
+        device_class=SensorDeviceClass.ENUM,
+        options=["parked", "driving"],
+    ),
+)
