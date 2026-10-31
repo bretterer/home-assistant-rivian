@@ -486,6 +486,18 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
             state_class=SensorStateClass.MEASUREMENT,
         ),
         RivianSensorEntityDescription(
+            key="charging_time_estimation_validity",
+            translation_key="charging_time_estimation_validity",
+            field="chargingTimeEstimationValidity",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            device_class=SensorDeviceClass.ENUM,
+            options=[
+                "valid",
+                "invalid",
+                "pack_discharging",
+            ],
+        ),
+        RivianSensorEntityDescription(
             key="tire_pressure_front_left",
             field="tirePressureFrontLeft",
             translation_key="tire_pressure_front_left",
@@ -1421,7 +1433,7 @@ TRIP_INFO_FIELDS: Final[frozenset[str]] = frozenset(
 # Parallax fields whose None value means "not set", so it clears the field
 # rather than being skipped as unsent
 PARALLAX_NONE_CLEARS: Final[frozenset[str]] = frozenset(
-    {"otaScheduledInstallTime", *TRIP_INFO_FIELDS}
+    {"chargingTimeEstimationValidity", "otaScheduledInstallTime", *TRIP_INFO_FIELDS}
 )
 
 # Parallax topics that send one message per device/schedule, which can't be

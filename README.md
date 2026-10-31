@@ -121,6 +121,7 @@ Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
 | Charging status                                     | Sensor         | Wallbox status: available, plugged in, charging, etc.                                                                          |
 | Charging time elapsed                               | Sensor         | Time spent actively charging in the current or last session                                                                    |
 | Charging time remaining                             | Sensor         |                                                                                                                                |
+| Charging time remaining validity                    | Sensor         | Whether the charging time remaining is valid, or the battery is discharging                                                    |
 | Closure state                                       | Binary sensor  | Open/closed status of all closures                                                                                             |
 | Cold range notification                             | Sensor         | Whether cold weather is reducing range                                                                                         |
 | Defrost/defog                                       | Binary sensor  | Running/not running status                                                                                                     |
