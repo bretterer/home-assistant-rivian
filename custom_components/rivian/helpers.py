@@ -101,3 +101,13 @@ def has_verified_2fa(entry: ConfigEntry, user_data: dict[str, Any]) -> bool:
     return bool(
         entry.data.get(CONF_MFA_VERIFIED) or user_data.get("registrationChannels")
     )
+
+
+def has_powered_tonneau(vehicle: dict[str, Any]) -> bool:
+    """Return True if the vehicle has a powered tonneau cover.
+
+    Rivian doesn't report a supported feature for it, so check the vehicle's
+    tonneau option like the Rivian app does.
+    """
+    option = (vehicle.get("mobileConfiguration") or {}).get("tonneauOption") or {}
+    return "TON-P01" in (option.get("optionId") or "")
