@@ -72,6 +72,12 @@
                 "state": {
                     "on": "mdi:cloud-alert-outline"
                 }
+            },
+            "consecutive_alarm_disabled_notification": {
+                "default": "mdi:alarm-light-off"
+            },
+            "passive_entry_bluetooth_in_ccc": {
+                "default": "mdi:bluetooth-connect"
             }
         },
         "button": {
@@ -354,6 +360,21 @@
             },
             "window_rear_calibrated": {
                 "default": "mdi:window-closed"
+            },
+            "vas_secure_element_faulted": {
+                "default": "mdi:key-alert"
+            },
+            "vas_access_can_faulted": {
+                "default": "mdi:key-alert"
+            },
+            "secure_immobilizer_status": {
+                "default": "mdi:car-key"
+            },
+            "passive_entry_unlock_fail_reason": {
+                "default": "mdi:lock-alert"
+            },
+            "ccc_passive_permission_status": {
+                "default": "mdi:key-wireless"
             }
         },
         "switch": {

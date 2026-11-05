@@ -99,6 +99,7 @@ Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
 | Bluetooth module failure status fascia front        | Sensor         |                                                                                                                                |
 | Bluetooth module failure status fascia rear         | Sensor         |                                                                                                                                |
 | Bluetooth module failure status instrument controls | Sensor         |                                                                                                                                |
+| Bluetooth passive entry with digital key\*          | Binary sensor  | On/off status                                                                                                                  |
 | Brake fluid level                                   | Sensor         |                                                                                                                                |
 | Cabin climate preconditioning                       | Binary sensor  | Running/not running status                                                                                                     |
 | Cabin climate preconditioning type                  | Sensor         |                                                                                                                                |
@@ -123,9 +124,11 @@ Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
 | Charging time remaining                             | Sensor         |                                                                                                                                |
 | Closure state                                       | Binary sensor  | Open/closed status of all closures                                                                                             |
 | Cold range notification                             | Sensor         | Whether cold weather is reducing range                                                                                         |
+| Consecutive alarm disabled notification             | Binary sensor  | On/off status                                                                                                                  |
 | Defrost/defog                                       | Binary sensor  | Running/not running status                                                                                                     |
 | Destination                                         | Sensor         | Final stop of the active navigation trip                                                                                       |
 | Destination ETA                                     | Sensor         | Estimated arrival at the destination                                                                                           |
+| Digital key passive entry permission\*              | Sensor         |                                                                                                                                |
 | Door front left                                     | Binary sensor  | Open/closed status                                                                                                             |
 | Door front left lock                                | Binary sensor  | Locked/unlocked status                                                                                                         |
 | Door front right                                    | Binary sensor  | Open/closed status                                                                                                             |
@@ -161,6 +164,7 @@ Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
 | Heated seat rear left                               | Binary sensor  | Running/not running status                                                                                                     |
 | Heated seat rear right                              | Binary sensor  | Running/not running status                                                                                                     |
 | Heated steering wheel                               | Binary sensor  | Running/not running status                                                                                                     |
+| Immobilizer status\*                                | Sensor         |                                                                                                                                |
 | In use state                                        | Binary sensor  | Moving/stopped status                                                                                                          |
 | Keys                                                | Sensor         | Number of phone keys across all drivers                                                                                        |
 | Liftgate                                            | Binary sensor  | Open/close status, R1S and R2 only                                                                                             |
@@ -173,6 +177,7 @@ Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
 | Next stop ETA                                       | Sensor         | Estimated arrival at the next stop                                                                                             |
 | No updates since                                    | Sensor         | When the vehicle last reported data; empty unless that was over 10 minutes ago                                                 |
 | Odometer                                            | Sensor         |                                                                                                                                |
+| Passive entry unlock fail reason\*                  | Sensor         | Why the last passive entry unlock failed                                                                                       |
 | Pet mode                                            | Binary sensor  | Running/not running status                                                                                                     |
 | Pet mode temperature status                         | Sensor         |                                                                                                                                |
 | Power                                               | Sensor         | Wallbox power                                                                                                                  |
@@ -209,6 +214,8 @@ Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
 | Tonneau                                             | Binary sensor  | Open/close status, R1T with a powered tonneau only                                                                             |
 | Tonneau lock                                        | Binary sensor  | Locked/unlocked status, R1T with a powered tonneau only                                                                        |
 | Trailer status                                      | Sensor         |                                                                                                                                |
+| Vehicle access CAN fault                            | Sensor         |                                                                                                                                |
+| Vehicle access secure element fault                 | Sensor         |                                                                                                                                |
 | _Vehicle name_                                      | Device tracker | Vehicle location, named after the vehicle itself                                                                               |
 | Vehicle updates                                     | Binary sensor  | OK/problem status: a problem when nothing has arrived from Rivian for 10 minutes                                               |
 | Vented seat front left                              | Binary sensor  | Running/not running status                                                                                                     |
