@@ -953,6 +953,26 @@
           "calibrated": "Calibrated",
           "not_calibrated": "Not calibrated"
         }
+      },
+      "known_location": {
+        "name": "Known location",
+        "state": {
+          "elsewhere": "Elsewhere",
+          "home": "Home",
+          "work": "Work"
+        }
+      },
+      "gnss_error_position_vertical": {
+        "name": "GNSS vertical position error"
+      },
+      "gnss_error_position_horizontal": {
+        "name": "GNSS horizontal position error"
+      },
+      "gnss_error_speed": {
+        "name": "GNSS speed error"
+      },
+      "gnss_error_bearing": {
+        "name": "GNSS bearing error"
       }
     },
     "switch": {

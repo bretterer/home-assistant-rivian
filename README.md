@@ -154,6 +154,10 @@ Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
 | Gear tunnel right                                   | Binary sensor  | Open/closed status, R1T only                                                                                                   |
 | Gear tunnel right lock                              | Binary sensor  | Locked/unlocked status, R1T only                                                                                               |
 | Gear tunnel right next action                       | Sensor         | R1T only                                                                                                                       |
+| GNSS bearing error                                  | Sensor         | Estimated error of the GPS bearing                                                                                             |
+| GNSS horizontal position error                      | Sensor         | Estimated error of the GPS position                                                                                            |
+| GNSS speed error                                    | Sensor         | Estimated error of the GPS speed                                                                                               |
+| GNSS vertical position error                        | Sensor         | Estimated error of the GPS altitude                                                                                            |
 | Heated seat 3rd row left                            | Binary sensor  | Running/not running status, R1S only                                                                                           |
 | Heated seat 3rd row right                           | Binary sensor  | Running/not running status, R1S only                                                                                           |
 | Heated seat front left                              | Binary sensor  | Running/not running status                                                                                                     |
@@ -163,6 +167,7 @@ Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
 | Heated steering wheel                               | Binary sensor  | Running/not running status                                                                                                     |
 | In use state                                        | Binary sensor  | Moving/stopped status                                                                                                          |
 | Keys                                                | Sensor         | Number of phone keys across all drivers                                                                                        |
+| Known location                                      | Sensor         | Home, work or elsewhere                                                                                                        |
 | Liftgate                                            | Binary sensor  | Open/close status, R1S and R2 only                                                                                             |
 | Liftgate lock                                       | Binary sensor  | Locked/unlocked status, R1S and R2 only                                                                                        |
 | Liftgate next action                                | Sensor         | R1S and R2 only                                                                                                                |
