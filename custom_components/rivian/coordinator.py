@@ -18,7 +18,16 @@ from rivian.exceptions import (
     RivianExpiredTokenError,
     RivianUnauthenticated,
 )
-from rivian.parallax import decode_parallax_message
+from rivian.parallax import (
+    decode_parallax_message,
+    encode_frunk,
+    encode_liftgate,
+    encode_lock,
+    encode_unlock,
+    encode_windows,
+)
+from rivian.parallax.controls import CONTROL_COMMAND_FEATURES, encode_control_command
+from rivian.parallax.execute import ParallaxExecutionError, execute_command
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
@@ -803,6 +812,68 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         self, command: VehicleCommand, params: dict[str, Any] | None = None
     ) -> None:
         """Send a command to the vehicle."""
+        # Signed body commands wake through Parallax and wait for vehicle completion.
+        entry_data = self.hass.data[DOMAIN][self.config_entry.entry_id]
+        vehicle = entry_data[ATTR_VEHICLE][self.vehicle_id]
+        body_commands = {
+            VehicleCommand.OPEN_FRUNK: ("body.closures.open", encode_frunk),
+            VehicleCommand.CLOSE_FRUNK: ("body.closures.close", encode_frunk),
+            VehicleCommand.OPEN_ALL_WINDOWS: ("body.closures.open", encode_windows),
+            VehicleCommand.CLOSE_ALL_WINDOWS: ("body.closures.close", encode_windows),
+            VehicleCommand.LOCK_ALL_CLOSURES_FEEDBACK: ("body.locks.lock", encode_lock),
+            VehicleCommand.UNLOCK_ALL_CLOSURES: ("body.locks.unlock", encode_unlock),
+        }
+        security_commands = {
+            VehicleCommand.ENABLE_GEAR_GUARD_VIDEO: "security.video_monitoring.enable_video_monitoring",
+            VehicleCommand.DISABLE_GEAR_GUARD_VIDEO: "security.video_monitoring.disable_video_monitoring",
+            VehicleCommand.PANIC_ON: "security.alarm.enable_panic",
+            VehicleCommand.PANIC_OFF: "security.alarm.disable_panic",
+        }
+        features = vehicle.get("supported_features", [])
+        if "LIFTGATE_CMD" in features:
+            body_commands.update(
+                {
+                    VehicleCommand.OPEN_LIFTGATE_UNLATCH_TAILGATE: (
+                        "body.closures.open",
+                        encode_liftgate,
+                    ),
+                    VehicleCommand.CLOSE_LIFTGATE: (
+                        "body.closures.close",
+                        encode_liftgate,
+                    ),
+                }
+            )
+        if command in body_commands and "PVS_BD_CMD" in features:
+            rvm, encoder = body_commands[command]
+            payload = encoder()
+        elif command in security_commands and "PVS_SEC_CMD" in features:
+            rvm = security_commands[command]
+            # These security operations have empty command messages.
+            payload = b""
+        elif CONTROL_COMMAND_FEATURES.get(command) in features:
+            rvm, payload = encode_control_command(command, params)
+        else:
+            rvm = None
+        if rvm is not None:
+            _LOGGER.info(
+                "Parallax %s starting; power state=%s", command, self.get("powerState")
+            )
+            try:
+                await execute_command(
+                    self.api,
+                    self.vehicle_id,
+                    rvm,
+                    payload,
+                    identity_id=vehicle["phone_identity_id"],
+                    vehicle_key=vehicle["public_key"],
+                    private_key=self.config_entry.options.get("private_key"),
+                    timeout=120 if self.get("powerState") == "sleep" else 90,
+                )
+            except ParallaxExecutionError as err:
+                raise HomeAssistantError(str(err)) from None
+            _LOGGER.info("Parallax %s execution confirmed by vehicle", command)
+            return
+
         if self.get("powerState") == "sleep" and command != VehicleCommand.WAKE_VEHICLE:
             await self.send_vehicle_command(VehicleCommand.WAKE_VEHICLE)
             try:

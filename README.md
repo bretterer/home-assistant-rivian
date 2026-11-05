@@ -58,7 +58,7 @@ The configuration flow is as follows:
 
 In addition to viewing vehicle data, it is also possible to issue certain vehicle commands remotely via Home Assistant as you would in the Rivian mobile app.
 
-**Note:** Remote vehicle control isn't supported yet for Gen2 R1T and R1S vehicles (2025 model year and later) or the R2. Their Bluetooth hardware changed, and how they complete the secure pairing process hasn't been figured out yet.
+**Note:** Signed Parallax controls have been tested on an R2 with an already-enrolled phone identity and key. This does not add or validate a fresh Bluetooth pairing procedure for the R2 or Gen2 R1T/R1S (2025 model year and later); their changed Bluetooth hardware remains a separate setup limitation. An enrolled identity and the corresponding key material are required for these signed commands.
 
 To enable this feature, you need to have:
 
@@ -232,7 +232,7 @@ Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
 
 ### Remote Vehicle Controls
 
-These controls need a phone key paired over Bluetooth (see [Remote Vehicle Control](#remote-vehicle-control)), which isn't possible yet for Gen2 R1T and R1S vehicles or the R2. Otherwise, they're available for all models unless noted, and some also depend on the features your vehicle reports.
+These controls need an enrolled phone identity and key (see [Remote Vehicle Control](#remote-vehicle-control)). R2 command testing used an already-enrolled key; fresh R2/Gen2 pairing is outside this change. Controls are available according to the vehicle's reported features and the model restrictions below.
 
 | Name                       | Domain  | Description                                                                                                                                              |
 | -------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |

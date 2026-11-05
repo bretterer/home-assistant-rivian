@@ -851,6 +851,16 @@ def _setup_mock_environment() -> None:
         rivian_mod.parallax = parallax_submod  # type: ignore[attr-defined]
         sys.modules["rivian.parallax"] = parallax_submod
 
+        controls_submod = DynamicModule("rivian.parallax.controls", is_package=False)
+        controls_submod.CONTROL_COMMAND_FEATURES = {}
+        sys.modules["rivian.parallax.controls"] = controls_submod
+        execute_submod = DynamicModule("rivian.parallax.execute", is_package=False)
+        execute_submod.ParallaxExecutionError = type(
+            "ParallaxExecutionError", (Exception,), {}
+        )
+        execute_submod.execute_command = AsyncMock()
+        sys.modules["rivian.parallax.execute"] = execute_submod
+
 
 _setup_mock_environment()
 
