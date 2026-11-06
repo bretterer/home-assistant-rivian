@@ -354,6 +354,59 @@
             },
             "window_rear_calibrated": {
                 "default": "mdi:window-closed"
+            },
+            "wifi_signal_strength": {
+                "default": "mdi:wifi"
+            },
+            "wifi_antenna_bars": {
+                "default": "mdi:wifi-strength-4",
+                "state": {
+                    "level_0": "mdi:wifi-strength-outline",
+                    "level_1": "mdi:wifi-strength-1",
+                    "level_2": "mdi:wifi-strength-2",
+                    "level_3": "mdi:wifi-strength-3"
+                }
+            },
+            "wifi_frequency": {
+                "default": "mdi:wifi"
+            },
+            "wifi_link_speed": {
+                "default": "mdi:speedometer"
+            },
+            "wifi_secure_status": {
+                "default": "mdi:wifi-lock",
+                "state": {
+                    "open": "mdi:wifi-lock-open",
+                    "enhanced_open": "mdi:wifi-lock-open"
+                }
+            },
+            "wifi_wpa_status": {
+                "default": "mdi:wifi-off",
+                "state": {
+                    "connected": "mdi:wifi-check",
+                    "scanning": "mdi:wifi-sync",
+                    "connecting": "mdi:wifi-sync"
+                }
+            },
+            "wifi_ssid": {
+                "default": "mdi:wifi-settings"
+            },
+            "cellular_antenna_bars": {
+                "default": "mdi:signal-cellular-3",
+                "state": {
+                    "level_0": "mdi:signal-cellular-outline",
+                    "level_1": "mdi:signal-cellular-1",
+                    "level_2": "mdi:signal-cellular-2"
+                }
+            },
+            "cellular_carrier": {
+                "default": "mdi:sim"
+            },
+            "cellular_mode": {
+                "default": "mdi:signal"
+            },
+            "cellular_signal_strength": {
+                "default": "mdi:signal"
             }
         },
         "switch": {
