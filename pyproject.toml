@@ -1,5 +1,6 @@
 [tool.ruff]
 required-version = ">=0.16.2"
+extend-exclude = ["*_pb2.py"]
 # Lint and format for Python 3.13 syntax: the floor is 3.14 (Home Assistant
 # 2026.3), but pinning keeps sources parseable by 3.13 tooling and makes
 # ruff releases with a newer default target agree.
