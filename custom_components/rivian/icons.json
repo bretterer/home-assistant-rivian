@@ -437,6 +437,9 @@
             "gear_guard_video": {
                 "default": "mdi:cctv"
             },
+            "pet_mode": {
+                "default": "mdi:dog-side"
+            },
             "steering_wheel_heat": {
                 "default": "mdi:steering"
             }
