@@ -266,6 +266,7 @@ These controls need a phone key paired over Bluetooth (see [Remote Vehicle Contr
 | Closures                   | Lock    | Lock/unlock all closures                                                                                                                                 |
 | Drop tailgate              | Button  | Drop tailgate, R1T only                                                                                                                                  |
 | Front trunk                | Cover   | Open/close front trunk                                                                                                                                   |
+| Gear Guard cameras         | Camera  | Live view of each Gear Guard camera, LIVE_CAM vehicles only; one viewer at a time, about an hour a day                                                   |
 | Gear Guard video           | Switch  | Enable/disable gear guard video                                                                                                                          |
 | Liftgate                   | Cover   | Open/close liftgate, R1S and R2 only                                                                                                                     |
 | Open gear tunnel left      | Button  | Open left gear tunnel, R1T only                                                                                                                          |
