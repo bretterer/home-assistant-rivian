@@ -49,6 +49,17 @@ SWITCHES: Final[tuple[RivianSwitchEntityDescription, ...]] = (
         ),
     ),
     RivianSwitchEntityDescription(
+        key="defrost_defog",
+        translation_key="defrost_defog",
+        is_on=lambda coor: coor.get("defrostDefogStatus") not in (None, "off"),
+        turn_off=lambda coor: coor.send_vehicle_command(
+            command=VehicleCommand.CABIN_HVAC_DEFROST_DEFOG, params={"level": 0}
+        ),
+        turn_on=lambda coor: coor.send_vehicle_command(
+            command=VehicleCommand.CABIN_HVAC_DEFROST_DEFOG, params={"level": 1}
+        ),
+    ),
+    RivianSwitchEntityDescription(
         key="gear_guard_video",
         translation_key="gear_guard_video",
         entity_category=EntityCategory.CONFIG,

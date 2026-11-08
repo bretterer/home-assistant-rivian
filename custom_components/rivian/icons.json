@@ -434,6 +434,9 @@
             "charging_enabled": {
                 "default": "mdi:lightning-bolt"
             },
+            "defrost_defog": {
+                "default": "mdi:car-defrost-front"
+            },
             "gear_guard_video": {
                 "default": "mdi:cctv"
             },
