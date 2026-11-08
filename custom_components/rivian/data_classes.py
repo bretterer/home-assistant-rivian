@@ -77,6 +77,8 @@ class RivianNumberEntityDescription(NumberEntityDescription):
 
     field: str
     set_fn: Callable[[VehicleCoordinator, float], Awaitable[None]]
+    value_lambda: Callable[[Any], Any] | None = None
+    supported_feature: str | None = None
 
 
 @dataclass(kw_only=True)

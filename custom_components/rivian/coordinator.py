@@ -892,6 +892,11 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             if unsubscribe:
                 await unsubscribe()
 
+    async def set_climate_hold_duration(self, minutes: int) -> None:
+        """Set how long a climate hold lasts."""
+        if not await self.api.set_climate_hold_duration(self.vehicle_id, minutes):
+            raise HomeAssistantError("Rivian didn't accept the climate hold duration")
+
     async def send_vehicle_command(
         self, command: VehicleCommand, params: dict[str, Any] | None = None
     ) -> None:

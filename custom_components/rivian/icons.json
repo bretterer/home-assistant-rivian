@@ -80,6 +80,9 @@
             }
         },
         "number": {
+            "climate_hold_duration": {
+                "default": "mdi:timer-cog-outline"
+            },
             "charging_schedule_amperage": {
                 "default": "mdi:current-ac"
             },
@@ -433,6 +436,9 @@
             },
             "charging_enabled": {
                 "default": "mdi:lightning-bolt"
+            },
+            "climate_hold": {
+                "default": "mdi:thermometer-auto"
             },
             "gear_guard_video": {
                 "default": "mdi:cctv"

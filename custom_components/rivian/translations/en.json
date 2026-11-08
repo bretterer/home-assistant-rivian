@@ -251,6 +251,9 @@
       }
     },
     "number": {
+      "climate_hold_duration": {
+        "name": "Climate hold duration"
+      },
       "charging_schedule_amperage": {
         "name": "Charging schedule amperage"
       },
@@ -1051,6 +1054,9 @@
       },
       "charging_enabled": {
         "name": "Charging enabled"
+      },
+      "climate_hold": {
+        "name": "Climate hold"
       },
       "gear_guard_video": {
         "name": "Gear Guard video"

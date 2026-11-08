@@ -9,7 +9,12 @@ from rivian import VehicleCommand
 
 from homeassistant.components.number import NumberDeviceClass, NumberEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfElectricCurrent
+from homeassistant.const import (
+    PERCENTAGE,
+    EntityCategory,
+    UnitOfElectricCurrent,
+    UnitOfTime,
+)
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -41,6 +46,23 @@ NUMBERS: Final[tuple[RivianNumberEntityDescription, ...]] = (
             command=VehicleCommand.CHARGING_LIMITS, params={"SOC_limit": int(value)}
         ),
     ),
+    RivianNumberEntityDescription(
+        key="climate_hold_duration",
+        translation_key="climate_hold_duration",
+        entity_category=EntityCategory.CONFIG,
+        device_class=NumberDeviceClass.DURATION,
+        native_min_value=120,
+        native_max_value=480,
+        native_step=15,
+        native_unit_of_measurement=UnitOfTime.MINUTES,
+        supported_feature="CLM_HOLD",
+        field="climateHoldDuration",
+        # Seconds, 0 when no hold is set
+        value_lambda=lambda seconds: seconds // 60 if seconds else None,
+        set_fn=lambda coordinator, value: coordinator.set_climate_hold_duration(
+            int(value)
+        ),
+    ),
 )
 
 CHARGING_SCHEDULE_AMPERAGE_NUMBER = RivianNumberEntityDescription(
@@ -70,6 +92,8 @@ async def async_setup_entry(
         for vehicle_id, vehicle in vehicles.items()
         if vehicle.get("phone_identity_id")
         for description in NUMBERS
+        if description.supported_feature is None
+        or description.supported_feature in vehicle.get("supported_features", [])
     ]
     for vehicle_id, vehicle in vehicles.items():
         coord = coordinators[vehicle_id]
@@ -111,7 +135,8 @@ class RivianNumberEntity(RivianVehicleControlEntity, NumberEntity):
     @property
     def native_value(self) -> float | None:
         """Return the value reported by the number."""
-        return self._get_value(self.entity_description.field)
+        value = self._get_value(self.entity_description.field)
+        return fn(value) if (fn := self.entity_description.value_lambda) else value
 
     async def async_set_native_value(self, value: float) -> None:
         """Set new value."""
