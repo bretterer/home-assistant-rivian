@@ -39,7 +39,11 @@ then waits for successful vehicle completion. Missing results, errors and timeou
 are shown to Home Assistant without retrying or falling back to the legacy API.
 An unknown outcome means the command may have taken effect: check the vehicle
 before trying again. Logs exclude keys, identifying fields and raw responses.
-Physical opening on the affected 2025 R1S has **not yet been verified**.
+The owner installed test release **2.0.2b1** on the affected 2025 R1S and
+reported successful liftgate opening followed by closing through Home Assistant's
+Tools → Actions. Sensors remained available and no setup errors were reported.
+This is one owner-reported test; repeated cycles, sleeping-vehicle behavior and
+other vehicle/firmware combinations have not been verified.
 
 The local compatibility adapter uses private interfaces of the unchanged
 `rivian-python-client==2.3.1` dependency. Its wire format follows
