@@ -9,6 +9,7 @@ from datetime import UTC, datetime, timedelta
 import logging
 import time
 from typing import Any, Generic, TypeVar
+import uuid
 
 from aiohttp import ClientResponse
 from rivian import Rivian, VehicleCommand
@@ -18,7 +19,12 @@ from rivian.exceptions import (
     RivianExpiredTokenError,
     RivianUnauthenticated,
 )
-from rivian.parallax import decode_parallax_message
+from rivian.parallax import (
+    decode_command_state_message,
+    decode_parallax_message,
+    encode_vehicle_command,
+    vehicle_command_feature,
+)
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
@@ -70,6 +76,9 @@ RATE_LIMIT_ISSUE_PLACEHOLDERS = {
     "issue_after": f"{RATE_LIMIT_ISSUE_AFTER / timedelta(minutes=1):g}",
     "reauth_after": f"{RATE_LIMIT_REAUTH_AFTER / timedelta(hours=1):g}",
 }
+# How long to wait for the vehicle's result for a Parallax command, which can
+# include waking it up
+PARALLAX_COMMAND_TIMEOUT = 90
 CHARGING_SCHEDULE_COOL_OFF = 10
 CHARGING_SCHEDULE_REFRESH_INTERVAL = 900
 # Max age of a navigation location fix to use (trip_progress resends its last
@@ -799,10 +808,70 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             return entity.get("value")
         return None
 
+    async def send_parallax_command(self, rvm: str, payload: bytes = b"") -> None:
+        """Send a signed Parallax command and wait for the vehicle's result."""
+        vehicle = self.hass.data[DOMAIN][self.config_entry.entry_id][ATTR_VEHICLE][
+            self.vehicle_id
+        ]
+        command_id = str(uuid.uuid4())
+        result: asyncio.Future[dict[str, Any]] = (
+            asyncio.get_running_loop().create_future()
+        )
+
+        def on_state(message: dict[str, Any]) -> None:
+            state = decode_command_state_message(message)
+            done = state and (state["error"] or state["progress"] == "complete")
+            if done and not result.done():
+                result.set_result(state)
+
+        # Subscribe first: states from before the subscription aren't replayed
+        unsubscribe = await self.api.subscribe_for_parallax_command_state(
+            self.vehicle_id, command_id, on_state
+        )
+        try:
+            if not await self.api.send_parallax_command(
+                self.vehicle_id,
+                rvm,
+                payload,
+                identity_id=vehicle["phone_identity_id"],
+                vehicle_key=vehicle["public_key"],
+                private_key=self.config_entry.options.get("private_key"),
+                command_id=command_id,
+            ):
+                raise HomeAssistantError(f"Rivian didn't accept {rvm}")
+            if not unsubscribe:
+                # Couldn't follow it (already logged): sent, but unconfirmed
+                return
+            try:
+                state = await asyncio.wait_for(result, PARALLAX_COMMAND_TIMEOUT)
+            except TimeoutError as err:
+                # Not retried: the vehicle may still carry it out
+                raise HomeAssistantError(
+                    f"The vehicle didn't confirm {rvm}; it may still carry it out"
+                ) from err
+            if state["error"] or state["status"] != "success":
+                raise HomeAssistantError(
+                    f"The vehicle didn't carry out {rvm}: "
+                    f"{(state['error'] or {}).get('message') or state['status']}"
+                )
+        finally:
+            if unsubscribe:
+                await unsubscribe()
+
     async def send_vehicle_command(
         self, command: VehicleCommand, params: dict[str, Any] | None = None
     ) -> None:
-        """Send a command to the vehicle."""
+        """Send a command to the vehicle, over Parallax if it takes it that way."""
+        entry_data = self.hass.data[DOMAIN][self.config_entry.entry_id]
+        vehicle = entry_data[ATTR_VEHICLE][self.vehicle_id]
+        if (feature := vehicle_command_feature(command)) and feature in vehicle[
+            "supported_features"
+        ]:
+            rvm, payload = encode_vehicle_command(command, params)
+            # The cloud wakes the vehicle for Parallax commands
+            await self.send_parallax_command(rvm, payload)
+            return
+
         if self.get("powerState") == "sleep" and command != VehicleCommand.WAKE_VEHICLE:
             await self.send_vehicle_command(VehicleCommand.WAKE_VEHICLE)
             try:
@@ -810,8 +879,6 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             except TimeoutError:
                 pass  # didn't wake-up in time, but we'll try command anyway
 
-        entry_data = self.hass.data[DOMAIN][self.config_entry.entry_id]
-        vehicle = entry_data[ATTR_VEHICLE][self.vehicle_id]
         user: UserCoordinator = entry_data[ATTR_COORDINATOR][ATTR_USER]
         phone_info = user.get_enrolled_phone_data(
             self.config_entry.options.get("public_key")
