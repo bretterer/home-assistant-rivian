@@ -72,6 +72,9 @@
                 "state": {
                     "on": "mdi:cloud-alert-outline"
                 }
+            },
+            "battery_needs_lfp_calibration": {
+                "default": "mdi:battery-sync"
             }
         },
         "button": {
@@ -422,6 +425,18 @@
             },
             "cellular_signal_strength": {
                 "default": "mdi:signal"
+            },
+            "battery_cell_type": {
+                "default": "mdi:battery-heart-variant"
+            },
+            "cold_weather_soc_green": {
+                "default": "mdi:snowflake-thermometer"
+            },
+            "cold_weather_soc_blue": {
+                "default": "mdi:snowflake-thermometer"
+            },
+            "cold_range_impact": {
+                "default": "mdi:snowflake-alert"
             }
         },
         "switch": {
