@@ -1,0 +1,62 @@
+syntax = "proto3";
+
+package home_assistant.rivian.liftgate;
+
+// Minimal wire schema for signed liftgate opening and its result. Field numbers
+// follow rivian-python-client PR #235 and rivian-gen2-key-poc/PROTOCOL.md.
+// Kept locally until the pinned client supports signed Parallax commands.
+
+message Timestamp {
+  int64 seconds = 1;
+  int32 nanos = 2;
+}
+
+message Operation {
+  string rvm = 1;
+  int32 type = 2; // 3 = request
+  bytes command_id = 3;
+  bytes payload = 4;
+  Timestamp created_at = 5;
+  string vehicle_id = 7;
+}
+
+message Signature {
+  int32 type = 1; // 1 = HMAC-SHA256
+  bytes value = 2;
+}
+
+message SecurityInfo {
+  Signature signature = 1;
+  string mapped_identity = 2;
+}
+
+message Composite {
+  bytes bytes_val = 2;
+}
+
+message Envelope {
+  Composite composite = 10;
+  Timestamp last_update = 12;
+  bytes correlation_id = 16;
+  SecurityInfo security_info = 17;
+}
+
+message CommandError {
+  int32 code = 1;
+  string message = 2; // Never include server messages in diagnostics.
+}
+
+message CommandResult {
+  int32 response_status = 1; // 1 = success
+  CommandError error = 2;
+}
+
+message CommandState {
+  bytes command_id = 1;
+  string rvm = 2;
+  int32 progress = 3; // 4 = complete
+  oneof result {
+    CommandError operation_error = 4;
+    CommandResult data = 5;
+  }
+}

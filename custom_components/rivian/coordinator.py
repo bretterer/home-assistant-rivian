@@ -50,6 +50,7 @@ from .const import (
     VEHICLE_STATE_API_FIELDS,
 )
 from .helpers import redact
+from .liftgate import LiftgateCommandError, open_liftgate
 
 _LOGGER = logging.getLogger(__name__)
 T = TypeVar("T", bound=dict[str, Any] | list[dict[str, Any]])
@@ -803,6 +804,29 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         self, command: VehicleCommand, params: dict[str, Any] | None = None
     ) -> None:
         """Send a command to the vehicle."""
+        entry_data = self.hass.data[DOMAIN][self.config_entry.entry_id]
+        vehicle = entry_data[ATTR_VEHICLE][self.vehicle_id]
+        if (
+            command == VehicleCommand.OPEN_LIFTGATE_UNLATCH_TAILGATE
+            and vehicle.get("model") == "R1S"
+            and {"PVS_BD_CMD", "LIFTGATE_CMD"}.issubset(
+                vehicle.get("supported_features", [])
+            )
+        ):
+            _LOGGER.debug("Opening R1S liftgate using signed Parallax")
+            try:
+                await open_liftgate(
+                    self.api,
+                    self.vehicle_id,
+                    identity_id=vehicle["phone_identity_id"],
+                    vehicle_key=vehicle["public_key"],
+                    private_key=self.config_entry.options.get("private_key"),
+                    timeout=120 if self.get("powerState") == "sleep" else 90,
+                )
+            except LiftgateCommandError as err:
+                raise HomeAssistantError(str(err)) from None
+            return
+
         if self.get("powerState") == "sleep" and command != VehicleCommand.WAKE_VEHICLE:
             await self.send_vehicle_command(VehicleCommand.WAKE_VEHICLE)
             try:

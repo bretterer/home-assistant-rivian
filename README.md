@@ -27,6 +27,40 @@ This integration will not share user or vehicle data outside Home Assistant, a s
 
 ![Home Assistant Rivian Card](.github/images/home_assistant_rivian_entity_card.jpg)
 
+## R1S liftgate-opening candidate
+
+This branch sends liftgate opening through signed Parallax when an already-paired
+R1S advertises both `PVS_BD_CMD` and `LIFTGATE_CMD`. It targets only the upper
+liftgate. Closing, front-trunk control, telemetry, and other vehicles retain their
+existing paths. This does not add Gen2 pairing; an enrolled key must already work.
+
+Opening subscribes for the matching command ID and operation before sending once,
+then waits for successful vehicle completion. Missing results, errors and timeouts
+are shown to Home Assistant without retrying or falling back to the legacy API.
+An unknown outcome means the command may have taken effect: check the vehicle
+before trying again. Logs exclude keys, identifying fields and raw responses.
+The owner installed test release **2.0.2b1** on the affected 2025 R1S and
+reported successful liftgate opening followed by closing through Home Assistant's
+Tools → Actions. Sensors remained available and no setup errors were reported.
+This is one owner-reported test; repeated cycles, sleeping-vehicle behavior and
+other vehicle/firmware combinations have not been verified.
+
+The local compatibility adapter uses private interfaces of the unchanged
+`rivian-python-client==2.3.1` dependency. Its wire format follows
+[the Gen2 proof of concept](https://github.com/walthowd/rivian-gen2-key-poc/blob/695b1891585c85df77d30b4caa07cbb7eb398d3b/PROTOCOL.md)
+and [client PR #235](https://github.com/bretterer/rivian-python-client/pull/235).
+Replace the adapter with published client helpers when available, rather than
+expanding it to other controls. Tests include the actual pinned client with
+synthetic keys and mocked HTTP/WebSocket connections.
+
+The generated `liftgate_command_pb2.py` requires no additional runtime dependency.
+To regenerate it, use `grpcio-tools==1.73.1` in a development environment:
+
+```bash
+python -m grpc_tools.protoc --proto_path=custom_components/rivian \
+  --python_out=custom_components/rivian custom_components/rivian/liftgate_command.proto
+```
+
 ## Installation
 
 1. Use [HACS](https://hacs.xyz/docs/setup/download). In HACS add a custom repository by going to `HACS > Integrations > 3 dots > custom repositories` and adding this github repo `https://github.com/bretterer/home-assistant-rivian`. Now skip to 7.
