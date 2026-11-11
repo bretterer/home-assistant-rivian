@@ -94,11 +94,11 @@ Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
 | Battery thermal runaway propagation                 | Sensor         |                                                                                                                                |
 | Battery thermal status                              | Sensor         |                                                                                                                                |
 | Bearing                                             | Sensor         |                                                                                                                                |
-| Bluetooth module failure status door front left     | Sensor         |                                                                                                                                |
-| Bluetooth module failure status door front right    | Sensor         |                                                                                                                                |
-| Bluetooth module failure status fascia front        | Sensor         |                                                                                                                                |
-| Bluetooth module failure status fascia rear         | Sensor         |                                                                                                                                |
-| Bluetooth module failure status instrument controls | Sensor         |                                                                                                                                |
+| Bluetooth module failure status door front left\*   | Sensor         |                                                                                                                                |
+| Bluetooth module failure status door front right\*  | Sensor         |                                                                                                                                |
+| Bluetooth module failure status fascia front\*      | Sensor         |                                                                                                                                |
+| Bluetooth module failure status fascia rear\*       | Sensor         |                                                                                                                                |
+| Bluetooth module failure status instrument controls\* | Sensor         |                                                                                                                                |
 | Bluetooth module failure status overhead console\*  | Sensor         |                                                                                                                                |
 | Brake fluid level                                   | Sensor         |                                                                                                                                |
 | Cabin climate preconditioning                       | Binary sensor  | Running/not running status                                                                                                     |
