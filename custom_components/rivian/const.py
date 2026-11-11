@@ -9,8 +9,11 @@ from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
 from homeassistant.const import (
     DEGREE,
     PERCENTAGE,
+    SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
     EntityCategory,
+    UnitOfDataRate,
     UnitOfEnergy,
+    UnitOfFrequency,
     UnitOfLength,
     UnitOfPressure,
     UnitOfSpeed,
@@ -486,6 +489,18 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
             state_class=SensorStateClass.MEASUREMENT,
         ),
         RivianSensorEntityDescription(
+            key="charging_time_estimation_validity",
+            translation_key="charging_time_estimation_validity",
+            field="chargingTimeEstimationValidity",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            device_class=SensorDeviceClass.ENUM,
+            options=[
+                "valid",
+                "invalid",
+                "pack_discharging",
+            ],
+        ),
+        RivianSensorEntityDescription(
             key="tire_pressure_front_left",
             field="tirePressureFrontLeft",
             translation_key="tire_pressure_front_left",
@@ -689,6 +704,14 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
             options=BTM_FAILURE_STATUS_OPTIONS,
         ),
         RivianSensorEntityDescription(
+            key="bluetooth_overhead_console_hardware_failure_status",
+            translation_key="bluetooth_overhead_console_hardware_failure_status",
+            field="btmOcHardwareFailureStatus",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            device_class=SensorDeviceClass.ENUM,
+            options=BTM_FAILURE_STATUS_OPTIONS,
+        ),
+        RivianSensorEntityDescription(
             key="frunk_next_action",
             translation_key="frunk_next_action",
             field="closureFrunkNextAction",
@@ -787,6 +810,119 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
                 "charging_disabled_partial_connection",
                 "charging_disabled_not_parked",
             ],
+        ),
+        RivianSensorEntityDescription(
+            key="wifi_signal_strength",
+            translation_key="wifi_signal_strength",
+            field="wifiSignal",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            device_class=SensorDeviceClass.SIGNAL_STRENGTH,
+            native_unit_of_measurement=SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+            state_class=SensorStateClass.MEASUREMENT,
+            # -255 when there's no reading
+            value_lambda=lambda v: None if v == -255 else v,
+        ),
+        RivianSensorEntityDescription(
+            key="wifi_antenna_bars",
+            translation_key="wifi_antenna_bars",
+            field="wifiAntennaBars",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            device_class=SensorDeviceClass.ENUM,
+            options=["level_0", "level_1", "level_2", "level_3", "level_4"],
+        ),
+        RivianSensorEntityDescription(
+            key="wifi_frequency",
+            translation_key="wifi_frequency",
+            field="wifiFreq",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            device_class=SensorDeviceClass.FREQUENCY,
+            native_unit_of_measurement=UnitOfFrequency.MEGAHERTZ,
+            state_class=SensorStateClass.MEASUREMENT,
+            # In MHz (5200 seen live). Anything under 1000 isn't a Wi-Fi
+            # frequency, e.g. 0 when unset or a 2/5 band number, and would be
+            # recorded in statistics as MHz
+            value_lambda=lambda v: v if v >= 1000 else None,
+        ),
+        RivianSensorEntityDescription(
+            key="wifi_link_speed",
+            translation_key="wifi_link_speed",
+            field="wifiLinkSpeed",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            device_class=SensorDeviceClass.DATA_RATE,
+            native_unit_of_measurement=UnitOfDataRate.MEGABITS_PER_SECOND,
+            state_class=SensorStateClass.MEASUREMENT,
+        ),
+        RivianSensorEntityDescription(
+            key="wifi_secure_status",
+            translation_key="wifi_secure_status",
+            field="wifiSecureStatus",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            device_class=SensorDeviceClass.ENUM,
+            options=[
+                "open",
+                "wpa_personal",
+                "wpa_enterprise",
+                "wpa2_personal",
+                "wpa2_enterprise",
+                "wpa3_personal",
+                "wpa3_enterprise",
+                "enhanced_open",
+            ],
+        ),
+        RivianSensorEntityDescription(
+            key="wifi_wpa_status",
+            translation_key="wifi_wpa_status",
+            field="wifiWpaStatus",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            device_class=SensorDeviceClass.ENUM,
+            options=[
+                "not_connected",
+                "connected",
+                "scanning",
+                "connecting",
+                "disconnecting",
+                "connection_failed",
+                "disabled",
+                "scan_failure",
+            ],
+        ),
+        RivianSensorEntityDescription(
+            key="wifi_ssid",
+            translation_key="wifi_ssid",
+            field="wifiSsid",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
+        ),
+        RivianSensorEntityDescription(
+            key="cellular_antenna_bars",
+            translation_key="cellular_antenna_bars",
+            field="cellularAntennaBars",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            device_class=SensorDeviceClass.ENUM,
+            options=["level_0", "level_1", "level_2", "level_3", "level_4"],
+        ),
+        RivianSensorEntityDescription(
+            key="cellular_carrier",
+            translation_key="cellular_carrier",
+            field="cellularCarrier",
+            entity_category=EntityCategory.DIAGNOSTIC,
+        ),
+        RivianSensorEntityDescription(
+            key="cellular_mode",
+            translation_key="cellular_mode",
+            field="cellularMode",
+            entity_category=EntityCategory.DIAGNOSTIC,
+        ),
+        RivianSensorEntityDescription(
+            key="cellular_signal_strength",
+            translation_key="cellular_signal_strength",
+            field="cellularSignalStrength",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            device_class=SensorDeviceClass.SIGNAL_STRENGTH,
+            native_unit_of_measurement=SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+            state_class=SensorStateClass.MEASUREMENT,
+            # -255 when there's no reading
+            value_lambda=lambda v: None if v == -255 else v,
         ),
         RivianSensorEntityDescription(
             key="vas_secure_element_faulted",
@@ -1408,6 +1544,7 @@ BTM_FAILURE_STATUS_FIELDS: Final[frozenset[str]] = frozenset(
         "btmFfHardwareFailureStatus",
         "btmIcHardwareFailureStatus",
         "btmLfdHardwareFailureStatus",
+        "btmOcHardwareFailureStatus",
         "btmRfHardwareFailureStatus",
         "btmRfdHardwareFailureStatus",
     }
@@ -1504,7 +1641,7 @@ TRIP_INFO_FIELDS: Final[frozenset[str]] = frozenset(
 # Parallax fields whose None value means "not set", so it clears the field
 # rather than being skipped as unsent
 PARALLAX_NONE_CLEARS: Final[frozenset[str]] = frozenset(
-    {"otaScheduledInstallTime", *TRIP_INFO_FIELDS}
+    {"chargingTimeEstimationValidity", "otaScheduledInstallTime", *TRIP_INFO_FIELDS}
 )
 
 # Parallax topics that send one message per device/schedule, which can't be
