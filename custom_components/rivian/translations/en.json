@@ -373,6 +373,13 @@
           "set": "Fault"
         }
       },
+      "bluetooth_overhead_console_hardware_failure_status": {
+        "name": "Bluetooth module failure status overhead console",
+        "state": {
+          "dtc_not_set": "No fault",
+          "set": "Fault"
+        }
+      },
       "bluetooth_rear_fascia_hardware_failure_status": {
         "name": "Bluetooth module failure status fascia rear",
         "state": {
@@ -689,6 +696,12 @@
       "next_stop_eta": {
         "name": "Next stop ETA"
       },
+      "next_stop_distance": {
+        "name": "Next stop distance"
+      },
+      "next_stop_drive_time": {
+        "name": "Next stop drive time"
+      },
       "destination": {
         "name": "Destination"
       },
@@ -733,6 +746,14 @@
       },
       "time_to_end_of_charge": {
         "name": "Charging time remaining"
+      },
+      "charging_time_estimation_validity": {
+        "name": "Charging time remaining validity",
+        "state": {
+          "valid": "Valid",
+          "invalid": "Invalid",
+          "pack_discharging": "Battery discharging"
+        }
       },
       "tire_pressure_front_left": {
         "name": "Tire pressure front left"
@@ -955,6 +976,73 @@
           "calibrated": "Calibrated",
           "not_calibrated": "Not calibrated"
         }
+      },
+      "wifi_signal_strength": {
+        "name": "Wi-Fi signal strength"
+      },
+      "wifi_antenna_bars": {
+        "name": "Wi-Fi signal bars",
+        "state": {
+          "level_0": "0 bars",
+          "level_1": "1 bar",
+          "level_2": "2 bars",
+          "level_3": "3 bars",
+          "level_4": "4 bars"
+        }
+      },
+      "wifi_frequency": {
+        "name": "Wi-Fi frequency"
+      },
+      "wifi_link_speed": {
+        "name": "Wi-Fi link speed"
+      },
+      "wifi_secure_status": {
+        "name": "Wi-Fi security",
+        "state": {
+          "open": "Open",
+          "wpa_personal": "WPA Personal",
+          "wpa_enterprise": "WPA Enterprise",
+          "wpa2_personal": "WPA2 Personal",
+          "wpa2_enterprise": "WPA2 Enterprise",
+          "wpa3_personal": "WPA3 Personal",
+          "wpa3_enterprise": "WPA3 Enterprise",
+          "enhanced_open": "Enhanced Open"
+        }
+      },
+      "wifi_wpa_status": {
+        "name": "Wi-Fi connection status",
+        "state": {
+          "not_connected": "Not connected",
+          "connected": "Connected",
+          "scanning": "Scanning",
+          "connecting": "Connecting",
+          "disconnecting": "Disconnecting",
+          "connection_failed": "Connection failed",
+          "disabled": "Disabled",
+          "scan_failure": "Scan failed"
+        }
+      },
+      "wifi_ssid": {
+        "name": "Wi-Fi network"
+      },
+      "cellular_antenna_bars": {
+        "name": "Cellular signal bars",
+        "state": {
+          "level_0": "0 bars",
+          "level_1": "1 bar",
+          "level_2": "2 bars",
+          "level_3": "3 bars",
+          "level_4": "4 bars"
+        }
+      },
+      "cellular_carrier": {
+        "name": "Cellular carrier"
+      },
+      "cellular_mode": {
+        "name": "Cellular mode"
+      },
+      "cellular_signal_strength": {
+        "name": "Cellular signal strength"
       },
       "battery_cell_type": {
         "name": "Battery cell type",

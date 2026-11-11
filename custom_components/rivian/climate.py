@@ -8,14 +8,13 @@ from typing import Any, Final
 from rivian import VehicleCommand
 
 from homeassistant.components.climate import (
-    PRECISION_WHOLE,
     ClimateEntity,
     ClimateEntityDescription,
     ClimateEntityFeature,
     HVACMode,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
+from homeassistant.const import ATTR_TEMPERATURE, PRECISION_WHOLE, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
