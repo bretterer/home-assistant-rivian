@@ -6,6 +6,12 @@ import logging
 from typing import Any, Final
 
 from rivian import VehicleCommand
+from rivian.parallax import (
+    SET_CLIMATE_HOLD_RVM,
+    SET_PET_MODE_RVM,
+    encode_climate_hold,
+    encode_pet_mode,
+)
 
 from homeassistant.components.climate import (
     ClimateEntity,
@@ -80,7 +86,12 @@ class RivianClimateEntity(RivianVehicleControlEntity, ClimateEntity):
         """Return hvac operation mode."""
         if self.preset_mode == DEFROST_DEFOG:
             return HVACMode.HEAT
-        if self._get_value("cabinPreconditioningType") != "none":
+        if (
+            self._get_value("cabinPreconditioningType") != "none"
+            # Pet mode and climate hold keep the cabin conditioned too
+            or self._get_value("petModeStatus") == "on"
+            or self._get_value("climateHoldStatus") == "on"
+        ):
             return HVACMode.HEAT_COOL
         return HVACMode.OFF
 
@@ -98,6 +109,16 @@ class RivianClimateEntity(RivianVehicleControlEntity, ClimateEntity):
                 command=VehicleCommand.CABIN_HVAC_DEFROST_DEFOG, params={"level": 1}
             )
             return
+        if hvac_mode == HVACMode.OFF:
+            # Stopping preconditioning leaves pet mode and climate hold running
+            if self._get_value("petModeStatus") == "on":
+                await self.coordinator.send_parallax_command(
+                    SET_PET_MODE_RVM, encode_pet_mode(False)
+                )
+            if self._get_value("climateHoldStatus") == "on":
+                await self.coordinator.send_parallax_command(
+                    SET_CLIMATE_HOLD_RVM, encode_climate_hold(False)
+                )
         await self.coordinator.send_vehicle_command(
             command=VehicleCommand.VEHICLE_CABIN_PRECONDITION_DISABLE
             if hvac_mode == HVACMode.OFF
