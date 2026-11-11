@@ -99,16 +99,16 @@ Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
 | Bluetooth module failure status fascia front        | Sensor         |                                                                                                                                |
 | Bluetooth module failure status fascia rear         | Sensor         |                                                                                                                                |
 | Bluetooth module failure status instrument controls | Sensor         |                                                                                                                                |
-| Bluetooth module failure status overhead console    | Sensor         |                                                                                                                                |
+| Bluetooth module failure status overhead console\*  | Sensor         |                                                                                                                                |
 | Brake fluid level                                   | Sensor         |                                                                                                                                |
 | Cabin climate preconditioning                       | Binary sensor  | Running/not running status                                                                                                     |
 | Cabin climate preconditioning type                  | Sensor         |                                                                                                                                |
 | Cabin temperature                                   | Sensor         |                                                                                                                                |
 | Car wash mode                                       | Binary sensor  | On/off status                                                                                                                  |
-| Cellular carrier                                    | Sensor         |                                                                                                                                |
-| Cellular mode                                       | Sensor         |                                                                                                                                |
-| Cellular signal bars                                | Sensor         |                                                                                                                                |
-| Cellular signal strength                            | Sensor         |                                                                                                                                |
+| Cellular carrier\*                                  | Sensor         |                                                                                                                                |
+| Cellular mode\*                                     | Sensor         |                                                                                                                                |
+| Cellular signal bars\*                              | Sensor         |                                                                                                                                |
+| Cellular signal strength\*                          | Sensor         |                                                                                                                                |
 | Charge port                                         | Binary sensor  | Open/closed status, R1T and R1S only                                                                                           |
 | Charge port door next action                        | Sensor         | R1T and R1S only                                                                                                               |
 | Charger connection                                  | Binary sensor  | Plugged in/unplugged status                                                                                                    |
@@ -126,7 +126,7 @@ Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
 | Charging status                                     | Sensor         | Wallbox status: available, plugged in, charging, etc.                                                                          |
 | Charging time elapsed                               | Sensor         | Time spent actively charging in the current or last session                                                                    |
 | Charging time remaining                             | Sensor         |                                                                                                                                |
-| Charging time remaining validity                    | Sensor         | Whether the charging time remaining is valid, or the battery is discharging                                                    |
+| Charging time remaining validity\*                  | Sensor         | Whether the charging time remaining is valid, or the battery is discharging                                                    |
 | Closure state                                       | Binary sensor  | Open/closed status of all closures                                                                                             |
 | Cold range notification                             | Sensor         | Whether cold weather is reducing range                                                                                         |
 | Defrost/defog                                       | Binary sensor  | Running/not running status                                                                                                     |
@@ -223,13 +223,13 @@ Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
 | Vented seat front right                             | Binary sensor  | Running/not running status                                                                                                     |
 | Voltage                                             | Sensor         | Wallbox voltage                                                                                                                |
 | Voltage maximum                                     | Sensor         | Wallbox maximum voltage                                                                                                        |
-| Wi-Fi connection status                             | Sensor         |                                                                                                                                |
-| Wi-Fi frequency                                     | Sensor         |                                                                                                                                |
-| Wi-Fi link speed                                    | Sensor         |                                                                                                                                |
+| Wi-Fi connection status\*                           | Sensor         |                                                                                                                                |
+| Wi-Fi frequency\*                                   | Sensor         |                                                                                                                                |
+| Wi-Fi link speed\*                                  | Sensor         |                                                                                                                                |
 | Wi-Fi network\*                                     | Sensor         | Network name (SSID)                                                                                                            |
-| Wi-Fi security                                      | Sensor         |                                                                                                                                |
-| Wi-Fi signal bars                                   | Sensor         |                                                                                                                                |
-| Wi-Fi signal strength                               | Sensor         |                                                                                                                                |
+| Wi-Fi security\*                                    | Sensor         |                                                                                                                                |
+| Wi-Fi signal bars\*                                 | Sensor         |                                                                                                                                |
+| Wi-Fi signal strength\*                             | Sensor         |                                                                                                                                |
 | Window calibration front left state                 | Sensor         |                                                                                                                                |
 | Window calibration front right state                | Sensor         |                                                                                                                                |
 | Window calibration liftgate state                   | Sensor         | R2 only                                                                                                                        |
