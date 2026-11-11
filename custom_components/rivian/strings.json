@@ -687,6 +687,12 @@
       "next_stop_eta": {
         "name": "Next stop ETA"
       },
+      "next_stop_distance": {
+        "name": "Next stop distance"
+      },
+      "next_stop_drive_time": {
+        "name": "Next stop drive time"
+      },
       "destination": {
         "name": "Destination"
       },

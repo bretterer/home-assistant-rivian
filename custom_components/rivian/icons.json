@@ -128,6 +128,12 @@
             "next_stop_eta": {
                 "default": "mdi:clock-outline"
             },
+            "next_stop_distance": {
+                "default": "mdi:map-marker-distance"
+            },
+            "next_stop_drive_time": {
+                "default": "mdi:timer-sand"
+            },
             "destination": {
                 "default": "mdi:flag-checkered"
             },
