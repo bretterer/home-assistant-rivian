@@ -377,6 +377,7 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
             translation_key="gear_guard_streaming_consent",
             field="gearGuardStreamingConsent",
             entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
             device_class=SensorDeviceClass.ENUM,
             options=[
                 "not_set",
@@ -393,6 +394,7 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
             translation_key="gear_guard_streaming_daily_limit",
             field="gearGuardStreamingDailyLimit",
             entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
             device_class=SensorDeviceClass.ENUM,
             options=[
                 "not_hit",
@@ -405,6 +407,7 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
             translation_key="gear_guard_streaming_limit_reset_time",
             field="gearGuardStreamingLimitResetTime",
             entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
             device_class=SensorDeviceClass.TIMESTAMP,
             value_lambda=dt_util.utc_from_timestamp,
             supported_feature="V_GGVS",
@@ -1152,6 +1155,7 @@ BINARY_SENSORS: Final[
             field="cabinVentilationEnabled",
             translation_key="cabin_ventilation_enabled",
             entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
             on_value=[True],
             supported_feature="AUTO_VENT",
         ),

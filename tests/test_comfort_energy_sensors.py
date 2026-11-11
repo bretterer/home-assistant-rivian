@@ -162,3 +162,18 @@ def test_parked_energy_is_not_an_energy_meter(key: str) -> None:
 
     assert description.device_class is None
     assert description.state_class == const.SensorStateClass.MEASUREMENT
+
+
+@pytest.mark.parametrize(
+    "description",
+    [
+        SENSORS["gear_guard_streaming_consent"],
+        SENSORS["gear_guard_streaming_daily_limit"],
+        SENSORS["gear_guard_streaming_limit_reset_time"],
+        BINARY_SENSORS["cabin_ventilation_enabled"],
+    ],
+    ids=lambda d: d.key,
+)
+def test_diagnostics_disabled_by_default(description: Any) -> None:
+    """The new diagnostic entities are created disabled."""
+    assert description.entity_registry_enabled_default is False
