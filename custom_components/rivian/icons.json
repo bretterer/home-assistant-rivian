@@ -79,6 +79,11 @@
                 "default": "mdi:weather-night"
             }
         },
+        "notify": {
+            "navigation": {
+                "default": "mdi:map-marker-path"
+            }
+        },
         "number": {
             "charging_schedule_amperage": {
                 "default": "mdi:current-ac"
