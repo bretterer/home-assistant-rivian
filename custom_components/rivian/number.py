@@ -9,8 +9,14 @@ from rivian import VehicleCommand
 
 from homeassistant.components.number import NumberDeviceClass, NumberEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfElectricCurrent
+from homeassistant.const import (
+    PERCENTAGE,
+    EntityCategory,
+    UnitOfElectricCurrent,
+    UnitOfTime,
+)
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
@@ -56,6 +62,19 @@ CHARGING_SCHEDULE_AMPERAGE_NUMBER = RivianNumberEntityDescription(
     set_fn=lambda c, v: c.update_charging_schedule_data({"amperage": int(v)}),
 )
 
+CLIMATE_HOLD_DURATION_NUMBER = RivianNumberEntityDescription(
+    key="climate_hold_duration",
+    translation_key="climate_hold_duration",
+    entity_category=EntityCategory.CONFIG,
+    device_class=NumberDeviceClass.DURATION,
+    native_min_value=120,
+    native_max_value=480,
+    native_step=15,
+    native_unit_of_measurement=UnitOfTime.MINUTES,
+    field="climateHoldDuration",
+    set_fn=lambda c, v: c.api.set_climate_hold_duration(c.vehicle_id, int(v)),
+)
+
 
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
@@ -76,6 +95,11 @@ async def async_setup_entry(
         entities.append(
             RivianChargingScheduleAmperageEntity(
                 coord, entry, CHARGING_SCHEDULE_AMPERAGE_NUMBER, vehicle
+            )
+        )
+        entities.append(
+            RivianClimateHoldDurationEntity(
+                coord, entry, CLIMATE_HOLD_DURATION_NUMBER, vehicle
             )
         )
     async_add_entities(entities)
@@ -101,6 +125,38 @@ class RivianChargingScheduleAmperageEntity(RivianVehicleEntity, NumberEntity):
     async def async_set_native_value(self, value: float) -> None:
         """Set new value."""
         await self.entity_description.set_fn(self.coordinator, value)
+
+
+class RivianClimateHoldDurationEntity(RivianVehicleEntity, NumberEntity):
+    """Climate Hold Duration Entity.
+
+    This sets how long a climate hold lasts, it does not start one.
+    """
+
+    entity_description: RivianNumberEntityDescription
+
+    @property
+    def available(self) -> bool:
+        """Return availability."""
+        return self._available
+
+    @property
+    def native_value(self) -> int | None:
+        """Return the duration in minutes, if one is set."""
+        if seconds := self._get_value(self.entity_description.field):
+            return int(seconds) // 60
+        return None
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Set new value."""
+        try:
+            success = await self.entity_description.set_fn(self.coordinator, value)
+        except Exception as err:
+            raise HomeAssistantError(
+                f"Unable to set the climate hold duration: {err}"
+            ) from err
+        if not success:
+            raise HomeAssistantError("Unable to set the climate hold duration")
 
 
 class RivianNumberEntity(RivianVehicleControlEntity, NumberEntity):
