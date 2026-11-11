@@ -87,3 +87,19 @@ def test_cold_weather_soc(coor: coordinator.VehicleCoordinator) -> None:
     assert coor.get(DESCRIPTIONS["cold_weather_soc_green"].field) == 46
     assert coor.get(DESCRIPTIONS["cold_weather_soc_blue"].field) == 0
     assert coor.get(DESCRIPTIONS["cold_range_impact"].field) == 30
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "battery_cell_type",
+        "cold_weather_soc_green",
+        "cold_weather_soc_blue",
+        "cold_range_impact",
+        "battery_needs_lfp_calibration",
+    ],
+)
+def test_disabled_by_default(key: str) -> None:
+    """The new diagnostic entities are created disabled."""
+    description = DESCRIPTIONS.get(key) or BINARY_DESCRIPTIONS[key]
+    assert description.entity_registry_enabled_default is False
