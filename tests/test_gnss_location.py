@@ -83,3 +83,18 @@ def test_gnss_error(coor: coordinator.VehicleCoordinator) -> None:
     assert native_value(coor, "gnss_error_position_horizontal") == 1.2
     assert native_value(coor, "gnss_error_speed") == 0.3
     assert native_value(coor, "gnss_error_bearing") == 4.1
+
+
+@pytest.mark.parametrize(
+    ("key", "enabled"),
+    [
+        ("gnss_error_position_vertical", False),
+        ("gnss_error_position_horizontal", False),
+        ("gnss_error_speed", False),
+        ("gnss_error_bearing", False),
+        ("known_location", True),
+    ],
+)
+def test_enabled_by_default(key: str, enabled: bool) -> None:
+    """The GNSS error diagnostics are created disabled; known location is not."""
+    assert DESCRIPTIONS[key].entity_registry_enabled_default is enabled
