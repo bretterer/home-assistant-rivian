@@ -732,6 +732,14 @@
       "time_to_end_of_charge": {
         "name": "Charging time remaining"
       },
+      "charging_time_estimation_validity": {
+        "name": "Charging time remaining validity",
+        "state": {
+          "valid": "Valid",
+          "invalid": "Invalid",
+          "pack_discharging": "Battery discharging"
+        }
+      },
       "tire_pressure_front_left": {
         "name": "Tire pressure front left"
       },
