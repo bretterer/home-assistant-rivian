@@ -54,14 +54,14 @@ def parallax(
             "security.access.vas_fault",
             "vasSecureElementFaulted",
             "lost_communication",
-            True,
+            False,
         ),
         (
             "vas_access_can_faulted",
             "security.access.vas_fault",
             "vasAccessCanFaulted",
             "failure",
-            True,
+            False,
         ),
         (
             "secure_immobilizer_status",
@@ -112,7 +112,7 @@ def test_enum_sensor(
             "consecutive_alarm_disabled_notification",
             "security.alarm.state",
             "consecutiveAlarmDisabledNotification",
-            True,
+            False,
         ),
         (
             "passive_entry_bluetooth_in_ccc",

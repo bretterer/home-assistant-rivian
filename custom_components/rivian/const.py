@@ -929,6 +929,7 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
             translation_key="vas_secure_element_faulted",
             field="vasSecureElementFaulted",
             entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
             device_class=SensorDeviceClass.ENUM,
             options=[
                 "no_failure",
@@ -944,6 +945,7 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
             translation_key="vas_access_can_faulted",
             field="vasAccessCanFaulted",
             entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
             device_class=SensorDeviceClass.ENUM,
             options=["no_failure", "failure"],
         ),
@@ -1404,6 +1406,7 @@ BINARY_SENSORS: Final[
             field="consecutiveAlarmDisabledNotification",
             translation_key="consecutive_alarm_disabled_notification",
             entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
             on_value=[True],
         ),
         # From vehicle_access.state.passive_entry, which hasn't been seen from a

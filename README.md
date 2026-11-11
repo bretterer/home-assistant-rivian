@@ -130,7 +130,7 @@ Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
 | Charging time remaining validity                    | Sensor         | Whether the charging time remaining is valid, or the battery is discharging                                                    |
 | Closure state                                       | Binary sensor  | Open/closed status of all closures                                                                                             |
 | Cold range notification                             | Sensor         | Whether cold weather is reducing range                                                                                         |
-| Consecutive alarm disabled notification             | Binary sensor  | On/off status                                                                                                                  |
+| Consecutive alarm disabled notification\*           | Binary sensor  | On/off status                                                                                                                  |
 | Defrost/defog                                       | Binary sensor  | Running/not running status                                                                                                     |
 | Destination                                         | Sensor         | Final stop of the active navigation trip                                                                                       |
 | Destination ETA                                     | Sensor         | Estimated arrival at the destination                                                                                           |
@@ -222,8 +222,8 @@ Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
 | Tonneau                                             | Binary sensor  | Open/close status, R1T with a powered tonneau only                                                                             |
 | Tonneau lock                                        | Binary sensor  | Locked/unlocked status, R1T with a powered tonneau only                                                                        |
 | Trailer status                                      | Sensor         |                                                                                                                                |
-| Vehicle access CAN fault                            | Sensor         |                                                                                                                                |
-| Vehicle access secure element fault                 | Sensor         |                                                                                                                                |
+| Vehicle access CAN fault\*                          | Sensor         |                                                                                                                                |
+| Vehicle access secure element fault\*               | Sensor         |                                                                                                                                |
 | _Vehicle name_                                      | Device tracker | Vehicle location, named after the vehicle itself                                                                               |
 | Vehicle updates                                     | Binary sensor  | OK/problem status: a problem when nothing has arrived from Rivian for 10 minutes                                               |
 | Vented seat front left                              | Binary sensor  | Running/not running status                                                                                                     |
