@@ -244,6 +244,22 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
             ],
         ),
         RivianSensorEntityDescription(
+            key="charging_trip_target_soc",
+            translation_key="charging_trip_target_soc",
+            field="chargingTripTargetSoc",
+            native_unit_of_measurement=PERCENTAGE,
+            supported_feature="CHARG_TRIP_TARGET",
+        ),
+        RivianSensorEntityDescription(
+            key="charging_trip_target_time_remaining",
+            translation_key="charging_trip_target_time_remaining",
+            field="chargingTripTargetMinsRemaining",
+            device_class=SensorDeviceClass.DURATION,
+            native_unit_of_measurement=UnitOfTime.MINUTES,
+            state_class=SensorStateClass.MEASUREMENT,
+            supported_feature="CHARG_TRIP_TARGET",
+        ),
+        RivianSensorEntityDescription(
             key="distance_to_empty",
             field="distanceToEmpty",
             translation_key="distance_to_empty",
@@ -1421,7 +1437,12 @@ TRIP_INFO_FIELDS: Final[frozenset[str]] = frozenset(
 # Parallax fields whose None value means "not set", so it clears the field
 # rather than being skipped as unsent
 PARALLAX_NONE_CLEARS: Final[frozenset[str]] = frozenset(
-    {"otaScheduledInstallTime", *TRIP_INFO_FIELDS}
+    {
+        "chargingTripTargetMinsRemaining",
+        "chargingTripTargetSoc",
+        "otaScheduledInstallTime",
+        *TRIP_INFO_FIELDS,
+    }
 )
 
 # Parallax topics that send one message per device/schedule, which can't be

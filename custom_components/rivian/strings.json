@@ -953,6 +953,12 @@
           "calibrated": "Calibrated",
           "not_calibrated": "Not calibrated"
         }
+      },
+      "charging_trip_target_soc": {
+        "name": "Charging trip target"
+      },
+      "charging_trip_target_time_remaining": {
+        "name": "Charging trip target time remaining"
       }
     },
     "switch": {
