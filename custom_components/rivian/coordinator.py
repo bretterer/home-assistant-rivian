@@ -2130,6 +2130,8 @@ class RivianData:
     # Drive analytics, per VIN; empty while the option is off
     drive_trackers: dict[str, DriveTracker] = field(default_factory=dict)
     drive_stores: dict[str, DriveStore] = field(default_factory=dict)
+    # The image platform's hook for adding or updating a vehicle picture live
+    picture_platform: dict[str, Any] = field(default_factory=dict)
 
 
 type RivianConfigEntry = ConfigEntry[RivianData]

@@ -30,5 +30,10 @@ jobs:
       - name: Format check with ruff
         run: ruff format --check custom_components/ tests/ scripts/
 
+      - name: Set up Node (frontend card tests)
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
       - name: Run tests
         run: pytest tests/

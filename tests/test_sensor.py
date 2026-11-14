@@ -14,6 +14,7 @@ import yaml
 
 from custom_components.rivian import (
     ANALYTICS_RETRY_DELAYS_S,
+    async_setup as integration_async_setup,
     async_setup_entry as integration_async_setup_entry,
     async_unload_entry as integration_async_unload_entry,
 )
@@ -229,7 +230,10 @@ class TestTranslationFiles:
         with services_yaml_path.open("r", encoding="utf-8") as f:
             services_yaml = yaml.safe_load(f)
 
-        for svc in ("backfill_drive_history",):
+        for svc in (
+            "backfill_drive_history",
+            "create_efficiency_dashboard",
+        ):
             assert svc in strings_services, f"Missing service {svc} in strings.json"
             assert svc in en_services, f"Missing service {svc} in en.json"
             assert svc in services_yaml, f"Missing service {svc} in services.yaml"
@@ -1338,6 +1342,89 @@ class TestIntegrationLifecycle:
             # longer be present in hass.data at all.
             assert "_analytics_db" not in mock_hass.data.get(DOMAIN, {})
             mock_api.close.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_create_dashboard_service_rechecks_staleness_afterward(
+        self,
+        mock_hass: Any,
+        analytics_db: Any,
+        mock_vehicle_info: dict[str, Any],
+        mock_config_entry: MagicMock,
+    ) -> None:
+        """After (re)generating the dashboard, the staleness repair is rechecked immediately."""
+        mock_config_entry.options = {"drive_analytics": True}
+        await integration_async_setup(mock_hass, {})
+        mock_api = AsyncMock()
+        mock_api.create_csrf_token = AsyncMock()
+        mock_api.close = AsyncMock()
+
+        mock_user_coordinator = MagicMock()
+        mock_user_coordinator.async_config_entry_first_refresh = AsyncMock()
+        mock_user_coordinator.data = {"registrationChannels": []}
+        mock_user_coordinator.get_vehicles = MagicMock(
+            return_value={TEST_VEHICLE_ID: mock_vehicle_info}
+        )
+
+        mock_vehicle_coordinator = MockVehicleCoordinator()
+        mock_vehicle_coordinator.async_config_entry_first_refresh = AsyncMock()
+
+        mock_wallbox_coordinator = MagicMock()
+        mock_wallbox_coordinator.async_config_entry_first_refresh = AsyncMock()
+
+        mock_hass.config_entries = MagicMock()
+        mock_hass.config_entries.async_forward_entry_setups = AsyncMock()
+        mock_hass.config_entries.async_unload_platforms = AsyncMock(return_value=True)
+        mock_hass.config_entries.async_loaded_entries = MagicMock(
+            return_value=[mock_config_entry]
+        )
+
+        def _drive_store_factory(
+            *, hass: Any, vin: str, db: Any = None, **kwargs: Any
+        ) -> DriveStore:
+            return DriveStore(hass, vin, analytics_db, **kwargs)
+
+        with (
+            patch(
+                "custom_components.rivian.get_rivian_api_from_entry",
+                return_value=mock_api,
+            ),
+            patch(
+                "custom_components.rivian.UserCoordinator",
+                return_value=mock_user_coordinator,
+            ),
+            patch(
+                "custom_components.rivian.VehicleCoordinator",
+                return_value=mock_vehicle_coordinator,
+            ),
+            patch(
+                "custom_components.rivian.WallboxCoordinator",
+                return_value=mock_wallbox_coordinator,
+            ),
+            patch(
+                "custom_components.rivian.DriveStore",
+                side_effect=_drive_store_factory,
+            ),
+            patch(
+                "custom_components.rivian.AnalyticsDatabase",
+                return_value=analytics_db,
+            ),
+            patch(
+                "custom_components.rivian.async_create_efficiency_dashboard",
+                AsyncMock(),
+            ),
+        ):
+            assert await integration_async_setup_entry(mock_hass, mock_config_entry)
+
+            with patch(
+                "custom_components.rivian._async_check_dashboard_staleness",
+                AsyncMock(),
+            ) as mock_check:
+                await mock_hass.services.async_call(
+                    DOMAIN, "create_efficiency_dashboard", {}
+                )
+                mock_check.assert_awaited_once_with(mock_hass)
+
+            await integration_async_unload_entry(mock_hass, mock_config_entry)
 
 
 class TestAnalyticsOptIn:
