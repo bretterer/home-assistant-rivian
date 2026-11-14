@@ -32,7 +32,7 @@
         },
         "data_description": {
           "drive_analytics": "Record drives, GPS routes and charging sessions in a local database (.storage/rivian_analytics.db) for the drive sensors and statistics. Off by default; when off, nothing is recorded. Its settings are on the next page while it's on. Turning it off keeps the history already recorded and removes the drive sensors; removing the integration deletes the history.",
-          "weather_lookups": "When on, each vehicle gets an Outside temperature sensor and, with drive analytics on, each drive gets its outside temperature, from the public Open-Meteo API. Only coordinates rounded to about 1 km and times are sent. When off, nothing is sent: there is no Outside temperature sensor, and drives show no temperature."
+          "weather_lookups": "When on, each vehicle gets an Outside temperature sensor and, with drive analytics on, each drive and charging session gets its outside temperature, from the public Open-Meteo API. Only coordinates rounded to about 1 km and times are sent. When off, nothing is sent: there is no Outside temperature sensor, and drives and sessions show no temperature."
         }
       },
       "analytics": {
@@ -1587,6 +1587,26 @@
         "vin": {
           "name": "Vehicle VIN",
           "description": "Specific vehicle VIN to rebuild (leave blank for all configured vehicles)."
+        }
+      }
+    },
+    "import_charging_history": {
+      "name": "Import charging history from Rivian",
+      "description": "Imports the Rivian app's completed charging sessions (home and public) and merges them with the ones recorded here. A session that overlaps a stored one adds its vendor, home/public flag and measured energy; a missing one is added. Then looks up the station (brand, network, name, maximum kW) of fast charges from OpenStreetMap. Also runs once a day. Real vehicles only; never sends payment or account details.",
+      "fields": {
+        "vin": {
+          "name": "Vehicle VIN",
+          "description": "Specific vehicle VIN to process (leave blank for all configured vehicles)."
+        }
+      }
+    },
+    "infer_charging_sessions": {
+      "name": "Infer charging sessions from battery history",
+      "description": "Finds charges that the battery level history shows but that neither Home Assistant nor Rivian recorded (older data Rivian no longer stores) and adds them to the charging history, marked as inferred. Scans the whole battery history again and replaces the earlier inferred sessions; one you deleted stays deleted. The whole history is scanned once automatically after installing; after that a nightly run re-checks only the last few days, so this is only needed after changing how charges are detected. Real vehicles only.",
+      "fields": {
+        "vin": {
+          "name": "Vehicle VIN",
+          "description": "Specific vehicle VIN to process (leave blank for all configured vehicles)."
         }
       }
     }

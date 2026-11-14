@@ -175,6 +175,12 @@ def test_write_in_flight_finishes_before_checkpoint(
         lambda db: db.rebuild_places("real"),
         lambda db: db.rebuild_routes("real"),
         lambda db: db.sync_zones("real", []),
+        lambda db: db.save_cached_osm("chg:1,2", {"x": 1}),
+        lambda db: db.upsert_capacity_history(
+            "V1", [{"day": "2026-01-01", "kwh": 100.0, "source": "drive"}]
+        ),
+        lambda db: db.replace_inferred_sessions("V1", []),
+        lambda db: db.delete_dcfc_session("V1", "nope"),
     ],
     ids=[
         "delete_drives",
@@ -185,6 +191,10 @@ def test_write_in_flight_finishes_before_checkpoint(
         "rebuild_places",
         "rebuild_routes",
         "sync_zones",
+        "save_cached_osm",
+        "upsert_capacity_history",
+        "replace_inferred_sessions",
+        "delete_dcfc_session",
     ],
 )
 def test_drive_map_writes_wait_for_the_hold(
