@@ -105,6 +105,25 @@ export function socColor(soc) {
   return "var(--error-color, #db4437)";
 }
 
+/**
+ * Whether a typed confirmation (from `window.prompt`) matches a vehicle's
+ * name, trimmed and case-insensitive. `null`/`undefined` (a cancelled
+ * prompt) never matches.
+ */
+export function confirmMatches(input, name) {
+  if (input === null || input === undefined) return false;
+  if (typeof name !== "string") return false;
+  return input.trim().toLowerCase() === name.trim().toLowerCase();
+}
+
+/**
+ * Text for the "Delete vehicle history…" prompt. The vehicle keeps
+ * recording new drives afterward.
+ */
+export function deleteVehicleMessage(name) {
+  return `This permanently deletes ALL recorded drives, routes, charging sessions and statistics for “${name}”. New drives will still be recorded for a real vehicle. Type the vehicle name to confirm:`;
+}
+
 /** Human label for a device_tracker location state. */
 export function locationLabel(state) {
   if (state === null || state === undefined) return null;
@@ -498,6 +517,29 @@ const _CARD_STYLE = `
     text-align: left;
     font-family: inherit;
   }
+  button.roc-last-drive {
+    cursor: pointer;
+  }
+  .roc-last-drive ha-icon {
+    --mdc-icon-size: 18px;
+    flex-shrink: 0;
+  }
+  .roc-delete-link {
+    display: block;
+    margin: 10px 16px 14px;
+    padding: 0;
+    border: none;
+    background: none;
+    font: inherit;
+    font-size: 0.78em;
+    color: var(--secondary-text-color);
+    cursor: pointer;
+    text-align: left;
+  }
+  .roc-delete-link:hover {
+    color: var(--error-color, #db4437);
+    text-decoration: underline;
+  }
   .roc-empty {
     padding: 24px;
     text-align: center;
@@ -546,6 +588,7 @@ class RivianOverviewCard extends BaseElement {
       // existed when the card was built; _renderImage skips unchanged images.
       this._renderImage(v, darkChanged);
       this._maybeUpdateStatus(v);
+      this._renderDeleteLink(v);
       if (!v.started && v.vin) {
         v.started = true;
         this._fetchStats(v);
@@ -874,15 +917,49 @@ class RivianOverviewCard extends BaseElement {
     v.statsErrorEl.style.display = "none";
     v.card.appendChild(v.statsErrorEl);
 
-    v.lastDriveEl = document.createElement("div");
+    // drives_path is card-level config (shared by every vehicle).
+    const drivesPath = this._config && this._config.drives_path;
+    v.lastDriveEl = document.createElement(drivesPath ? "button" : "div");
+    if (drivesPath) {
+      v.lastDriveEl.type = "button";
+    }
     v.lastDriveEl.className = "roc-last-drive";
     v.lastDriveEl.style.display = "none";
     v.card.appendChild(v.lastDriveEl);
 
+    v.deleteLinkEl = document.createElement("button");
+    v.deleteLinkEl.type = "button";
+    v.deleteLinkEl.className = "roc-delete-link";
+    v.deleteLinkEl.title = "Permanently delete every recorded drive and charge for this vehicle (asks for confirmation)";
+    v.deleteLinkEl.style.display = "none";
+    _escapeText(v.deleteLinkEl, "Delete vehicle history…");
+    v.deleteLinkEl.addEventListener("click", () => {
+      this._confirmDeleteVehicleHistory(v).catch((err) =>
+        console.error("rivian-overview-card: delete vehicle history failed", err)
+      );
+    });
+    v.card.appendChild(v.deleteLinkEl);
+
     this._renderImage(v);
     this._renderStatus(v);
     this._renderStats(v);
+    this._renderDeleteLink(v);
     return v;
+  }
+
+  /** Shows the admin-only "Delete vehicle history…" link once hass/vin are known. */
+  _renderDeleteLink(v) {
+    const isAdmin = !!(this._hass && this._hass.user && this._hass.user.is_admin);
+    v.deleteLinkEl.style.display = isAdmin && v.vin ? "block" : "none";
+  }
+
+  async _confirmDeleteVehicleHistory(v) {
+    if (!v.vin) return;
+    const name = (v.config && v.config.name) || "this vehicle";
+    const input = window.prompt(deleteVehicleMessage(name));
+    if (!confirmMatches(input, name)) return;
+    await this._hass.callWS({ type: "rivian/analytics/delete_vehicle_history", vin: v.vin });
+    await this._fetchStats(v);
   }
 
   _observeResize() {
@@ -919,6 +996,13 @@ class RivianOverviewCard extends BaseElement {
         composed: true,
       })
     );
+  }
+
+  _navigateToDrives() {
+    const path = this._config && this._config.drives_path;
+    if (!path) return;
+    history.pushState(null, "", path);
+    window.dispatchEvent(new CustomEvent("location-changed", { detail: { replace: false } }));
   }
 
   // -- Live status -----------------------------------------------------
@@ -1196,11 +1280,19 @@ class RivianOverviewCard extends BaseElement {
 
     const text = lastDriveText(v.lastDrive);
     if (text) {
+      const clickable = !!(this._config && this._config.drives_path);
+      if (clickable) v.lastDriveEl.type = "button";
       v.lastDriveEl.style.display = "flex";
       const label = document.createElement("span");
       _escapeText(label, text);
       v.lastDriveEl.appendChild(label);
-      v.lastDriveEl.title = "Last recorded drive";
+      v.lastDriveEl.title = clickable ? "Last drive — tap to open the Drives tab" : "Last recorded drive";
+      if (clickable) {
+        const chevron = document.createElement("ha-icon");
+        chevron.setAttribute("icon", "mdi:chevron-right");
+        v.lastDriveEl.appendChild(chevron);
+        v.lastDriveEl.onclick = () => this._navigateToDrives();
+      }
     }
   }
 }

@@ -271,8 +271,8 @@ def _find_cards(node: Any) -> list[dict[str, Any]]:
 
 
 @pytest.mark.asyncio
-async def test_one_vehicle_produces_one_tab_with_no_picker() -> None:
-    """A single vehicle gets a plain one-tab dashboard: no picker, no conditionals."""
+async def test_one_vehicle_produces_two_tabs_in_order_with_no_picker() -> None:
+    """A single vehicle gets a plain 2-tab dashboard: no picker, no conditionals."""
     hass = _hass_with_one_vehicle()
     saved: dict[str, Any] = {}
     registry = _MockEntityRegistry()
@@ -293,10 +293,21 @@ async def test_one_vehicle_produces_one_tab_with_no_picker() -> None:
     assert config["schema_version"] == DASHBOARD_SCHEMA_VERSION
     views = config["views"]
     # Paths stay stable for bookmarks; titles are the user-facing names.
-    assert [v["path"] for v in views] == ["overview"]
-    assert [v["title"] for v in views] == ["Vehicles"]
+    assert [v["path"] for v in views] == [
+        "overview",
+        "drives",
+    ]
+    assert [v["title"] for v in views] == [
+        "Vehicles",
+        "Drives",
+    ]
     # Every tab shows its icon and its name.
     assert all(v.get("show_icon_and_title") is True and v.get("icon") for v in views)
+
+    drives_view = views[1]
+    assert drives_view["panel"] is True
+    assert len(drives_view["cards"]) == 1
+    assert drives_view["cards"][0] == {"type": "custom:rivian-drive-explorer-card"}
 
     all_cards = _find_cards(views)
     assert not any(c.get("type") == "tile" and "picker" in str(c) for c in all_cards)
@@ -309,13 +320,14 @@ async def test_one_vehicle_produces_one_tab_with_no_picker() -> None:
             "vehicles": [
                 {"vin": TEST_VIN, "name": "Rivi", "model": "", "entities": {}}
             ],
+            "drives_path": "/rivian-dashboard/drives",
         }
     ]
 
 
 @pytest.mark.asyncio
-async def test_no_vin_vehicle_gets_only_the_overview() -> None:
-    """Without a resolved VIN, the dashboard is just the Overview tab."""
+async def test_no_vin_vehicle_has_no_explorer_cards() -> None:
+    """Without a resolved VIN, no drive-explorer cards render."""
     hass = MagicMock()
     hass.data = {}
     hass.states.async_entity_ids.return_value = ["sensor.rivian_last_drive_efficiency"]
@@ -338,15 +350,20 @@ async def test_no_vin_vehicle_gets_only_the_overview() -> None:
 
     views = saved["lovelace.rivian_dashboard"]["config"]["views"]
     all_cards = _find_cards(views)
-    assert [v["path"] for v in views] == ["overview"]
-    assert not any(c.get("type") == "custom:rivian-series-card" for c in all_cards)
+    assert not any(
+        c.get("type") == "custom:rivian-drive-explorer-card" for c in all_cards
+    )
+    # The Drives tab has nothing to show for a vin-less vehicle.
+    drives_view = next(v for v in views if v["path"] == "drives")
+    assert drives_view["cards"] == []
 
 
 @pytest.mark.asyncio
 async def test_two_vehicles_get_one_card_per_tab_and_no_picker() -> None:
     """Multi-vehicle dashboards have no picker or conditional.
 
-    Overview is the only tab and has no bar card.
+    Drives holds ONE card (no vin: it follows the shared vehicle
+    selection); Overview has no bar card.
     """
     hass, registry = _hass_with_two_vehicles()
     saved: dict[str, Any] = {}
@@ -380,6 +397,11 @@ async def test_two_vehicles_get_one_card_per_tab_and_no_picker() -> None:
     assert not any(
         c.get("type") == "custom:rivian-vehicle-bar-card" for c in _find_cards(overview)
     )
+
+    for path, card_type in (("drives", "custom:rivian-drive-explorer-card"),):
+        view = next(v for v in views if v["path"] == path)
+        assert view["panel"] is True
+        assert view["cards"] == [{"type": card_type}]
 
 
 @pytest.mark.asyncio

@@ -311,6 +311,51 @@ class TestBackfillEdgeCases:
         assert stats_all_2.total_miles == 0.50
         assert stats_all_2.total_micro_drives == 1
 
+    @pytest.mark.asyncio
+    async def test_clean_reset_and_storage_deletion_zero_residue(
+        self, mock_hass: Any, analytics_db: Any
+    ) -> None:
+        """Test deleting storage via async_reset() completely removes all state and rows."""
+        store = DriveStore(mock_hass, "RESET_TEST_VIN", analytics_db)
+        await store.async_load()
+
+        drive = DriveRecord(
+            vin="RESET_TEST_VIN",
+            drive_id="reset_drive_01",
+            start_time="2026-08-20T10:00:00Z",
+            end_time="2026-08-20T10:30:00Z",
+            distance_miles=15.0,
+            duration_seconds=1800.0,
+            start_soc=80.0,
+            end_soc=75.0,
+            battery_capacity_kwh=135.0,
+            energy_kwh=6.75,
+        )
+        await store.async_save_drive(drive)
+        assert store.drive_count == 1
+        assert store.last_drive is not None
+
+        with analytics_db._lock:
+            row = analytics_db._conn.execute(
+                "SELECT COUNT(*) AS c FROM drives WHERE vin = ?", ("RESET_TEST_VIN",)
+            ).fetchone()
+        assert row["c"] == 1
+
+        # Reset
+        await store.async_reset()
+        assert store.drive_count == 0
+        assert store.last_drive is None
+
+        with analytics_db._lock:
+            row = analytics_db._conn.execute(
+                "SELECT COUNT(*) AS c FROM drives WHERE vin = ?", ("RESET_TEST_VIN",)
+            ).fetchone()
+        assert row["c"] == 0
+
+        # Re-load: still empty, no residue
+        await store.async_load()
+        assert store.drive_count == 0
+
     def test_speed_bins_comprehensive_ranges(self) -> None:
         """Test speed bin boundaries across negative, zero, bin borders, and extreme speeds."""
         cases = [

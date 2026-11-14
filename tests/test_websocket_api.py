@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from datetime import datetime
+import threading
 from types import SimpleNamespace
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -28,8 +30,12 @@ from custom_components.rivian.websocket_api import (
     VEHICLE_PALETTE,
     _build_series_payload,
     _multi_vin_schema,
+    _websocket_analytics_calendar,
+    _websocket_analytics_day,
     _websocket_analytics_drive,
     _websocket_analytics_drives,
+    _websocket_analytics_heat,
+    _websocket_analytics_heat_tile,
     _websocket_analytics_series,
     _websocket_analytics_subscribe,
     _websocket_analytics_summary,
@@ -650,6 +656,645 @@ async def test_summary_unknown_vin_is_not_found() -> None:
     assert connection.errors[1][0] == "not_found"
 
 
+# -- rivian/analytics/calendar and /day ----------------------------------------
+
+
+class _FakeCalendarDayStore:
+    """The slice of DriveStore's async surface the calendar/day handlers call."""
+
+    def __init__(
+        self,
+        vin: str = VIN,
+        calendar_payload: dict[str, Any] | None = None,
+        day_payload: dict[str, Any] | None = None,
+    ) -> None:
+        self.vin = vin
+        self._calendar_payload = calendar_payload or {"totals": {}, "years": []}
+        self._day_payload = day_payload or {
+            "date": "2026-09-10",
+            "totals": {},
+            "segments": [],
+            "stops": [],
+            "start": None,
+            "end": None,
+        }
+        self.calendar_calls: list[tuple[Any, int | None, int | None, bool]] = []
+        self.day_calls: list[tuple[Any, Any, bool]] = []
+
+    async def async_calendar(
+        self,
+        tz: Any,
+        year: int | None = None,
+        month: int | None = None,
+        include_micro: bool = False,
+    ) -> dict[str, Any]:
+        self.calendar_calls.append((tz, year, month, include_micro))
+        return self._calendar_payload
+
+    async def async_day(
+        self, tz: Any, day: Any, include_micro: bool = False
+    ) -> dict[str, Any]:
+        self.day_calls.append((tz, day, include_micro))
+        return self._day_payload
+
+
+async def test_calendar_command_returns_payload_and_resolves_default_tz() -> None:
+    payload = {"totals": {"drives": 3}, "years": [{"key": "2026", "drives": 3}]}
+    store = _FakeCalendarDayStore(calendar_payload=payload)
+    hass = _hass_with_store(store)
+    connection = _FakeConnection()
+
+    await _websocket_analytics_calendar(
+        hass, connection, {"id": 1, "vin": VIN, "year": 2026, "month": 9}
+    )
+
+    assert connection.results[1] == payload
+    assert store.calendar_calls == [(store.calendar_calls[0][0], 2026, 9, False)]
+
+
+async def test_calendar_command_month_without_year_is_invalid_format() -> None:
+    store = _FakeCalendarDayStore()
+    hass = _hass_with_store(store)
+    connection = _FakeConnection()
+
+    await _websocket_analytics_calendar(
+        hass, connection, {"id": 1, "vin": VIN, "month": 9}
+    )
+
+    assert connection.errors[1][0] == "invalid_format"
+    assert 1 not in connection.results
+    assert store.calendar_calls == []
+
+
+async def test_calendar_command_unknown_vin_is_not_found() -> None:
+    store = _FakeCalendarDayStore()
+    hass = _hass_with_store(store)
+    connection = _FakeConnection()
+
+    await _websocket_analytics_calendar(hass, connection, {"id": 1, "vin": OTHER_VIN})
+
+    assert connection.errors[1][0] == "not_found"
+
+
+async def test_day_command_returns_payload_and_strips_sort_ts() -> None:
+    day_payload = {
+        "date": "2026-09-10",
+        "totals": {"drives": 1},
+        "segments": [{"index": 0, "drive_id": "d1", "sort_ts": 123.0}],
+        "stops": [],
+        "start": None,
+        "end": None,
+    }
+    store = _FakeCalendarDayStore(day_payload=day_payload)
+    hass = _hass_with_store(store)
+    connection = _FakeConnection()
+
+    await _websocket_analytics_day(
+        hass, connection, {"id": 1, "vin": VIN, "date": "2026-09-10"}
+    )
+
+    result = connection.results[1]
+    assert result["date"] == "2026-09-10"
+    assert "sort_ts" not in result["segments"][0]
+    assert store.day_calls[0][2] is False
+
+
+async def test_day_command_bad_date_is_invalid_format() -> None:
+    store = _FakeCalendarDayStore()
+    hass = _hass_with_store(store)
+    connection = _FakeConnection()
+
+    await _websocket_analytics_day(
+        hass, connection, {"id": 1, "vin": VIN, "date": "not-a-date"}
+    )
+
+    assert connection.errors[1][0] == "invalid_format"
+    assert 1 not in connection.results
+    assert store.day_calls == []
+
+
+async def test_day_command_unknown_vin_is_not_found() -> None:
+    store = _FakeCalendarDayStore()
+    hass = _hass_with_store(store)
+    connection = _FakeConnection()
+
+    await _websocket_analytics_day(
+        hass, connection, {"id": 1, "vin": OTHER_VIN, "date": "2026-09-10"}
+    )
+
+    assert connection.errors[1][0] == "not_found"
+
+
+async def test_calendar_and_day_commands_only_reach_sqlite_via_the_executor(
+    mock_hass: Any, analytics_db_path: str
+) -> None:
+    """The handlers must go through DriveStore's executor wrappers, not the loop.
+
+    Points ``AnalyticsDatabase``'s executor-thread guard at *this* (main test)
+    thread, mirroring ``test_executor_thread_guard_raises_on_loop_thread`` in
+    ``tests/test_analytics_db.py``: a direct, synchronous call into
+    ``calendar()``/``day()`` now raises, while going through the real
+    WebSocket handlers (which only ever call the ``async_`` wrappers, which
+    run on ``hass.async_add_executor_job``'s thread pool) still succeeds.
+    """
+    from custom_components.rivian.analytics_db import AnalyticsDatabase
+    from custom_components.rivian.drive_models import DriveRecord
+    from custom_components.rivian.drive_storage import DriveStore
+
+    db = AnalyticsDatabase(mock_hass, db_path=analytics_db_path)
+    db.setup()
+    store = DriveStore(mock_hass, VIN, db)
+    try:
+        await store.async_save_drives_batch(
+            [
+                DriveRecord(
+                    vin=VIN,
+                    drive_id="d1",
+                    start_time="2026-09-10T15:00:00Z",
+                    end_time="2026-09-10T15:25:00Z",
+                    distance_miles=5.0,
+                    duration_seconds=600.0,
+                    start_soc=80.0,
+                    end_soc=75.0,
+                    battery_capacity_kwh=135.0,
+                    energy_kwh=2.0,
+                )
+            ]
+        )
+
+        # Force the guard: any direct, synchronous DB call from this thread
+        # must now raise, proving the assertion actually protects us.
+        db._loop_thread_id = threading.get_ident()
+        with pytest.raises(RuntimeError, match="executor"):
+            db.calendar(VIN, ZoneInfo("America/Chicago"))
+
+        hass = _hass_with_store(store)
+        connection = _FakeConnection()
+        await _websocket_analytics_calendar(
+            hass, connection, {"id": 1, "vin": VIN, "year": 2026, "month": 9}
+        )
+        assert connection.results[1]["totals"]["drives"] == 1
+
+        connection2 = _FakeConnection()
+        await _websocket_analytics_day(
+            hass, connection2, {"id": 1, "vin": VIN, "date": "2026-09-10"}
+        )
+        assert [s["drive_id"] for s in connection2.results[1]["segments"]] == ["d1"]
+    finally:
+        db._loop_thread_id = -1
+        db.close()
+
+
+# -- rivian/analytics/heat and /heat_tile --------------------------------------
+
+
+class _FakeHeatStore:
+    """The slice of DriveStore's async surface the heat/heat_tile handlers call."""
+
+    def __init__(
+        self,
+        vin: str = VIN,
+        info_payload: dict[str, Any] | None = None,
+        tile_payload: dict[str, Any] | None = None,
+        raise_value_error: str | None = None,
+    ) -> None:
+        self.vin = vin
+        self._info_payload = info_payload or {
+            "period": "all",
+            "key": "all",
+            "bbox": None,
+            "scale_max": 2,
+            "cells": 0,
+            "drives": 0,
+        }
+        self._tile_payload = tile_payload or {"level": 21, "size": 1, "cells": []}
+        self._raise_value_error = raise_value_error
+        self.info_calls: list[tuple[str, str | None]] = []
+        self.tile_calls: list[tuple[str, str | None, int, int, int]] = []
+        self.tile_margins: list[int] = []
+
+    async def async_heat_info(
+        self, period: str, key: str | None = None
+    ) -> dict[str, Any]:
+        if self._raise_value_error:
+            raise ValueError(self._raise_value_error)
+        self.info_calls.append((period, key))
+        return self._info_payload
+
+    async def async_heat_tile(
+        self, period: str, key: str | None, z: int, x: int, y: int, margin: int = 0
+    ) -> dict[str, Any]:
+        if self._raise_value_error:
+            raise ValueError(self._raise_value_error)
+        self.tile_calls.append((period, key, z, x, y))
+        self.tile_margins.append(margin)
+        return self._tile_payload
+
+
+async def test_heat_command_returns_payload() -> None:
+    payload = {
+        "period": "month",
+        "key": "2026-09",
+        "bbox": [40.0, -105.1, 40.1, -105.0],
+        "scale_max": 5,
+        "cells": 12,
+        "drives": 3,
+    }
+    store = _FakeHeatStore(info_payload=payload)
+    hass = _hass_with_store(store)
+    connection = _FakeConnection()
+
+    await _websocket_analytics_heat(
+        hass, connection, {"id": 1, "vin": VIN, "period": "month", "key": "2026-09"}
+    )
+
+    assert connection.results[1] == payload
+    assert store.info_calls == [("month", "2026-09")]
+
+
+async def test_heat_command_invalid_format_from_a_bad_key() -> None:
+    store = _FakeHeatStore(raise_value_error="road_heat: invalid month key 'bogus'")
+    hass = _hass_with_store(store)
+    connection = _FakeConnection()
+
+    await _websocket_analytics_heat(
+        hass, connection, {"id": 1, "vin": VIN, "period": "month", "key": "bogus"}
+    )
+
+    assert connection.errors[1][0] == "invalid_format"
+    assert 1 not in connection.results
+
+
+async def test_heat_command_unknown_vin_is_not_found() -> None:
+    store = _FakeHeatStore()
+    hass = _hass_with_store(store)
+    connection = _FakeConnection()
+
+    await _websocket_analytics_heat(
+        hass, connection, {"id": 1, "vin": OTHER_VIN, "period": "all"}
+    )
+
+    assert connection.errors[1][0] == "not_found"
+
+
+async def test_heat_tile_command_returns_payload_with_scale_max() -> None:
+    payload = {"level": 21, "size": 1, "cells": [[0, 0, 3]]}
+    store = _FakeHeatStore(tile_payload=payload)
+    hass = _hass_with_store(store)
+    connection = _FakeConnection()
+
+    await _websocket_analytics_heat_tile(
+        hass,
+        connection,
+        {"id": 1, "vin": VIN, "period": "all", "z": 10, "x": 163, "y": 396},
+    )
+
+    assert connection.results[1] == payload
+    assert store.tile_calls == [("all", None, 10, 163, 396)]
+
+
+async def test_heat_tile_command_passes_the_margin_through() -> None:
+    store = _FakeHeatStore(tile_payload={"level": 21, "size": 1, "cells": []})
+    hass = _hass_with_store(store)
+
+    await _websocket_analytics_heat_tile(
+        hass,
+        _FakeConnection(),
+        {"id": 1, "vin": VIN, "period": "all", "z": 10, "x": 1, "y": 2, "margin": 1},
+    )
+
+    assert store.tile_margins == [1]
+
+
+async def test_heat_tile_command_invalid_format_from_an_out_of_range_tile() -> None:
+    store = _FakeHeatStore(
+        raise_value_error="road_heat: tile (10,9999,9999) out of range"
+    )
+    hass = _hass_with_store(store)
+    connection = _FakeConnection()
+
+    await _websocket_analytics_heat_tile(
+        hass,
+        connection,
+        {"id": 1, "vin": VIN, "period": "all", "z": 10, "x": 9999, "y": 9999},
+    )
+
+    assert connection.errors[1][0] == "invalid_format"
+    assert 1 not in connection.results
+
+
+async def test_heat_tile_command_unknown_vin_is_not_found() -> None:
+    store = _FakeHeatStore()
+    hass = _hass_with_store(store)
+    connection = _FakeConnection()
+
+    await _websocket_analytics_heat_tile(
+        hass,
+        connection,
+        {"id": 1, "vin": OTHER_VIN, "period": "all", "z": 1, "x": 0, "y": 0},
+    )
+
+    assert connection.errors[1][0] == "not_found"
+
+
+async def test_heat_and_heat_tile_commands_only_reach_sqlite_via_the_executor(
+    mock_hass: Any, analytics_db_path: str
+) -> None:
+    """Mirrors the calendar/day executor-boundary test for the heat handlers."""
+    from custom_components.rivian.analytics_db import AnalyticsDatabase
+    from custom_components.rivian.drive_storage import DriveStore
+    from custom_components.rivian.drive_track import DriveTrack, TrackPoint
+
+    db = AnalyticsDatabase(mock_hass, db_path=analytics_db_path)
+    db.setup()
+    store = DriveStore(mock_hass, VIN, db)
+    try:
+        track = DriveTrack()
+        track.append(TrackPoint(t=1_700_000_000.0, lat=40.0, lon=-105.0))
+        track.append(TrackPoint(t=1_700_000_010.0, lat=40.001, lon=-105.001))
+        await store.async_upsert_tracks([("d1", track)])
+        await store.async_update_heat()
+
+        # Point the executor-thread guard at *this* (main test) thread: a
+        # direct, synchronous call into heat_info()/heat_tile() now raises,
+        # while going through the real WebSocket handlers still succeeds.
+        db._loop_thread_id = threading.get_ident()
+        with pytest.raises(RuntimeError, match="executor"):
+            db.heat_info(VIN, "all")
+
+        hass = _hass_with_store(store)
+        connection = _FakeConnection()
+        await _websocket_analytics_heat(
+            hass, connection, {"id": 1, "vin": VIN, "period": "all"}
+        )
+        assert connection.results[1]["drives"] == 1
+
+        connection2 = _FakeConnection()
+        await _websocket_analytics_heat_tile(
+            hass,
+            connection2,
+            {"id": 1, "vin": VIN, "period": "all", "z": 1, "x": 0, "y": 0},
+        )
+        assert "scale_max" in connection2.results[1]
+    finally:
+        db._loop_thread_id = -1
+        db.close()
+
+
+def _registered_schemas(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """Register the commands against a real base schema; return {type: schema}.
+
+    Skips where voluptuous is conftest's stand-in (it has no working
+    Schema.extend); CI installs the real library with Home Assistant.
+    """
+    import voluptuous as vol
+
+    if not hasattr(vol.Schema({}), "extend"):
+        pytest.skip("real voluptuous is not installed")
+
+    schemas: dict[str, Any] = {}
+
+    def capture(_hass: Any, command_type: str, _handler: Any, schema: Any) -> None:
+        schemas[command_type] = schema
+
+    ws = ws_api_module.websocket_api
+    monkeypatch.setattr(
+        ws,
+        "BASE_COMMAND_MESSAGE_SCHEMA",
+        vol.Schema({vol.Required("id"): int, vol.Required("type"): str}),
+    )
+    monkeypatch.setattr(ws, "async_register_command", capture)
+    ws_api_module.async_register_websocket_api(SimpleNamespace(data={}))
+    return schemas
+
+
+def test_schemas_accept_the_messages_the_drives_card_sends(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The explorer card's requests, including "All time" without (or with a null) key."""
+    schemas = _registered_schemas(monkeypatch)
+    vin = "VIN123"
+    messages = [
+        {"type": "rivian/analytics/calendar", "vin": vin},
+        {"type": "rivian/analytics/calendar", "vin": vin, "year": 2026, "month": 9},
+        {"type": "rivian/analytics/day", "vin": vin, "date": "2026-09-16"},
+        {"type": "rivian/analytics/heat", "vin": vin, "period": "all"},
+        {"type": "rivian/analytics/heat", "vin": vin, "period": "all", "key": None},
+        {
+            "type": "rivian/analytics/heat",
+            "vin": vin,
+            "period": "month",
+            "key": "2026-09",
+        },
+        {
+            "type": "rivian/analytics/heat_tile",
+            "vin": vin,
+            "period": "all",
+            "z": 12,
+            "x": 757,
+            "y": 1478,
+        },
+        {
+            "type": "rivian/analytics/heat_tile",
+            "vin": vin,
+            "period": "year",
+            "key": "2026",
+            "z": 3,
+            "x": 1,
+            "y": 2,
+            "margin": 1,
+        },
+    ]
+    for i, message in enumerate(messages, start=1):
+        schemas[message["type"]]({"id": i, **message})
+
+
+def test_schemas_reject_malformed_heat_requests(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import voluptuous as vol
+
+    schemas = _registered_schemas(monkeypatch)
+    bad = [
+        {"type": "rivian/analytics/heat", "vin": "V", "period": "week"},
+        {
+            "type": "rivian/analytics/heat_tile",
+            "vin": "V",
+            "period": "all",
+            "z": 23,
+            "x": 0,
+            "y": 0,
+        },
+        {"type": "rivian/analytics/calendar", "vin": "V", "year": 2026, "month": 13},
+    ]
+    for message in bad:
+        with pytest.raises(vol.Invalid):
+            schemas[message["type"]]({"id": 1, **message})
+
+
+def _admin_connection(is_admin: bool = True) -> _FakeConnection:
+    connection = _FakeConnection()
+    connection.user = SimpleNamespace(is_admin=is_admin)
+    return connection
+
+
+# -- delete, with confirmation: /delete_drive, /delete_day, /delete_vehicle_history ----
+
+
+class _FakeDeleteStore:
+    """The slice of DriveStore's async surface the delete handlers call."""
+
+    def __init__(self, vin: str = VIN) -> None:
+        self.vin = vin
+        self.deleted_drive_ids: list[str] = []
+        self.deleted_days: list[Any] = []
+        self.vehicle_history_deleted = False
+        self.drive_result: dict[str, Any] = {"deleted": 1, "affected_hours": [0.0]}
+        self.day_result: dict[str, Any] = {"deleted": 2, "affected_hours": [0.0]}
+
+    async def async_delete_drive(self, drive_id: str) -> dict[str, Any]:
+        self.deleted_drive_ids.append(drive_id)
+        return self.drive_result
+
+    async def async_delete_day(self, tz: Any, day: Any) -> dict[str, Any]:
+        self.deleted_days.append(day)
+        return self.day_result
+
+    async def async_delete_vehicle_history(self) -> None:
+        self.vehicle_history_deleted = True
+
+
+async def test_delete_drive_admin_succeeds() -> None:
+    store = _FakeDeleteStore()
+    hass = _hass_with_store(store)
+    connection = _admin_connection(is_admin=True)
+
+    await ws_api_module._websocket_analytics_delete_drive(
+        hass, connection, {"id": 1, "vin": VIN, "drive_id": "d1"}
+    )
+
+    assert store.deleted_drive_ids == ["d1"]
+    assert connection.results[1] == store.drive_result
+
+
+async def test_delete_drive_rejects_non_admin() -> None:
+    store = _FakeDeleteStore()
+    hass = _hass_with_store(store)
+    connection = _admin_connection(is_admin=False)
+
+    await ws_api_module._websocket_analytics_delete_drive(
+        hass, connection, {"id": 1, "vin": VIN, "drive_id": "d1"}
+    )
+
+    assert store.deleted_drive_ids == []
+    assert connection.errors[1][0] == "unauthorized"
+
+
+async def test_delete_drive_unknown_vin_is_not_found() -> None:
+    store = _FakeDeleteStore()
+    hass = _hass_with_store(store)
+    connection = _admin_connection(is_admin=True)
+
+    await ws_api_module._websocket_analytics_delete_drive(
+        hass, connection, {"id": 1, "vin": OTHER_VIN, "drive_id": "d1"}
+    )
+
+    assert connection.errors[1][0] == "not_found"
+
+
+async def test_delete_day_admin_succeeds() -> None:
+    store = _FakeDeleteStore()
+    hass = _hass_with_store(store)
+    connection = _admin_connection(is_admin=True)
+
+    await ws_api_module._websocket_analytics_delete_day(
+        hass, connection, {"id": 1, "vin": VIN, "date": "2026-09-20"}
+    )
+
+    assert len(store.deleted_days) == 1
+    assert connection.results[1] == store.day_result
+
+
+async def test_delete_day_rejects_non_admin() -> None:
+    store = _FakeDeleteStore()
+    hass = _hass_with_store(store)
+    connection = _admin_connection(is_admin=False)
+
+    await ws_api_module._websocket_analytics_delete_day(
+        hass, connection, {"id": 1, "vin": VIN, "date": "2026-09-20"}
+    )
+
+    assert store.deleted_days == []
+    assert connection.errors[1][0] == "unauthorized"
+
+
+async def test_delete_day_invalid_date_is_invalid_format() -> None:
+    store = _FakeDeleteStore()
+    hass = _hass_with_store(store)
+    connection = _admin_connection(is_admin=True)
+
+    await ws_api_module._websocket_analytics_delete_day(
+        hass, connection, {"id": 1, "vin": VIN, "date": "not-a-date"}
+    )
+
+    assert connection.errors[1][0] == "invalid_format"
+    assert store.deleted_days == []
+
+
+async def test_delete_vehicle_history_admin_succeeds() -> None:
+    store = _FakeDeleteStore()
+    hass = _hass_with_store(store)
+    connection = _admin_connection(is_admin=True)
+
+    await ws_api_module._websocket_analytics_delete_vehicle_history(
+        hass, connection, {"id": 1, "vin": VIN}
+    )
+
+    assert store.vehicle_history_deleted is True
+    assert 1 in connection.results
+
+
+async def test_delete_vehicle_history_rejects_non_admin() -> None:
+    store = _FakeDeleteStore()
+    hass = _hass_with_store(store)
+    connection = _admin_connection(is_admin=False)
+
+    await ws_api_module._websocket_analytics_delete_vehicle_history(
+        hass, connection, {"id": 1, "vin": VIN}
+    )
+
+    assert store.vehicle_history_deleted is False
+    assert connection.errors[1][0] == "unauthorized"
+
+
+def test_delete_schemas_accept_well_formed_messages(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    schemas = _registered_schemas(monkeypatch)
+    messages = [
+        {"type": "rivian/analytics/delete_drive", "vin": VIN, "drive_id": "d1"},
+        {"type": "rivian/analytics/delete_day", "vin": VIN, "date": "2026-09-20"},
+        {"type": "rivian/analytics/delete_vehicle_history", "vin": VIN},
+    ]
+    for i, message in enumerate(messages, start=1):
+        schemas[message["type"]]({"id": i, **message})
+
+
+def test_delete_schemas_reject_malformed_messages(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import voluptuous as vol
+
+    schemas = _registered_schemas(monkeypatch)
+    bad = [
+        {"type": "rivian/analytics/delete_drive", "vin": VIN},
+        {"type": "rivian/analytics/delete_day", "vin": VIN},
+    ]
+    for message in bad:
+        with pytest.raises(vol.Invalid):
+            schemas[message["type"]]({"id": 1, **message})
+
+
 # -- multi-VIN reads (`vins`) and rivian/vehicles/list --------------------------
 
 THIRD_VIN = "7PDSGABA8NN555555"
@@ -749,6 +1394,145 @@ async def test_summary_vin_payload_is_unchanged() -> None:
     connection = _FakeConnection()
     await _websocket_analytics_summary(hass, connection, {"id": 1, "vin": VIN})
     assert set(connection.results[1]) == {"windows", "last_drive"}
+
+
+class _FakeMultiStore(_FakeCalendarDayStore):
+    """Calendar/day surface for several vehicles at once."""
+
+    def __init__(self, vin: str, **kwargs: Any) -> None:
+        super().__init__(vin=vin, **kwargs)
+        self.calendar_vins: list[Any] = []
+
+    async def async_calendar(
+        self,
+        tz: Any,
+        year: int | None = None,
+        month: int | None = None,
+        include_micro: bool = False,
+        vins: list[str] | None = None,
+    ) -> dict[str, Any]:
+        self.calendar_vins.append(vins)
+        return await super().async_calendar(tz, year, month, include_micro)
+
+
+async def test_calendar_vins_uses_the_first_store_with_the_vin_list() -> None:
+    payload = {"totals": {"drives": 3, "by_vin": {}}, "years": []}
+    a = _FakeMultiStore(VIN)
+    b = _FakeMultiStore(OTHER_VIN, calendar_payload=payload)
+    hass = _hass_with_stores(a, b)
+    connection = _FakeConnection()
+
+    await _websocket_analytics_calendar(
+        hass, connection, {"id": 1, "vins": [OTHER_VIN, VIN], "year": 2026}
+    )
+
+    assert b.calendar_vins == [[OTHER_VIN, VIN]]
+    assert a.calendar_vins == []
+    assert connection.results[1] == payload
+
+
+def _day_payload(
+    vin: str, segs: list[tuple[str, float]], stops: list[Any]
+) -> dict[str, Any]:
+    return {
+        "date": "2026-09-10",
+        "totals": {
+            "drives": len(segs),
+            "miles": 10.0 * len(segs),
+            "hours": 1.0,
+            "energy_kwh": 4.0 * len(segs),
+            "efficiency_mi_kwh": 2.5,
+            "with_route": len(segs),
+            "first_ts": segs[0][1],
+            "last_ts": segs[-1][1],
+        },
+        "segments": [
+            {"index": i, "drive_id": d, "sort_ts": ts} for i, (d, ts) in enumerate(segs)
+        ],
+        "prior_tail": {"tail": vin},
+        "stops": stops,
+        "gaps": [],
+        "start": {"vin": vin, "s": 1},
+        "end": {"vin": vin, "e": 1},
+    }
+
+
+async def test_day_vins_merges_segments_and_keeps_per_vehicle_stops() -> None:
+    a = _FakeMultiStore(
+        VIN,
+        day_payload=_day_payload(VIN, [("a1", 100.0), ("a2", 300.0)], [{"stop": "A"}]),
+    )
+    b = _FakeMultiStore(
+        OTHER_VIN,
+        day_payload=_day_payload(OTHER_VIN, [("b1", 200.0)], [{"stop": "B"}]),
+    )
+    hass = _hass_with_stores(a, b)
+    connection = _FakeConnection()
+
+    await _websocket_analytics_day(
+        hass, connection, {"id": 1, "vins": [VIN, OTHER_VIN], "date": "2026-09-10"}
+    )
+
+    result = connection.results[1]
+    assert [(s["drive_id"], s["vin"]) for s in result["segments"]] == [
+        ("a1", VIN),
+        ("b1", OTHER_VIN),
+        ("a2", VIN),
+    ]
+    assert all("sort_ts" not in s for s in result["segments"])
+    assert result["vehicles"][VIN]["stops"] == [{"stop": "A"}]
+    assert result["vehicles"][OTHER_VIN]["stops"] == [{"stop": "B"}]
+    assert result["vehicles"][OTHER_VIN]["prior_tail"] == {"tail": OTHER_VIN}
+    assert set(result["vehicles"][VIN]) == {
+        "start",
+        "end",
+        "stops",
+        "gaps",
+        "prior_tail",
+        "totals",
+    }
+    assert "stops" not in result
+    assert result["totals"]["drives"] == 3
+    assert result["totals"]["miles"] == 30.0
+    assert result["totals"]["efficiency_mi_kwh"] == round(30.0 / 12.0, 2)
+    assert result["totals"]["first_ts"] == 100.0
+    assert result["totals"]["last_ts"] == 300.0
+
+
+class _VinsHeatStore(_FakeHeatStore):
+    def __init__(self, vin: str) -> None:
+        super().__init__(vin=vin)
+        self.vins_seen: list[Any] = []
+
+    async def async_heat_info(self, period, key=None, vins=None):
+        self.vins_seen.append(vins)
+        return await super().async_heat_info(period, key)
+
+    async def async_heat_tile(self, period, key, z, x, y, margin=0, vins=None):
+        self.vins_seen.append(vins)
+        return await super().async_heat_tile(period, key, z, x, y, margin)
+
+
+async def test_heat_vins_passes_the_vin_list_and_single_vin_does_not() -> None:
+    a, b = _VinsHeatStore(VIN), _VinsHeatStore(OTHER_VIN)
+    hass = _hass_with_stores(a, b)
+    connection = _FakeConnection()
+
+    await _websocket_analytics_heat(
+        hass, connection, {"id": 1, "vins": [VIN, OTHER_VIN], "period": "all"}
+    )
+    await _websocket_analytics_heat_tile(
+        hass,
+        connection,
+        {"id": 2, "vins": [VIN, OTHER_VIN], "period": "all", "z": 5, "x": 1, "y": 2},
+    )
+    await _websocket_analytics_heat(
+        hass, connection, {"id": 3, "vin": OTHER_VIN, "period": "all"}
+    )
+
+    assert a.vins_seen == [[VIN, OTHER_VIN], [VIN, OTHER_VIN]]
+    assert b.vins_seen == [None]
+    assert {1, 2, 3} <= set(connection.results)
 
 
 async def test_series_vins_merges_with_vin_tags_sorted_and_summed() -> None:

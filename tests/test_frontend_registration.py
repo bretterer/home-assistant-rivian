@@ -17,7 +17,7 @@ from custom_components.rivian import (
 STATIC = "/rivian_static"
 URLS = {
     "rivian-overview-card.js": f"{STATIC}/rivian-overview-card.js?v=2",
-    "rivian-vehicle-bar.js": f"{STATIC}/rivian-vehicle-bar.js?v=2",
+    "rivian-drive-explorer-card.js": f"{STATIC}/rivian-drive-explorer-card.js?v=2",
 }
 
 

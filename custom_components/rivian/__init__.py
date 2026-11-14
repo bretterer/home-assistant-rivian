@@ -106,6 +106,10 @@ from .websocket_api import async_register_websocket_api
 SERVICE_BACKFILL_DRIVE_HISTORY = "backfill_drive_history"
 SERVICE_CREATE_EFFICIENCY_DASHBOARD = "create_efficiency_dashboard"
 SERVICE_SET_VEHICLE_PICTURE = "set_vehicle_picture"
+SERVICE_REBUILD_HEAT_MAP = "rebuild_heat_map"
+SERVICE_RECOMPUTE_DRIVE_STATS = "recompute_drive_stats"
+SERVICE_FIT_ENERGY_MODEL = "fit_energy_model"
+SERVICE_SNAP_ROUTE_GAPS = "snap_route_gaps"
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 # Special (non-config-entry) keys stored directly under hass.data[DOMAIN].
@@ -125,6 +129,7 @@ RETENTION_PRUNE_INTERVAL: Final = timedelta(hours=24)
 # Bundled frontend cards registered as Lovelace resources by
 # _async_register_frontend.
 _BUNDLED_MODULES: Final = (
+    "rivian-drive-explorer-card.js",
     "rivian-overview-card.js",
     # Shared by the cards above (imported dynamically) and a tiny card for
     # tabs without a panel header. Skipped at registration while not on disk.
@@ -162,6 +167,30 @@ SET_VEHICLE_PICTURE_SERVICE_SCHEMA = vol.Schema(
     {
         vol.Optional("vin"): cv.string,
         vol.Required("url"): cv.url,
+    }
+)
+
+REBUILD_HEAT_MAP_SERVICE_SCHEMA = vol.Schema(
+    {
+        vol.Optional("vin"): cv.string,
+    }
+)
+
+RECOMPUTE_DRIVE_STATS_SERVICE_SCHEMA = vol.Schema(
+    {
+        vol.Optional("vin"): cv.string,
+    }
+)
+
+FIT_ENERGY_MODEL_SERVICE_SCHEMA = vol.Schema(
+    {
+        vol.Optional("vin"): cv.string,
+    }
+)
+
+SNAP_ROUTE_GAPS_SERVICE_SCHEMA = vol.Schema(
+    {
+        vol.Optional("vin"): cv.string,
     }
 )
 
@@ -410,7 +439,9 @@ async def _async_register_frontend(hass: HomeAssistant) -> None:
     cache-busting story) is only used as a fallback for YAML-mode Lovelace,
     where there's no storage-backed resources collection to register with --
     registering both, as earlier versions did, made every browser load each
-    module twice.
+    module twice. Leaflet's files are served by the static path above but are
+    imported directly by the drive-explorer card's JS, not as Lovelace
+    resources.
     """
     frontend_dir = Path(__file__).parent / "frontend"
     if not frontend_dir.is_dir():
@@ -592,6 +623,10 @@ async def _async_prune_analytics_retention(
     both. Runs on the event loop but every blocking step (the SQLite
     delete/thin and the cache rebuild) is delegated to the executor by
     ``DriveStore.async_prune``/``async_prune_tracks``.
+
+    Also refits each VIN's anchored energy-model coefficients once per call
+    (this function runs once shortly after setup and then every 24 hours),
+    via ``DriveStore.async_fit_energy_model``.
     """
     retention_days = entry.options.get(
         CONF_ANALYTICS_RETENTION_DAYS, DEFAULT_ANALYTICS_RETENTION_DAYS
@@ -638,6 +673,12 @@ async def _async_prune_analytics_retention(
                 "Track retention prune failed for VIN %s: %s", store.vin, err
             )
 
+        try:
+            result = await store.async_fit_energy_model()
+            _LOGGER.debug("Daily energy-model refit for VIN %s: %s", store.vin, result)
+        except Exception as err:  # noqa: BLE001 - a fit failure must not crash HA
+            _LOGGER.warning("Energy-model refit failed for VIN %s: %s", store.vin, err)
+
 
 def _async_remove_retired_entities(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Drop entities earlier builds created that no longer exist.
@@ -680,6 +721,34 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         partial(_async_handle_create_dashboard, hass),
         schema=CREATE_DASHBOARD_SERVICE_SCHEMA,
     )
+    async_register_admin_service(
+        hass,
+        DOMAIN,
+        SERVICE_REBUILD_HEAT_MAP,
+        partial(_async_handle_rebuild_heat_map, hass),
+        schema=REBUILD_HEAT_MAP_SERVICE_SCHEMA,
+    )
+    async_register_admin_service(
+        hass,
+        DOMAIN,
+        SERVICE_RECOMPUTE_DRIVE_STATS,
+        partial(_async_handle_recompute_drive_stats, hass),
+        schema=RECOMPUTE_DRIVE_STATS_SERVICE_SCHEMA,
+    )
+    async_register_admin_service(
+        hass,
+        DOMAIN,
+        SERVICE_FIT_ENERGY_MODEL,
+        partial(_async_handle_fit_energy_model, hass),
+        schema=FIT_ENERGY_MODEL_SERVICE_SCHEMA,
+    )
+    async_register_admin_service(
+        hass,
+        DOMAIN,
+        SERVICE_SNAP_ROUTE_GAPS,
+        partial(_async_handle_snap_route_gaps, hass),
+        schema=SNAP_ROUTE_GAPS_SERVICE_SCHEMA,
+    )
     return True
 
 
@@ -705,6 +774,70 @@ def _analytics_stores(hass: HomeAssistant, vin: str | None = None) -> list[Drive
             "Drive analytics isn't turned on for any Rivian vehicle"
         )
     return stores
+
+
+async def _async_handle_rebuild_heat_map(
+    hass: HomeAssistant, call: ServiceCall
+) -> None:
+    """Handle the service call to recount the road heat map from stored routes."""
+    vin = call.data.get("vin")
+    targets = _analytics_stores(hass, vin)
+    for store in targets:
+        result = await store.async_rebuild_heat()
+        _LOGGER.info("Rebuilt road heat map for VIN %s: %s", store.vin, result)
+        # Open Drives cards redraw their heat map on this event.
+        hass.bus.async_fire(RIVIAN_ANALYTICS_UPDATED_EVENT, {"vin": store.vin})
+
+
+async def _async_handle_recompute_drive_stats(
+    hass: HomeAssistant, call: ServiceCall
+) -> None:
+    """Handle the service call to recompute per-drive summary stats from stored tracks.
+
+    Only the track-derived columns (moving/stopped time, stop count,
+    climb/descent, robust max speed, highway share) are touched;
+    live-only vehicle context (range, drive modes, trailer, driver) is
+    never recomputed here. Thinned tracks (older routes simplified to
+    ~10 m) give slightly less accurate stop/climb numbers than a
+    full-detail route.
+    """
+    vin = call.data.get("vin")
+    targets = _analytics_stores(hass, vin)
+    for store in targets:
+        result = await store.async_recompute_stats()
+        _LOGGER.info("Recomputed drive summary stats for VIN %s: %s", store.vin, result)
+        hass.bus.async_fire(RIVIAN_ANALYTICS_UPDATED_EVENT, {"vin": store.vin})
+
+
+async def _async_handle_fit_energy_model(
+    hass: HomeAssistant, call: ServiceCall
+) -> None:
+    """Handle the service call to refit the anchored energy model from recent drives.
+
+    Recent routed drives supply the shape (aero/rolling/grade/kinetic
+    physics); each drive's measured SoC-drop energy re-anchors it. If a
+    VIN has too few qualifying drives in the fitting window, its existing
+    fit (if any) is left untouched.
+    """
+    vin = call.data.get("vin")
+    targets = _analytics_stores(hass, vin)
+    for store in targets:
+        result = await store.async_fit_energy_model()
+        _LOGGER.info("Fitted energy model for VIN %s: %s", store.vin, result)
+        hass.bus.async_fire(RIVIAN_ANALYTICS_UPDATED_EVENT, {"vin": store.vin})
+
+
+async def _async_handle_snap_route_gaps(hass: HomeAssistant, call: ServiceCall) -> None:
+    """Handle the service call to snap recorded GPS gaps onto OSM roads."""
+    vin = call.data.get("vin")
+    targets = _analytics_stores(hass, vin)
+    for store in targets:
+        result = await store.async_snap_gaps()
+        _LOGGER.info("Snapped route gaps for VIN %s: %s", store.vin, result)
+        if result.get("heat_stale_drives"):
+            await store.async_rebuild_heat()
+        if result.get("added") or result.get("heat_stale_drives"):
+            hass.bus.async_fire(RIVIAN_ANALYTICS_UPDATED_EVENT, {"vin": store.vin})
 
 
 async def _async_handle_set_vehicle_picture(
