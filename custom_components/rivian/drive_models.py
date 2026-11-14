@@ -139,6 +139,18 @@ class SpeedBinData:
         return cls()
 
 
+_CONDITION_KEYS: Final[tuple[str, ...]] = (
+    "wind_speed_mph",
+    "wind_dir_deg",
+    "headwind_mph",
+    "precip_mm",
+    "pressure_hpa",
+    "humidity_pct",
+    "air_density",
+    "expected_kwh",
+)
+
+
 @dataclass
 class DriveChunk:
     """Fixed-duration (e.g. 3-minute) driving chunk for speed-bin efficiency analysis."""
@@ -337,6 +349,17 @@ class DriveRecord:
     drive_modes: list[str] = field(default_factory=list)
     trailer: bool | None = None
     driver: str | None = None
+    # Driving conditions (drive_conditions.py): weather averaged over the drive
+    # and the model's expected battery energy for the route in those
+    # conditions. None until computed (live at finalize or by weather backfill).
+    wind_speed_mph: float | None = None
+    wind_dir_deg: float | None = None
+    headwind_mph: float | None = None
+    precip_mm: float | None = None
+    pressure_hpa: float | None = None
+    humidity_pct: float | None = None
+    air_density: float | None = None
+    expected_kwh: float | None = None
 
     def __post_init__(self) -> None:
         """Compute derived fields if not populated."""
@@ -443,6 +466,10 @@ class DriveRecord:
             data["trailer"] = self.trailer
         if self.driver is not None:
             data["driver"] = self.driver
+        for key in _CONDITION_KEYS:
+            value = getattr(self, key)
+            if value is not None:
+                data[key] = round(value, 4)
 
         return data
 
@@ -583,6 +610,11 @@ class DriveRecord:
                 bool(data["trailer"]) if data.get("trailer") is not None else None
             ),
             driver=(str(data["driver"]) if data.get("driver") is not None else None),
+            **{
+                key: float(data[key])
+                for key in _CONDITION_KEYS
+                if data.get(key) is not None
+            },
         )
 
 

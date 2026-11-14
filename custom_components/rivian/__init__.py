@@ -112,6 +112,7 @@ SERVICE_SET_VEHICLE_PICTURE = "set_vehicle_picture"
 SERVICE_REBUILD_HEAT_MAP = "rebuild_heat_map"
 SERVICE_RECOMPUTE_DRIVE_STATS = "recompute_drive_stats"
 SERVICE_FIT_ENERGY_MODEL = "fit_energy_model"
+SERVICE_BACKFILL_WEATHER = "backfill_weather"
 SERVICE_SNAP_ROUTE_GAPS = "snap_route_gaps"
 SERVICE_REBUILD_PLACES = "rebuild_places"
 SERVICE_REBUILD_ROUTES = "rebuild_routes"
@@ -150,6 +151,7 @@ _BUNDLED_MODULES: Final = (
     "rivian-places-card.js",
     "rivian-routes-card.js",
     "rivian-charging-card.js",
+    "rivian-efficiency-card.js",
     # Shared by the cards above (imported dynamically) and a tiny card for
     # tabs without a panel header. Skipped at registration while not on disk.
     "rivian-vehicle-bar.js",
@@ -198,6 +200,15 @@ REBUILD_HEAT_MAP_SERVICE_SCHEMA = vol.Schema(
 RECOMPUTE_DRIVE_STATS_SERVICE_SCHEMA = vol.Schema(
     {
         vol.Optional("vin"): cv.string,
+    }
+)
+
+BACKFILL_WEATHER_SERVICE_SCHEMA = vol.Schema(
+    {
+        vol.Optional("vin"): cv.string,
+        vol.Optional("days", default=365): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=365)
+        ),
     }
 )
 
@@ -947,6 +958,13 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         partial(_async_handle_infer_charging_sessions, hass),
         schema=INFER_CHARGING_SESSIONS_SERVICE_SCHEMA,
     )
+    async_register_admin_service(
+        hass,
+        DOMAIN,
+        SERVICE_BACKFILL_WEATHER,
+        partial(_async_handle_backfill_weather, hass),
+        schema=BACKFILL_WEATHER_SERVICE_SCHEMA,
+    )
     return True
 
 
@@ -972,6 +990,30 @@ def _analytics_stores(hass: HomeAssistant, vin: str | None = None) -> list[Drive
             "Drive analytics isn't turned on for any Rivian vehicle"
         )
     return stores
+
+
+async def _async_handle_backfill_weather(
+    hass: HomeAssistant, call: ServiceCall
+) -> None:
+    """Handle the service call to fill wind/precipitation/pressure/humidity/air density.
+
+    Add-only: fills only the still-empty condition columns (and the
+    energy model's expected kWh) of stored routed drives from the
+    Open-Meteo archive, rate-limited.
+    """
+    days = call.data.get("days", 365)
+    targets = _analytics_stores(hass, call.data.get("vin"))
+    if not any(store.weather_lookups for store in targets):
+        raise HomeAssistantError(
+            "Weather lookups are turned off in the Rivian integration's options"
+        )
+    for store in targets:
+        result = await store.async_backfill_weather(days)
+        _LOGGER.info("Weather backfill for VIN %s: %s", store.vin, result)
+        if result.get("complete"):
+            await hass.async_add_executor_job(store._db.mark_weather_seeded, store.vin)
+        if result.get("updated"):
+            hass.bus.async_fire(RIVIAN_ANALYTICS_UPDATED_EVENT, {"vin": store.vin})
 
 
 async def _async_handle_import_charging_history(

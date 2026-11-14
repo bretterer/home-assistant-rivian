@@ -15,11 +15,12 @@ storage layer and tested in isolation.
 from __future__ import annotations
 
 import bisect
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 import math
 from typing import Any, Final
 
-from .drive_track import DriveTrack, haversine_m
+from .drive_track import DriveTrack, TrackPoint, haversine_m
 
 G: Final[float] = 9.81  # m/s^2
 J_PER_KWH: Final[float] = 3.6e6
@@ -186,13 +187,18 @@ def interval_features(
     track: DriveTrack,
     mass_kg: float = DEFAULT_PARAMS.mass_kg,
     rho: float = DEFAULT_PARAMS.rho,
+    headwind_fn: Callable[[TrackPoint, TrackPoint], float] | None = None,
 ) -> list[IntervalFeature]:
     """Compute per-interval physics features between consecutive track points.
 
     Intervals with dt <= 0 or dt > MAX_INTERVAL_GAP_S (a GPS/telemetry gap
     with no reliable speed information) are skipped entirely.
 
-    ``rho`` is the air density (kg/m^3).
+    ``rho`` is the air density (kg/m^3). ``headwind_fn(a, b)``, when given,
+    returns the headwind in m/s over the interval (negative = tailwind); the
+    aerodynamic work then uses the airspeed ``vm + headwind`` (sign kept, so a
+    strong tailwind pushes the car). Without it the result is identical to a
+    still-air model.
     """
     pts = track.points
     n = len(pts)
@@ -215,7 +221,11 @@ def interval_features(
         dist = vm * dt
         alt_a, alt_b = alts[i - 1], alts[i]
         dh = (alt_b - alt_a) if alt_a is not None and alt_b is not None else 0.0
-        aero = 0.5 * rho * (vm**3) * dt
+        if headwind_fn is None:
+            aero = 0.5 * rho * (vm**3) * dt
+        else:
+            airspeed = vm + headwind_fn(a, b)
+            aero = 0.5 * rho * airspeed * abs(airspeed) * vm * dt
         features.append(
             IntervalFeature(
                 t_mid=(a.t + b.t) / 2.0,
@@ -265,6 +275,41 @@ def _drive_model_kwh(
     features: list[IntervalFeature], params: EnergyModelParams
 ) -> float:
     return interval_battery_j(features, params) / J_PER_KWH
+
+
+# A track whose usable intervals cover less of the drive than this (GPS gaps)
+# can't stand in for the whole drive, so no expected energy is reported.
+EXPECTED_MIN_COVERAGE: Final[float] = 0.8
+
+
+def expected_battery_kwh(
+    track: DriveTrack,
+    params: EnergyModelParams,
+    distance_miles: float,
+    rho: float | None = None,
+    headwind_fn: Callable[[TrackPoint, TrackPoint], float] | None = None,
+) -> float | None:
+    """Battery kWh the fitted model predicts for a drive's route.
+
+    ``rho`` defaults to the model's own density; passing the drive's measured
+    air density (and a ``headwind_fn``) makes the prediction reflect that day's
+    weather. When GPS gaps leave some of ``distance_miles`` uncovered the
+    prediction is scaled up from the covered part, and ``None`` is returned if
+    under ``EXPECTED_MIN_COVERAGE`` of it is covered or there are no features.
+    """
+    features = interval_features(
+        track,
+        params.mass_kg,
+        params.rho if rho is None else rho,
+        headwind_fn,
+    )
+    if not features or distance_miles <= 0:
+        return None
+    covered_mi = sum(f.dist_m for f in features) / METERS_PER_MILE
+    if covered_mi < EXPECTED_MIN_COVERAGE * distance_miles:
+        return None
+    kwh = interval_battery_j(features, params) / J_PER_KWH
+    return kwh * distance_miles / covered_mi
 
 
 def fit_params(

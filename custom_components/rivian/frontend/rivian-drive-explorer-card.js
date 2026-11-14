@@ -111,6 +111,10 @@ const BASEMAPS = {
 const BASEMAP_STORAGE_KEY = "rivian-drive-explorer-basemap";
 const MAP_MAX_ZOOM = 20;
 const STACK_BREAKPOINT_PX = 700;
+/** One-shot "open this drive" request left by another card (see `rivian-efficiency-card.js`). */
+const OPEN_REQUEST_KEY = "rivian-drive-explorer-open";
+/** An open request older than this is ignored (the user went elsewhere first). */
+const OPEN_REQUEST_MAX_AGE_MS = 120000;
 const HEAT_TILE_SIZE = 256;
 // Each neighbour pair once: right, down, down-right, down-left.
 const HEAT_NEIGHBOUR_OFFSETS = [
@@ -2784,6 +2788,7 @@ class RivianDriveExplorerCard extends BaseElement {
     }
     if (this._hass) this._subscribe();
     this._listenSelection();
+    this._applyOpenRequest().catch((err) => this._showError(err));
   }
 
   disconnectedCallback() {
@@ -2841,6 +2846,33 @@ class RivianDriveExplorerCard extends BaseElement {
     } catch (_err) {
       // Not persisted; the choice still applies for this session.
     }
+  }
+
+  /**
+   * A one-shot "open this drive" request another card (Efficiency) left in
+   * localStorage, consumed so it applies once. Null when absent or stale.
+   */
+  _takeOpenRequest() {
+    try {
+      const raw = window.localStorage.getItem(OPEN_REQUEST_KEY);
+      if (!raw) return null;
+      window.localStorage.removeItem(OPEN_REQUEST_KEY);
+      const parsed = JSON.parse(raw);
+      if (!parsed || !parsed.selection || !parsed.selection.level) return null;
+      if (!(Date.now() - Number(parsed.ts) < OPEN_REQUEST_MAX_AGE_MS)) return null;
+      return parsed.selection;
+    } catch (_err) {
+      return null;
+    }
+  }
+
+  /** Jump to a pending open request when the view is shown again with the card already loaded. */
+  async _applyOpenRequest() {
+    if (!this._cache || !this._cache.root) return;
+    const request = this._takeOpenRequest();
+    if (!request) return;
+    const selection = await this._validateSelection(request);
+    if (selection) await this._selectNode(selection);
   }
 
   _loadStoredSelection() {
@@ -3051,7 +3083,7 @@ class RivianDriveExplorerCard extends BaseElement {
       this._showError(err);
       return;
     }
-    const stored = this._loadStoredSelection();
+    const stored = this._takeOpenRequest() || this._loadStoredSelection();
     let selection = await this._validateSelection(stored);
     if (!selection) selection = await this._computeDefaultSelection();
     await this._selectNode(selection);

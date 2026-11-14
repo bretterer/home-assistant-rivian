@@ -112,6 +112,27 @@ fit_energy_model:
       selector:
         text:
 
+backfill_weather:
+  name: Backfill drive weather
+  description: Fills each stored drive's wind, headwind, precipitation, pressure, humidity and air density (and the energy model's expected energy, behind the Efficiency page's score) from the Open-Meteo weather archive. Only empty values are filled, requests are rate-limited, and demo vehicles are skipped. Runs once automatically in the background after the upgrade.
+  fields:
+    vin:
+      name: Vehicle VIN
+      description: Specific vehicle VIN to process (leave blank for all configured vehicles).
+      required: false
+      example: "7PDSGABA8NN000000"
+      selector:
+        text:
+    days:
+      name: Days
+      description: Number of past days of drives to fill (defaults to 365 days).
+      default: 365
+      selector:
+        number:
+          min: 1
+          max: 365
+          mode: box
+
 snap_route_gaps:
   name: Snap route gaps to roads
   description: Fills recorded GPS dropouts (a stretch where the live stream went quiet mid-drive) by snapping the gap onto the local OpenStreetMap road network, replacing the straight line the map otherwise draws. Uses the public Overpass API, rate-limited and cached per area; a gap that can't be matched to a road within about 50 m is left unfilled.

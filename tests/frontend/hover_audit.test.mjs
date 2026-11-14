@@ -8,6 +8,7 @@ import * as bar from "../../custom_components/rivian/frontend/rivian-vehicle-bar
 import * as overview from "../../custom_components/rivian/frontend/rivian-overview-card.js";
 import * as routes from "../../custom_components/rivian/frontend/rivian-routes-card.js";
 import * as places from "../../custom_components/rivian/frontend/rivian-places-card.js";
+import * as eff from "../../custom_components/rivian/frontend/rivian-efficiency-card.js";
 import * as chg from "../../custom_components/rivian/frontend/rivian-charging-card.js";
 import * as rde from "../../custom_components/rivian/frontend/rivian-drive-explorer-card.js";
 
@@ -79,6 +80,25 @@ test("places: placeTooltip summarizes a place", () => {
   assert.equal(text, "Home · 79 visits · last today · 100 m radius · Home Assistant zone");
   assert.ok(places.placeTooltip({ label: "Place #3", visits: 3, source: "auto" }).includes("suggestion"));
   assert.equal(places.placeTooltip(null), "");
+});
+
+// -- efficiency ---------------------------------------------------------------------------
+
+test("efficiency: titles, aria-sort and key stepping", () => {
+  for (const [key] of eff.TABLE_COLUMNS) assert.ok(eff.COLUMN_TITLES[key], key);
+  assert.ok(eff.SCORE_TITLE.includes("expected"));
+  assert.equal(eff.rangeTitle("30d"), "Last 30 days");
+  assert.equal(eff.rangeTitle("1y"), "Last year");
+  assert.equal(eff.rangeTitle("all"), "Every drive on record");
+  assert.equal(eff.ariaSortFor({ key: "eff", dir: "asc" }, "eff"), "ascending");
+  assert.equal(eff.ariaSortFor({ key: "eff", dir: "desc" }, "eff"), "descending");
+  assert.equal(eff.ariaSortFor({ key: "eff", dir: "desc" }, "date"), "none");
+  assert.equal(eff.stepIndex(null, 1, 5), 0);
+  assert.equal(eff.stepIndex(null, -1, 5), 4);
+  assert.equal(eff.stepIndex(4, 1, 5), 4);
+  assert.equal(eff.stepIndex(0, -1, 5), 0);
+  assert.equal(eff.stepIndex(2, 1, 5), 3);
+  assert.equal(eff.stepIndex(0, 1, 0), -1);
 });
 
 // -- charging ------------------------------------------------------------------------------
