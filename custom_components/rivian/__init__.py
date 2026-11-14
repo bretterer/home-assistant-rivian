@@ -89,6 +89,7 @@ except ImportError:
             pass
 
 
+from . import charging_history
 from .coordinator import UserCoordinator, VehicleCoordinator, WallboxCoordinator
 from .dashboard_generator import (
     DEFAULT_ICON,
@@ -114,6 +115,8 @@ SERVICE_FIT_ENERGY_MODEL = "fit_energy_model"
 SERVICE_SNAP_ROUTE_GAPS = "snap_route_gaps"
 SERVICE_REBUILD_PLACES = "rebuild_places"
 SERVICE_REBUILD_ROUTES = "rebuild_routes"
+SERVICE_IMPORT_CHARGING_HISTORY = "import_charging_history"
+SERVICE_INFER_CHARGING_SESSIONS = "infer_charging_sessions"
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 # Special (non-config-entry) keys stored directly under hass.data[DOMAIN].
@@ -146,6 +149,7 @@ _BUNDLED_MODULES: Final = (
     "rivian-overview-card.js",
     "rivian-places-card.js",
     "rivian-routes-card.js",
+    "rivian-charging-card.js",
     # Shared by the cards above (imported dynamically) and a tiny card for
     # tabs without a panel header. Skipped at registration while not on disk.
     "rivian-vehicle-bar.js",
@@ -198,6 +202,18 @@ RECOMPUTE_DRIVE_STATS_SERVICE_SCHEMA = vol.Schema(
 )
 
 FIT_ENERGY_MODEL_SERVICE_SCHEMA = vol.Schema(
+    {
+        vol.Optional("vin"): cv.string,
+    }
+)
+
+IMPORT_CHARGING_HISTORY_SERVICE_SCHEMA = vol.Schema(
+    {
+        vol.Optional("vin"): cv.string,
+    }
+)
+
+INFER_CHARGING_SESSIONS_SERVICE_SCHEMA = vol.Schema(
     {
         vol.Optional("vin"): cv.string,
     }
@@ -758,6 +774,81 @@ async def _async_prune_analytics_retention(
         except Exception as err:  # noqa: BLE001 - a fit failure must not crash HA
             _LOGGER.warning("Energy-model refit failed for VIN %s: %s", store.vin, err)
 
+    # The Rivian-app session list (at most once a day), station lookups for
+    # fast charges, and the battery-capacity history (never pruned).
+    try:
+        await _async_charging_history_job(hass, entry_data)
+    except Exception as err:  # noqa: BLE001 - must never crash HA
+        _LOGGER.warning("Charging history job failed: %s", err)
+
+
+async def _async_charging_history_job(
+    hass: HomeAssistant, entry_data: dict[str, Any], force: bool = False
+) -> dict[str, Any]:
+    """Import the Rivian app's charging history and refresh the capacity history.
+
+    Real vehicles only. ``force`` skips the
+    once-a-day guard (the ``rivian.import_charging_history`` service).
+    """
+    stores: dict[str, DriveStore] = entry_data.get(ATTR_DRIVE_STORE) or {}
+    vehicles: dict[str, Any] = entry_data.get(ATTR_VEHICLE) or {}
+    client = entry_data.get(ATTR_API)
+    vins_by_id = {
+        vehicle_id: str(info["vin"])
+        for vehicle_id, info in vehicles.items()
+        if info.get("vin") and vehicle_id in stores
+    }
+    if not vins_by_id:
+        return {"vehicles": {}}
+    db = next(iter(stores.values()))._db
+    # The OpenStreetMap station lookup follows the "place naming" option,
+    # like every other lookup that sends a location out.
+    lookup_stations = any(
+        stores[vehicle_id]._place_geocoding for vehicle_id in vins_by_id
+    )
+    result: dict[str, Any] = {}
+    if client is not None:
+        result = await charging_history.async_run_history_job(
+            hass, client, vins_by_id, db, force, lookup_stations
+        )
+    capacity: dict[str, int] = {}
+    for vin in vins_by_id.values():
+        capacity[vin] = await charging_history.async_update_capacity_history(
+            hass, db, vin
+        )
+    result["capacity_rows"] = capacity
+    # Outside temperature where each located session charged (Open-Meteo).
+    weather: dict[str, int] = {}
+    for vehicle_id, vin in vins_by_id.items():
+        try:
+            filled = await stores[vehicle_id].async_fill_session_temperatures()
+        except Exception:
+            _LOGGER.exception("Charging weather lookup failed for VIN %s", vin)
+            continue
+        weather[vin] = int(filled.get("updated") or 0)
+    result["session_weather"] = weather
+    # Charges the battery-level history shows that nothing recorded (they
+    # fire the update event themselves when the stored set changed).
+    inferred: dict[str, Any] = {}
+    for vehicle_id, vin in vins_by_id.items():
+        try:
+            inferred[vin] = await stores[vehicle_id].async_infer_charging_sessions()
+        except Exception:
+            _LOGGER.exception("Inferring charging sessions failed for VIN %s", vin)
+    result["inferred"] = inferred
+    changed = any(
+        (result.get("vehicles") or {}).get(vin, {}).get("matched")
+        or (result.get("vehicles") or {}).get(vin, {}).get("inserted")
+        or (result.get("stations") or {}).get(vin)
+        or capacity.get(vin)
+        or weather.get(vin)
+        for vin in vins_by_id.values()
+    )
+    if changed:
+        for vin in vins_by_id.values():
+            hass.bus.async_fire(RIVIAN_ANALYTICS_UPDATED_EVENT, {"vin": vin})
+    return result
+
 
 def _async_remove_retired_entities(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Drop entities earlier builds created that no longer exist.
@@ -842,6 +933,20 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         partial(_async_handle_rebuild_routes, hass),
         schema=REBUILD_ROUTES_SERVICE_SCHEMA,
     )
+    async_register_admin_service(
+        hass,
+        DOMAIN,
+        SERVICE_IMPORT_CHARGING_HISTORY,
+        partial(_async_handle_import_charging_history, hass),
+        schema=IMPORT_CHARGING_HISTORY_SERVICE_SCHEMA,
+    )
+    async_register_admin_service(
+        hass,
+        DOMAIN,
+        SERVICE_INFER_CHARGING_SESSIONS,
+        partial(_async_handle_infer_charging_sessions, hass),
+        schema=INFER_CHARGING_SESSIONS_SERVICE_SCHEMA,
+    )
     return True
 
 
@@ -867,6 +972,41 @@ def _analytics_stores(hass: HomeAssistant, vin: str | None = None) -> list[Drive
             "Drive analytics isn't turned on for any Rivian vehicle"
         )
     return stores
+
+
+async def _async_handle_import_charging_history(
+    hass: HomeAssistant, call: ServiceCall
+) -> None:
+    """Handle the service call to import the Rivian app's completed sessions.
+
+    Matches each completed session to the stored ones (enriching vendor,
+    home/public and energy) or inserts the missing ones, then looks up
+    station details for fast charges from OpenStreetMap. Real vehicles only.
+    """
+    stores = _analytics_stores(hass, call.data.get("vin"))
+    entries = [
+        entry_data
+        for entry_data in _iter_entry_datas(hass)
+        if any(
+            store in stores
+            for store in (entry_data.get(ATTR_DRIVE_STORE) or {}).values()
+        )
+    ]
+    for entry_data in entries:
+        result = await _async_charging_history_job(hass, entry_data, force=True)
+        _LOGGER.info("Charging history import: %s", result)
+
+
+async def _async_handle_infer_charging_sessions(
+    hass: HomeAssistant, call: ServiceCall
+) -> None:
+    """Handle the service call to infer charging sessions from battery history."""
+    targets = _analytics_stores(hass, call.data.get("vin"))
+    for store in targets:
+        # On demand = a whole-history re-scan (the nightly run only
+        # re-checks the last few days).
+        result = await store.async_infer_charging_sessions(full=True)
+        _LOGGER.info("Inferred charging sessions for %s: %s", store.vin, result)
 
 
 async def _async_handle_rebuild_places(hass: HomeAssistant, call: ServiceCall) -> None:

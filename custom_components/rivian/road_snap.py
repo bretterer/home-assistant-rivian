@@ -240,8 +240,8 @@ async def async_overpass_json(hass: Any, query: str) -> Any | None:
     """POST an Overpass QL ``query`` and return the decoded JSON, or None on any failure.
 
     Shares the process-wide rate limit (one request per
-    ``MIN_REQUEST_INTERVAL_SECONDS``) with every other Overpass caller, so they
-    can never burst together.
+    ``MIN_REQUEST_INTERVAL_SECONDS``) with every other Overpass caller
+    (``charger_lookup`` too), so they can never burst together.
     """
     session = async_get_clientsession(hass)
     async with _rate_lock:

@@ -298,12 +298,14 @@ async def test_one_vehicle_produces_four_tabs_in_order_with_no_picker() -> None:
         "drives",
         "routes",
         "places",
+        "charging",
     ]
     assert [v["title"] for v in views] == [
         "Vehicles",
         "Drives",
         "Fav Routes",
         "Destinations",
+        "Charging",
     ]
     # Every tab shows its icon and its name.
     assert all(v.get("show_icon_and_title") is True and v.get("icon") for v in views)
@@ -381,7 +383,8 @@ async def test_two_vehicles_get_one_card_per_tab_and_no_picker() -> None:
     """Multi-vehicle dashboards have no picker or conditional.
 
     Drives/Places/Routes hold ONE card (no vin: it follows the shared vehicle
-    selection); Overview has no bar card.
+    selection); Charging/Efficiency are panel views holding their one card each;
+    Overview has no bar card.
     """
     hass, registry = _hass_with_two_vehicles()
     saved: dict[str, Any] = {}
@@ -425,6 +428,10 @@ async def test_two_vehicles_get_one_card_per_tab_and_no_picker() -> None:
         assert view["panel"] is True
         assert view["cards"] == [{"type": card_type}]
 
+    charging = next(v for v in views if v["path"] == "charging")
+    assert charging["panel"] is True
+    assert charging["cards"] == [{"type": "custom:rivian-charging-card"}]
+
 
 @pytest.mark.asyncio
 async def test_overview_card_entities_come_from_the_registry() -> None:
@@ -462,6 +469,33 @@ async def test_overview_card_entities_come_from_the_registry() -> None:
     }
     # Only resolved keys are present -- nothing guessed or empty.
     assert all(v for v in vehicle["entities"].values())
+
+
+@pytest.mark.asyncio
+async def test_charging_tab_is_one_panel_charging_card() -> None:
+    """Charging is a panel view holding only the charging card (bar renders inside)."""
+    hass = _hass_with_one_vehicle()
+    saved: dict[str, Any] = {}
+    registry = _MockEntityRegistry(
+        entity_ids=_core_entity_ids(TEST_VIN, "rivi", ["charging_rate"])
+    )
+
+    with (
+        patch(
+            "custom_components.rivian.dashboard_generator.Store",
+            side_effect=_grid_dashboards_store(saved),
+        ),
+        _er_patch(registry),
+    ):
+        await async_create_efficiency_dashboard(hass=hass)
+
+    charging = next(
+        v
+        for v in saved["lovelace.rivian_dashboard"]["config"]["views"]
+        if v["path"] == "charging"
+    )
+    assert charging["panel"] is True
+    assert charging["cards"] == [{"type": "custom:rivian-charging-card"}]
 
 
 def _all_entity_values(node: Any) -> list[Any]:

@@ -225,7 +225,8 @@ class TestOpenMeteoWeatherClient:
             start_date="2026-08-20",
             end_date="2026-08-20",
         )
-        assert mock_session.get.call_count == 2
+        await client.async_get_recent_hourly_temperatures(37.774929, -122.419418, 3)
+        assert mock_session.get.call_count == 3
         for call in mock_session.get.call_args_list:
             params = call.kwargs["params"]
             assert (params["latitude"], params["longitude"]) == (37.77, -122.42)
@@ -245,6 +246,9 @@ class TestOpenMeteoWeatherClient:
                 37.77, -122.42, "2026-08-20", "2026-08-20"
             )
             is None
+        )
+        assert (
+            await client.async_get_recent_hourly_temperatures(37.77, -122.42, 3) is None
         )
         mock_session.get.assert_not_called()
 

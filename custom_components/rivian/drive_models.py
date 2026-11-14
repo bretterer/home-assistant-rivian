@@ -657,6 +657,9 @@ MAX_DCFC_HISTORY_SESSIONS: Final[int] = 50
 # if it added at least this much charge and lasted at least this long; a blip
 # (a plug-in that barely charged) is dropped.
 AC_SESSION_MIN_SOC_GAIN_PCT: Final[float] = 1.0
+# An AC session averaging below this is Level 1 (120 V, at most ~1.9 kW);
+# at or above it, Level 2.
+AC_L1_MAX_KW: Final[float] = 2.0
 AC_SESSION_MIN_DURATION_S: Final[float] = 300.0
 # An AC session keeps no power curve, only a few coarse SoC points.
 AC_SESSION_MAX_SOC_POINTS: Final[int] = 20
