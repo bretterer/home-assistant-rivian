@@ -30,3 +30,48 @@ backfill_drive_history:
       default: true
       selector:
         boolean:
+
+create_efficiency_dashboard:
+  name: Create Rivian dashboard
+  description: Generate and register the Rivian dashboard in your Home Assistant sidebar.
+  fields:
+    title:
+      name: Dashboard Title
+      description: Title displayed in the sidebar and header.
+      default: "Rivian"
+      example: "Rivian"
+      selector:
+        text:
+    icon:
+      name: Sidebar Icon
+      description: Material Design icon for the sidebar navigation.
+      default: "mdi:car-electric"
+      example: "mdi:car-electric"
+      selector:
+        icon:
+    url_path:
+      name: URL Path
+      description: URL slug for the dashboard.
+      default: "rivian-dashboard"
+      example: "rivian-dashboard"
+      selector:
+        text:
+
+set_vehicle_picture:
+  name: Set vehicle picture
+  description: Download a picture of your vehicle from an image URL once and keep it as the vehicle's picture (shown on the Rivian dashboard's Overview). Use this when the automatic configurator picture doesn't match your car, e.g. copy the image address of your build on rivian.com.
+  fields:
+    vin:
+      name: VIN
+      description: Vehicle to set the picture for. Optional when only one Rivian is set up.
+      required: false
+      example: "7PDSGABA8NN000000"
+      selector:
+        text:
+    url:
+      name: Image URL
+      description: Web address of a PNG, JPEG or WebP image (up to 10 MB). It is downloaded once and stored locally.
+      required: true
+      example: "https://rivian.com/compimg/r1s/2.2/us/exp-lgr_ord-ad3_pkg-lch_whl-1rd@3072x2688.front.webp"
+      selector:
+        text:
