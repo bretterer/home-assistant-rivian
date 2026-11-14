@@ -84,6 +84,38 @@ async def test_payload_during_schedule_write_does_not_confirm_cache() -> None:
     assert coordinator._departure_stale
 
 
+async def test_schedule_refresh_during_resubscribe_is_not_lost(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A refreshed list that arrives while resubscribing ends the wait at once."""
+    monkeypatch.setattr(coordinator_module, "DEPARTURE_REFRESH_TIMEOUT", 0.5)
+    coordinator = _schedule_coordinator()
+    coordinator._departure_refreshed = asyncio.Event()
+    coordinator._departure_schedules = []
+    coordinator._precondition_pending = []
+    coordinator._precondition_ids = {}
+    coordinator.async_update_listeners = MagicMock()
+
+    async def subscribe(force: bool = False) -> None:
+        coordinator._process_departure_schedules(
+            {"payload": {"data": {"vehicleDepartureSchedules": []}}}
+        )
+
+    coordinator._subscribe_departure_schedules = subscribe
+    response = MagicMock()
+    response.json = AsyncMock(
+        return_value={"data": {"updateDepartureSchedule": {"success": True}}}
+    )
+
+    async def request() -> MagicMock:
+        return response
+
+    start = time.monotonic()
+    await coordinator._departure_schedule_mutation("updateDepartureSchedule", request())
+    assert time.monotonic() - start < 0.4
+    assert not coordinator._departure_stale
+
+
 class _Drivers:
     def __init__(self, device: dict[str, Any] | None) -> None:
         self.device = device

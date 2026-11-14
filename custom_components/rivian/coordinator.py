@@ -600,8 +600,10 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             self._departure_stale = True
         if not ((data.get("data") or {}).get(key) or {}).get("success"):
             raise HomeAssistantError(f"Rivian rejected {key}: {redact(data)}")
-        await self._subscribe_departure_schedules(force=True)
+        # clear before resubscribing: the refreshed list often arrives during the
+        # resubscribe itself, and clearing afterwards would discard that signal
         self._departure_refreshed.clear()
+        await self._subscribe_departure_schedules(force=True)
         try:
             await asyncio.wait_for(
                 self._departure_refreshed.wait(), DEPARTURE_REFRESH_TIMEOUT
