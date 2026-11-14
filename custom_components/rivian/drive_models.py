@@ -731,6 +731,7 @@ class ChargingSessionRecord:
     kind: str | None = None
     lat: float | None = None
     lon: float | None = None
+    place_id: int | None = None
     source: str = "live"
     # Station details: from the Rivian app's session list or an OpenStreetMap
     # lookup (all None until known). ``is_home`` is None when unknown.
@@ -768,6 +769,7 @@ class ChargingSessionRecord:
             "kind": self.kind,
             "lat": self.lat,
             "lon": self.lon,
+            "place_id": self.place_id,
             "source": self.source,
             "vendor": self.vendor,
             "network": self.network,
@@ -798,6 +800,9 @@ class ChargingSessionRecord:
             kind=data.get("kind"),
             lat=float(data["lat"]) if data.get("lat") is not None else None,
             lon=float(data["lon"]) if data.get("lon") is not None else None,
+            place_id=(
+                int(data["place_id"]) if data.get("place_id") is not None else None
+            ),
             source=str(data.get("source") or "live"),
             vendor=data.get("vendor"),
             network=data.get("network"),

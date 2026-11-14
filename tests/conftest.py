@@ -166,7 +166,11 @@ def _setup_mock_environment() -> None:
                 self.config.components = []
                 self.services = MockServiceRegistry()
                 self.bus = MagicMock()
+                # No zones configured by default; __init__.py's zone sync
+                # (read_zone_states) reads hass.states.async_all("zone") at
+                # setup and on every zone.* state change.
                 self.states = MagicMock()
+                self.states.async_all = MagicMock(return_value=[])
                 # Sentinel that never matches a real threading.get_ident() value,
                 # so AnalyticsDatabase's executor-thread guard never fires when
                 # tests call its (normally executor-bound) methods directly from

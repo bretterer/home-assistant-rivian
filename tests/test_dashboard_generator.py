@@ -271,8 +271,8 @@ def _find_cards(node: Any) -> list[dict[str, Any]]:
 
 
 @pytest.mark.asyncio
-async def test_one_vehicle_produces_two_tabs_in_order_with_no_picker() -> None:
-    """A single vehicle gets a plain 2-tab dashboard: no picker, no conditionals."""
+async def test_one_vehicle_produces_four_tabs_in_order_with_no_picker() -> None:
+    """A single vehicle gets a plain 4-tab dashboard: no picker, no conditionals."""
     hass = _hass_with_one_vehicle()
     saved: dict[str, Any] = {}
     registry = _MockEntityRegistry()
@@ -296,10 +296,14 @@ async def test_one_vehicle_produces_two_tabs_in_order_with_no_picker() -> None:
     assert [v["path"] for v in views] == [
         "overview",
         "drives",
+        "routes",
+        "places",
     ]
     assert [v["title"] for v in views] == [
         "Vehicles",
         "Drives",
+        "Fav Routes",
+        "Destinations",
     ]
     # Every tab shows its icon and its name.
     assert all(v.get("show_icon_and_title") is True and v.get("icon") for v in views)
@@ -308,6 +312,16 @@ async def test_one_vehicle_produces_two_tabs_in_order_with_no_picker() -> None:
     assert drives_view["panel"] is True
     assert len(drives_view["cards"]) == 1
     assert drives_view["cards"][0] == {"type": "custom:rivian-drive-explorer-card"}
+
+    places_view = views[3]
+    assert places_view["panel"] is True
+    assert len(places_view["cards"]) == 1
+    assert places_view["cards"][0] == {"type": "custom:rivian-places-card"}
+
+    routes_view = views[2]
+    assert routes_view["panel"] is True
+    assert len(routes_view["cards"]) == 1
+    assert routes_view["cards"][0] == {"type": "custom:rivian-routes-card"}
 
     all_cards = _find_cards(views)
     assert not any(c.get("type") == "tile" and "picker" in str(c) for c in all_cards)
@@ -353,16 +367,20 @@ async def test_no_vin_vehicle_has_no_explorer_cards() -> None:
     assert not any(
         c.get("type") == "custom:rivian-drive-explorer-card" for c in all_cards
     )
-    # The Drives tab has nothing to show for a vin-less vehicle.
+    # The Drives/Places/Routes tabs have nothing to show for a vin-less vehicle.
     drives_view = next(v for v in views if v["path"] == "drives")
     assert drives_view["cards"] == []
+    places_view = next(v for v in views if v["path"] == "places")
+    assert places_view["cards"] == []
+    routes_view = next(v for v in views if v["path"] == "routes")
+    assert routes_view["cards"] == []
 
 
 @pytest.mark.asyncio
 async def test_two_vehicles_get_one_card_per_tab_and_no_picker() -> None:
     """Multi-vehicle dashboards have no picker or conditional.
 
-    Drives holds ONE card (no vin: it follows the shared vehicle
+    Drives/Places/Routes hold ONE card (no vin: it follows the shared vehicle
     selection); Overview has no bar card.
     """
     hass, registry = _hass_with_two_vehicles()
@@ -398,7 +416,11 @@ async def test_two_vehicles_get_one_card_per_tab_and_no_picker() -> None:
         c.get("type") == "custom:rivian-vehicle-bar-card" for c in _find_cards(overview)
     )
 
-    for path, card_type in (("drives", "custom:rivian-drive-explorer-card"),):
+    for path, card_type in (
+        ("drives", "custom:rivian-drive-explorer-card"),
+        ("places", "custom:rivian-places-card"),
+        ("routes", "custom:rivian-routes-card"),
+    ):
         view = next(v for v in views if v["path"] == path)
         assert view["panel"] is True
         assert view["cards"] == [{"type": card_type}]

@@ -19,7 +19,7 @@ import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_HOMEASSISTANT_STARTED, Platform
-from homeassistant.core import HomeAssistant, ServiceCall, callback
+from homeassistant.core import Event, HomeAssistant, ServiceCall, callback
 from homeassistant.exceptions import (
     ConfigEntryNotReady,
     HomeAssistantError,
@@ -42,11 +42,13 @@ from .analytics_db import DEFAULT_DB_RELATIVE_PATH, AnalyticsDatabase
 from .config_flow import (
     CONF_ANALYTICS_RETENTION_DAYS,
     CONF_DRIVE_ANALYTICS,
+    CONF_PLACE_GEOCODING,
     CONF_TRACK_FULL_DETAIL_DAYS,
     CONF_TRACK_RETENTION_DAYS,
     CONF_WEATHER_LOOKUPS,
     DEFAULT_ANALYTICS_RETENTION_DAYS,
     DEFAULT_DRIVE_ANALYTICS,
+    DEFAULT_PLACE_GEOCODING,
     DEFAULT_TRACK_FULL_DETAIL_DAYS,
     DEFAULT_TRACK_RETENTION_DAYS,
     DEFAULT_WEATHER_LOOKUPS,
@@ -94,7 +96,7 @@ from .dashboard_generator import (
     DEFAULT_URL_PATH,
     async_create_efficiency_dashboard,
 )
-from .drive_storage import DriveStore
+from .drive_storage import DriveStore, read_zone_states
 from .drive_tracker import DriveEvent, DriveTracker
 from .helpers import get_rivian_api_from_entry
 from .history_backfill import async_backfill_from_recorder
@@ -110,27 +112,40 @@ SERVICE_REBUILD_HEAT_MAP = "rebuild_heat_map"
 SERVICE_RECOMPUTE_DRIVE_STATS = "recompute_drive_stats"
 SERVICE_FIT_ENERGY_MODEL = "fit_energy_model"
 SERVICE_SNAP_ROUTE_GAPS = "snap_route_gaps"
+SERVICE_REBUILD_PLACES = "rebuild_places"
+SERVICE_REBUILD_ROUTES = "rebuild_routes"
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 # Special (non-config-entry) keys stored directly under hass.data[DOMAIN].
 _ANALYTICS_DB_LOCK_KEY: Final = "_analytics_db_lock"
+_ZONE_LISTENER_REGISTERED_KEY: Final = "_zone_listener_registered"
+_ZONE_LISTENER_REMOVE_KEY: Final = "_zone_listener_remove"
 _DASHBOARD_AUTOCREATE_KEY: Final = "_dashboard_autocreate_claimed"
 _SPECIAL_DOMAIN_DATA_KEYS: Final = frozenset(
     {
         ATTR_ANALYTICS_DB,
         _ANALYTICS_DB_LOCK_KEY,
         "_ws_api_registered",
+        _ZONE_LISTENER_REGISTERED_KEY,
+        _ZONE_LISTENER_REMOVE_KEY,
         _DASHBOARD_AUTOCREATE_KEY,
     }
 )
 
 RETENTION_PRUNE_INITIAL_DELAY_SECONDS: Final = 30
 RETENTION_PRUNE_INTERVAL: Final = timedelta(hours=24)
+# A zone.* state_changed event schedules a zone resync after this long of
+# quiet, so editing several zones in a row (or a batch zone import) triggers
+# one resync, not one per zone.
+ZONE_SYNC_DEBOUNCE_SECONDS: Final = 10
+
 # Bundled frontend cards registered as Lovelace resources by
 # _async_register_frontend.
 _BUNDLED_MODULES: Final = (
     "rivian-drive-explorer-card.js",
     "rivian-overview-card.js",
+    "rivian-places-card.js",
+    "rivian-routes-card.js",
     # Shared by the cards above (imported dynamically) and a tiny card for
     # tabs without a panel header. Skipped at registration while not on disk.
     "rivian-vehicle-bar.js",
@@ -189,6 +204,18 @@ FIT_ENERGY_MODEL_SERVICE_SCHEMA = vol.Schema(
 )
 
 SNAP_ROUTE_GAPS_SERVICE_SCHEMA = vol.Schema(
+    {
+        vol.Optional("vin"): cv.string,
+    }
+)
+
+REBUILD_PLACES_SERVICE_SCHEMA = vol.Schema(
+    {
+        vol.Optional("vin"): cv.string,
+    }
+)
+
+REBUILD_ROUTES_SERVICE_SCHEMA = vol.Schema(
     {
         vol.Optional("vin"): cv.string,
     }
@@ -567,6 +594,58 @@ async def _async_register_lovelace_resources(
     return True
 
 
+def _async_register_zone_listener(hass: HomeAssistant) -> None:
+    """Resync every store's places when an HA zone is added/changed/removed.
+
+    Registered once per Home Assistant instance (not per config entry),
+    guarded the same way as the WebSocket API's registration flag. Listens to
+    every ``state_changed`` event rather than a fixed entity list, since
+    zones can be created or deleted at any time; a burst of changes (editing
+    several zones, or a batch import) collapses into one resync via
+    ``async_call_later`` debouncing.
+    """
+    domain_data = hass.data.setdefault(DOMAIN, {})
+    if domain_data.get(_ZONE_LISTENER_REGISTERED_KEY):
+        return
+    domain_data[_ZONE_LISTENER_REGISTERED_KEY] = True
+
+    cancel_debounce: list[Any] = [None]
+
+    async def _resync_all_zones(_now: Any = None) -> None:
+        zones = read_zone_states(hass)
+        # Places are shared by every vehicle, so the zones sync once for the
+        # real dataset, not once per store.
+        stores = [
+            store
+            for entry_data in _iter_entry_datas(hass)
+            for store in (entry_data.get(ATTR_DRIVE_STORE) or {}).values()
+        ]
+        if not stores:
+            return
+        try:
+            await stores[0].async_sync_zones(zones)
+        except Exception as err:  # noqa: BLE001 - a resync failure must not crash HA
+            _LOGGER.warning("Zone resync failed: %s", err)
+            return
+        for store in stores:
+            hass.bus.async_fire(RIVIAN_ANALYTICS_UPDATED_EVENT, {"vin": store.vin})
+
+    @callback
+    def _on_state_changed(event: Event) -> None:
+        entity_id = event.data.get("entity_id", "")
+        if not entity_id.startswith("zone."):
+            return
+        if cancel_debounce[0] is not None:
+            cancel_debounce[0]()
+        cancel_debounce[0] = async_call_later(
+            hass, ZONE_SYNC_DEBOUNCE_SECONDS, _resync_all_zones
+        )
+
+    domain_data[_ZONE_LISTENER_REMOVE_KEY] = hass.bus.async_listen(
+        "state_changed", _on_state_changed
+    )
+
+
 def _drive_hour_start_ts(drive: Any) -> float | None:
     """Return the POSIX start of the hour a drive started in, or None."""
     start = dt_util.parse_datetime(drive.start_time or "")
@@ -749,6 +828,20 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         partial(_async_handle_snap_route_gaps, hass),
         schema=SNAP_ROUTE_GAPS_SERVICE_SCHEMA,
     )
+    async_register_admin_service(
+        hass,
+        DOMAIN,
+        SERVICE_REBUILD_PLACES,
+        partial(_async_handle_rebuild_places, hass),
+        schema=REBUILD_PLACES_SERVICE_SCHEMA,
+    )
+    async_register_admin_service(
+        hass,
+        DOMAIN,
+        SERVICE_REBUILD_ROUTES,
+        partial(_async_handle_rebuild_routes, hass),
+        schema=REBUILD_ROUTES_SERVICE_SCHEMA,
+    )
     return True
 
 
@@ -774,6 +867,28 @@ def _analytics_stores(hass: HomeAssistant, vin: str | None = None) -> list[Drive
             "Drive analytics isn't turned on for any Rivian vehicle"
         )
     return stores
+
+
+async def _async_handle_rebuild_places(hass: HomeAssistant, call: ServiceCall) -> None:
+    """Handle the service call to rebuild favorite places from stored drives."""
+    vin = call.data.get("vin")
+    targets = _analytics_stores(hass, vin)
+    # Places are shared by every vehicle: rebuild once, refresh them all.
+    result = await targets[0].async_rebuild_places()
+    _LOGGER.info("Rebuilt favorite places: %s", result)
+    for store in targets:
+        hass.bus.async_fire(RIVIAN_ANALYTICS_UPDATED_EVENT, {"vin": store.vin})
+
+
+async def _async_handle_rebuild_routes(hass: HomeAssistant, call: ServiceCall) -> None:
+    """Handle the service call to rebuild favorite drives (repeated routes)."""
+    vin = call.data.get("vin")
+    targets = _analytics_stores(hass, vin)
+    # Routes are shared by every vehicle: rebuild once, refresh them all.
+    result = await targets[0].async_rebuild_routes()
+    _LOGGER.info("Rebuilt favorite drives: %s", result)
+    for store in targets:
+        hass.bus.async_fire(RIVIAN_ANALYTICS_UPDATED_EVENT, {"vin": store.vin})
 
 
 async def _async_handle_rebuild_heat_map(
@@ -1008,6 +1123,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
     await wallbox_coordinator.async_config_entry_first_refresh()
 
+    first_store = next(iter(drive_stores.values()), None)
+    if first_store is not None:
+        # Places come from zones only while drive analytics runs.
+        _async_register_zone_listener(hass)
+        # One sync for the whole (real) dataset: places belong to no vehicle.
+        try:
+            await first_store.async_sync_zones(read_zone_states(hass))
+        except Exception as err:  # noqa: BLE001 - a sync failure must not block setup
+            _LOGGER.warning("Initial zone sync failed: %s", err)
+
     hass.data[DOMAIN][entry.entry_id] = {
         ATTR_API: client,
         ATTR_VEHICLE: vehicles,
@@ -1084,6 +1209,9 @@ async def _async_setup_analytics(
                 hass=hass,
                 vin=vin,
                 db=analytics_db,
+                place_geocoding=entry.options.get(
+                    CONF_PLACE_GEOCODING, DEFAULT_PLACE_GEOCODING
+                ),
                 weather_lookups=entry.options.get(
                     CONF_WEATHER_LOOKUPS, DEFAULT_WEATHER_LOOKUPS
                 ),
@@ -1161,6 +1289,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         domain_data.pop(_ANALYTICS_DB_LOCK_KEY, None)
         domain_data.pop(_DASHBOARD_AUTOCREATE_KEY, None)
         domain_data.pop("_ws_api_registered", None)
+        remove_zone_listener = domain_data.pop(_ZONE_LISTENER_REMOVE_KEY, None)
+        if remove_zone_listener is not None:
+            remove_zone_listener()
+        domain_data.pop(_ZONE_LISTENER_REGISTERED_KEY, None)
         if db is not None:
             await hass.async_add_executor_job(db.close)
         if not domain_data:

@@ -3,7 +3,7 @@
  *
  * `custom:rivian-vehicle-bar-card`: a thin card wrapping `<rivian-vehicle-bar>`
  * for dashboard tabs that are not panel cards (Charging, Efficiency). The
- * Drives panel card draws the bar in its own header.
+ * panel cards (Drives, Places, Routes) draw the bar in their own headers.
  */
 
 /** Load the shared bar module with this module's own cache-buster query. */

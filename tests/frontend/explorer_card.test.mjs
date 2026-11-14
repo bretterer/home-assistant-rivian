@@ -40,6 +40,7 @@ import {
   ROLLING_EFF_MIN_SOC_DROP_PCT,
   trackFilledRuns,
   splitFilledRuns,
+  segmentPlaceLabel,
   deleteDriveMessage,
   deleteDayMessage,
 } from "../../custom_components/rivian/frontend/rivian-drive-explorer-card.js";
@@ -200,6 +201,34 @@ function buildCache() {
     },
   };
 }
+
+test("segmentPlaceLabel: both ends known join with an arrow", () => {
+  assert.equal(
+    segmentPlaceLabel({ start_place: { id: 1, label: "Home" }, end_place: { id: 2, label: "Work" } }),
+    "Home → Work"
+  );
+});
+
+test("segmentPlaceLabel: only one end known shows just that side", () => {
+  assert.equal(segmentPlaceLabel({ start_place: { id: 1, label: "Home" }, end_place: null }), "Home →");
+  assert.equal(segmentPlaceLabel({ start_place: null, end_place: { id: 2, label: "Work" } }), "→ Work");
+});
+
+test("segmentPlaceLabel: neither end known is empty", () => {
+  assert.equal(segmentPlaceLabel({ start_place: null, end_place: null }), "");
+  assert.equal(segmentPlaceLabel({}), "");
+});
+
+test("visibleTreeRows: segment rows append the place label to the time label", () => {
+  const cache = buildCache();
+  cache.days["2026-09-23"].segments[0].start_place = { id: 1, label: "Home", category: "home" };
+  cache.days["2026-09-23"].segments[0].end_place = { id: 2, label: "Work", category: "work" };
+  const rows = visibleTreeRows(cache, { level: "day", key: "2026-09-23" }, TZ);
+  const seg1 = rows.find((r) => r.level === "segment" && r.driveId === "d1");
+  assert.ok(seg1.label.includes("Home → Work"));
+  const seg2 = rows.find((r) => r.level === "segment" && r.driveId === "d2");
+  assert.equal(seg2.label.includes("→"), false);
+});
 
 test("visibleTreeRows: root selection shows years collapsed, no deeper levels", () => {
   const cache = buildCache();

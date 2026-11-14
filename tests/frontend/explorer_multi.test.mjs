@@ -39,7 +39,11 @@ function makeDay() {
     date: "2026-09-23",
     totals: { drives: 3, miles: 15, hours: 0.5, energy_kwh: 6, efficiency_mi_kwh: 2.5 },
     segments: [
-      seg("VA", 1, 0, 1_000_000, { moving_seconds: 500 }),
+      seg("VA", 1, 0, 1_000_000, {
+        moving_seconds: 500,
+        start_place: { id: 1, label: "Home" },
+        end_place: { id: 2, label: "Library" },
+      }),
       seg("VB", 1, 0, 1_000_100, { moving_seconds: 400 }),
       seg("VA", 2, 1, 1_000_900, { moving_seconds: 300 }),
     ],
@@ -203,6 +207,7 @@ test("visibleTreeRows (multi): a day's drives interleave by time as '1A', '1B', 
   assert.deepEqual(segs.map((r) => r.vin), ["VA", "VB", "VA"]);
   assert.equal(segs[1].color, "#c9561b");
   assert.equal(segs[1].colorDark, "#f0925a");
+  assert.ok(segs[0].label.includes("Home → Library"));
   assert.ok(segs.every((r) => !r.selected));
 });
 
@@ -247,4 +252,16 @@ test("inkOn: white on dark fills, near-black on light fills", () => {
   assert.equal(inkOn("#1b3a8a"), "#ffffff");
   assert.equal(inkOn("#f2d03b"), "#111111");
   assert.equal(inkOn("nonsense"), "#ffffff");
+});
+
+import {
+  FALLBACK_PLACE_CATEGORIES,
+  placeCategoriesFrom,
+} from "../../custom_components/rivian/frontend/rivian-drive-explorer-card.js";
+
+test("placeCategoriesFrom: the server list, else the fallback", () => {
+  const server = [{ key: "swim", label: "Swimming", icon: "mdi:swim" }];
+  assert.deepEqual(placeCategoriesFrom({ categories: server }), server);
+  assert.equal(placeCategoriesFrom({}), FALLBACK_PLACE_CATEGORIES);
+  assert.equal(placeCategoriesFrom(undefined), FALLBACK_PLACE_CATEGORIES);
 });
