@@ -121,7 +121,7 @@ export function confirmMatches(input, name) {
  * recording new drives afterward.
  */
 export function deleteVehicleMessage(name) {
-  return `This permanently deletes ALL recorded drives, routes, charging sessions and statistics for “${name}”. New drives will still be recorded for a real vehicle. Type the vehicle name to confirm:`;
+  return `This permanently deletes ALL recorded drives, routes, places, charging sessions and statistics for “${name}”. New drives will still be recorded for a real vehicle. Type the vehicle name to confirm:`;
 }
 
 /** Human label for a device_tracker location state. */
@@ -930,7 +930,7 @@ class RivianOverviewCard extends BaseElement {
     v.deleteLinkEl = document.createElement("button");
     v.deleteLinkEl.type = "button";
     v.deleteLinkEl.className = "roc-delete-link";
-    v.deleteLinkEl.title = "Permanently delete every recorded drive and charge for this vehicle (asks for confirmation)";
+    v.deleteLinkEl.title = "Permanently delete every recorded drive, charge and place link for this vehicle (asks for confirmation)";
     v.deleteLinkEl.style.display = "none";
     _escapeText(v.deleteLinkEl, "Delete vehicle history…");
     v.deleteLinkEl.addEventListener("click", () => {

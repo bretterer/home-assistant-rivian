@@ -91,6 +91,11 @@ DEFAULT_TRACK_FULL_DETAIL_DAYS = 0  # 0 = never thin
 TRACK_FULL_DETAIL_DAYS_MIN = 0
 TRACK_FULL_DETAIL_DAYS_MAX = 3650
 
+# Whether unnamed, frequently-visited "auto" places are reverse-geocoded via
+# the public OSM Nominatim API.
+CONF_PLACE_GEOCODING = "place_geocoding"
+DEFAULT_PLACE_GEOCODING = True
+
 IMAGE_STYLE_CEL = "cel"
 IMAGE_STYLE_PHOTO = "photo"
 IMAGE_STYLE_NONE = "none"

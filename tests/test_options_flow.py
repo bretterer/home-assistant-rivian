@@ -49,6 +49,7 @@ def test_main_page_keeps_only_the_toggles() -> None:
         "track_capture",
         "track_retention_days",
         "track_full_detail_days",
+        "place_geocoding",
     }
 
 

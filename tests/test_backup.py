@@ -171,8 +171,21 @@ def test_write_in_flight_finishes_before_checkpoint(
         lambda db: db.save_cached_roads("key", []),
         lambda db: db.save_track_fill("V1", "d1", 1.0, [], "none"),
         lambda db: db.rebuild_heat("V1", UTC),
+        lambda db: db.create_place("real", 43.7, -116.4, "Home"),
+        lambda db: db.rebuild_places("real"),
+        lambda db: db.rebuild_routes("real"),
+        lambda db: db.sync_zones("real", []),
     ],
-    ids=["delete_drives", "save_cached_roads", "save_track_fill", "rebuild_heat"],
+    ids=[
+        "delete_drives",
+        "save_cached_roads",
+        "save_track_fill",
+        "rebuild_heat",
+        "create_place",
+        "rebuild_places",
+        "rebuild_routes",
+        "sync_zones",
+    ],
 )
 def test_drive_map_writes_wait_for_the_hold(
     held_db: AnalyticsDatabase, write: Any

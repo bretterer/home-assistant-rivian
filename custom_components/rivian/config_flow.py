@@ -47,6 +47,7 @@ from .const import (
     CONF_DRIVE_ANALYTICS,
     CONF_MFA_VERIFIED,
     CONF_OTP,
+    CONF_PLACE_GEOCODING,
     CONF_REFRESH_TOKEN,
     CONF_TRACK_CAPTURE,
     CONF_TRACK_FULL_DETAIL_DAYS,
@@ -58,6 +59,7 @@ from .const import (
     DEFAULT_ANALYTICS_ALL_USERS,
     DEFAULT_ANALYTICS_RETENTION_DAYS,
     DEFAULT_DRIVE_ANALYTICS,
+    DEFAULT_PLACE_GEOCODING,
     DEFAULT_TRACK_CAPTURE,
     DEFAULT_TRACK_FULL_DETAIL_DAYS,
     DEFAULT_TRACK_RETENTION_DAYS,
@@ -145,6 +147,9 @@ ANALYTICS_OPTIONS_SCHEMA = vol.Schema(
                 mode=NumberSelectorMode.BOX,
             )
         ),
+        vol.Optional(
+            CONF_PLACE_GEOCODING, default=DEFAULT_PLACE_GEOCODING
+        ): BooleanSelector(),
     }
 )
 
