@@ -241,8 +241,9 @@ class TestOpenMeteoWeatherClient:
             hass=mock_hass, session=mock_session, enabled=False
         )
         assert await client.async_get_current_temperature(37.77, -122.42) is None
+        assert await client.async_get_current_conditions(37.77, -122.42) in (None, {})
         assert (
-            await client.async_get_historical_temperatures(
+            await client.async_get_historical_conditions(
                 37.77, -122.42, "2026-08-20", "2026-08-20"
             )
             is None

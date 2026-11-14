@@ -181,6 +181,7 @@ def test_write_in_flight_finishes_before_checkpoint(
         ),
         lambda db: db.replace_inferred_sessions("V1", []),
         lambda db: db.delete_dcfc_session("V1", "nope"),
+        lambda db: db.mark_weather_seeded("V1"),
     ],
     ids=[
         "delete_drives",
@@ -195,6 +196,7 @@ def test_write_in_flight_finishes_before_checkpoint(
         "upsert_capacity_history",
         "replace_inferred_sessions",
         "delete_dcfc_session",
+        "mark_weather_seeded",
     ],
 )
 def test_drive_map_writes_wait_for_the_hold(
