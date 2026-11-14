@@ -6,12 +6,12 @@ from abc import ABC, abstractmethod
 import asyncio
 from collections.abc import Awaitable, Callable, Coroutine
 import contextlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, time as dt_time, timedelta
 from functools import partial
 import logging
 import time
-from typing import Any, Generic, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, TypeVar
 import uuid
 
 from aiohttp import ClientError, ClientResponse
@@ -55,6 +55,7 @@ from .const import (
     DEFAULT_PRECONDITION_TEMPERATURE,
     DEFAULT_VEHICLE_STATE,
     DOMAIN,
+    GRAPHQL_FAST_FIELD_FRESHNESS,
     INVALID_SENSOR_STATES,
     ISSUE_RATE_LIMITED,
     MINUTES_PER_DAY,
@@ -68,6 +69,7 @@ from .const import (
     PRECONDITION_LEAD_MINUTES_MINIMUM,
     PRECONDITION_SCHEDULE_NAME,
     VEHICLE_STATE_API_FIELDS,
+    VEHICLE_STATE_FAST_FIELDS,
     WEEK_DAYS_ORDERED,
 )
 from .helpers import (
@@ -78,6 +80,11 @@ from .helpers import (
     redact,
     schedule_cabin_temperature,
 )
+
+if TYPE_CHECKING:
+    from .drive_storage import DriveStore
+    from .drive_tracker import DriveTracker
+    from .weather import OpenMeteoWeatherClient
 
 _LOGGER = logging.getLogger(__name__)
 T = TypeVar("T", bound=dict[str, Any] | list[dict[str, Any]])
@@ -131,9 +138,14 @@ NAVIGATION_FIX_MAX_AGE = timedelta(minutes=5)
 GNSS_FIX_FIELDS = ("gnssLocation", "gnssSpeed", "gnssBearing")
 # GraphQL sends a position fix every few seconds while driving, where Parallax's
 # dynamics.vehicle.gnss sends one about once a minute. It's a subscription of its
-# own: if Rivian stops accepting the field, only that subscription fails (with an
+# own: if Rivian stops accepting a field, only that subscription fails (with an
 # error message, and no data) and everything else carries on
 GRAPHQL_LOCATION_FIELDS = {"gnssLocation"}
+# The same subscription also carries the other driving fields GraphQL sends
+# faster than Parallax. Rivian rejects a whole subscription for any field it
+# doesn't accept, so one failure covers all of them and they all fall back to
+# Parallax together
+GRAPHQL_POSITION_FIELDS = GRAPHQL_LOCATION_FIELDS | VEHICLE_STATE_FAST_FIELDS
 # Updates are stale after this long without either any message (the client
 # resubscribes after a minute without one, and the subscriptions resend their
 # snapshot, so a working connection never goes this long), or, while awake,
@@ -145,6 +157,26 @@ UPDATES_STALE_AFTER = timedelta(minutes=10)
 GEAR_GUARD_VIDEO_WAIT = 30
 # Live stream starts to try; each waits up to 40 s for the vehicle
 GEAR_GUARD_LIVE_ATTEMPTS = 3
+
+
+def _report_time(entry: Any) -> datetime | None:
+    """Return when a field value was reported, from its timeStamp, if known."""
+    if not isinstance(entry, dict):
+        return None
+    reported = entry.get("timeStamp")
+    if isinstance(reported, str):
+        reported = dt_util.parse_datetime(reported)
+    if isinstance(reported, datetime) and reported.tzinfo:
+        return reported
+    return None
+
+
+def _at_or_above(entry: dict[str, Any] | None, value: Any) -> bool:
+    """Return whether a stored numeric value is at least ``value``."""
+    try:
+        return float(entry["value"]) >= float(value)  # type: ignore[index]
+    except (KeyError, TypeError, ValueError):
+        return False
 
 
 class RivianDataUpdateCoordinator(DataUpdateCoordinator[T], ABC, Generic[T]):
@@ -493,10 +525,16 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         # Time of the fix gnssSpeed and gnssBearing last came from, which can be
         # older than gnssLocation's when GraphQL's fix is the newer position
         self._motion_fix_time: datetime | None = None
+        # Time of the fix gnssAltitude last came from: Parallax's fix, or the
+        # report time of GraphQL's altitude (None when not known)
+        self._altitude_fix_time: datetime | None = None
         self._awake = asyncio.Event()
         # When any message last arrived, and the newest time the vehicle reported
         self._last_message: datetime | None = None
         self._last_report: datetime | None = None
+        # When GraphQL last reported each of VEHICLE_STATE_FAST_FIELDS (its own
+        # timeStamp, so a frozen field never counts as recent)
+        self._graphql_fast_seen: dict[str, datetime] = {}
         # When subscribing first failed for a rate limit, and how many times it
         # failed without a backoff, since it last worked
         self._rate_limited_since: datetime | None = None
@@ -1206,10 +1244,10 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         return self.data
 
     async def _subscribe_location(self) -> None:
-        """Subscribe to GraphQL's position fixes, which are optional.
+        """Subscribe to GraphQL's position and driving fields, which are optional.
 
-        Not subscribing (the client has already logged why) or the field failing
-        GraphQL validation leaves the position to Parallax, as before. After a
+        Not subscribing (the client has already logged why) or a field failing
+        GraphQL validation leaves them to Parallax, as before. After a
         subscription error it isn't subscribed again until the entry reloads.
         """
         if self._location_failed:
@@ -1217,8 +1255,8 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         try:
             self._unsub_location = await self.api.subscribe_for_vehicle_updates(
                 vehicle_id=self.vehicle_id,
-                properties=GRAPHQL_LOCATION_FIELDS,
-                callback=self._process_graphql_location,
+                properties=GRAPHQL_POSITION_FIELDS,
+                callback=self._process_graphql_position,
                 on_error=self._location_subscription_failed,
             )
         except Exception:  # optional, so it never fails the update
@@ -1258,8 +1296,9 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             else None
         ) or redact(message)
         _LOGGER.warning(
-            "Rivian stopped sending vehicle %s position fixes over GraphQL (%s). "
-            "Using Parallax's instead, which update about once a minute",
+            "Rivian stopped sending vehicle %s position fixes, speed, altitude, "
+            "bearing and odometer over GraphQL (%s). Using Parallax's instead, "
+            "which update about once a minute",
             self.vehicle_id,
             reason,
         )
@@ -1365,6 +1404,8 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         if not clean:
             return
         clean = PARALLAX_RVM_DEFAULTS.get(px.get("rvm"), {}) | clean
+        # The time of this message's own fix, before an older one is dropped
+        fix_time = (clean.get("gnssLocation") or {}).get("timeStamp")
         self._use_newest_location(clean)
 
         # Route charging fields to ChargingCoordinator
@@ -1379,6 +1420,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         vehicle_keys = (
             ((clean.keys() - charging_keys) | (clean.keys() & {"timeToEndOfCharge"}))
             - VEHICLE_STATE_API_FIELDS
+            - self._graphql_fast_fields()
             - {"timestamp"}
         )
         timestamp = clean.get("timestamp")
@@ -1395,12 +1437,19 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
                 and not (value == "undefined" and k in PARALLAX_UNDEFINED_IS_VALID)
             ):
                 continue
+            if k == "gnssAltitude":
+                # The altitude shown is this fix's, also when it didn't change
+                self._altitude_fix_time = fix_time
             if k == "gnssLocation":
                 if current.get(k) != value:
                     vehicle_updates[k] = value
                 continue
             # Skip unchanged values, e.g. the snapshot resent on every reconnect
             if k in current and current[k].get("value") == value:
+                continue
+            # Parallax's odometer is whole kilometers, below GraphQL's exact
+            # reading, so it may only move the odometer forward
+            if k == "vehicleMileage" and _at_or_above(current.get(k), value):
                 continue
             vehicle_updates[k] = {"value": value}
             if timestamp:
@@ -1433,20 +1482,68 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         self._initial.set()
 
     @callback
-    def _process_graphql_location(self, data: dict[str, Any]) -> None:
-        """Use a GraphQL position fix if it's newer than the current one.
+    def _process_graphql_position(self, data: dict[str, Any]) -> None:
+        """Use GraphQL's position fix and fast driving fields where newer.
 
         Anything unexpected is ignored rather than counted as a subscription
-        error: the position also comes from Parallax, so this feed is optional.
+        error: all of this also comes from Parallax, so this feed is optional.
         """
         payload = data.get("payload")
         pdata = payload.get("data") if isinstance(payload, dict) else None
         state = pdata.get(self.key) if isinstance(pdata, dict) else None
         location = state.get("gnssLocation") if isinstance(state, dict) else None
-        if not isinstance(location, dict):
+        fast = (
+            {
+                k: v
+                for k, v in state.items()
+                if k in VEHICLE_STATE_FAST_FIELDS and isinstance(v, dict) and v
+            }
+            if isinstance(state, dict)
+            else {}
+        )
+        if not isinstance(location, dict) and not fast:
             _LOGGER.debug("Ignoring a GraphQL position update: %s", redact(data))
             return
         self._last_message = dt_util.utcnow()
+        current = self._current_data()
+        new_data = self._graphql_fast_update(fast) if fast else current
+        fix = (
+            self._graphql_location_update(location)
+            if isinstance(location, dict)
+            else None
+        )
+        if fix or new_data != current:
+            self.async_set_updated_data(new_data | (fix or {}))
+
+    def _graphql_fast_update(self, fast: dict[str, Any]) -> dict[str, Any]:
+        """Return the vehicle state with the fast fields that replace held values."""
+        for item in fast.values():
+            self._note_report(_report_time(item))
+        fresh = self._fresh_graphql_fast_fields(fast)
+        # Speed and bearing count as coming from this fix, so an older Parallax
+        # fix arriving late can't replace them (see _use_newest_location), and
+        # the altitude's fix is recorded so gnss_error knows it isn't Parallax's
+        for key in ("gnssSpeed", "gnssBearing", "gnssAltitude"):
+            item = fresh.get(key)
+            if not isinstance(item, dict) or (
+                str(item.get("value")).lower() in INVALID_SENSOR_STATES
+            ):
+                # An invalid value isn't kept, so it mustn't block Parallax's
+                continue
+            reported = _report_time(item)
+            if key == "gnssAltitude":
+                # It replaces the altitude shown (fresh only keeps newer values)
+                self._altitude_fix_time = reported
+            elif reported and (
+                self._motion_fix_time is None or reported > self._motion_fix_time
+            ):
+                self._motion_fix_time = reported
+        return self._build_vehicle_info_dict(fresh)
+
+    def _graphql_location_update(
+        self, location: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """Return gnssLocation from a GraphQL fix if it's newer than the current one."""
         lat, lon = location.get("latitude"), location.get("longitude")
         fix_time = (
             dt_util.parse_datetime(ts)
@@ -1460,26 +1557,22 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             or fix_time.tzinfo is None
             or location.get("isAuthorized") is False
         ):
-            return
+            return None
         self._note_report(fix_time)
-        current = self._current_data()
-        current_time = (current.get("gnssLocation") or {}).get("timeStamp")
+        current_time = (self._current_data().get("gnssLocation") or {}).get("timeStamp")
         if (
             isinstance(current_time, datetime)
             and current_time.tzinfo
             and fix_time <= current_time
         ):
-            return
-        self.async_set_updated_data(
-            current
-            | {
-                "gnssLocation": {
-                    "latitude": round(lat, 6),
-                    "longitude": round(lon, 6),
-                    "timeStamp": fix_time,
-                }
+            return None
+        return {
+            "gnssLocation": {
+                "latitude": round(lat, 6),
+                "longitude": round(lon, 6),
+                "timeStamp": fix_time,
             }
-        )
+        }
 
     @callback
     def _handle_subscription_error(self, source: str, data: dict[str, Any]) -> None:
@@ -1496,6 +1589,40 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
                 )
             )
 
+    def _fresh_graphql_fast_fields(self, vijson: dict[str, Any]) -> dict[str, Any]:
+        """Drop fast driving fields GraphQL reports no newer than the held value.
+
+        GraphQL can keep sending a field with a timestamp that stopped moving
+        (a position a day old, a speed months old), so a field counts by its own
+        report time: it only replaces an older value, and it only takes priority
+        over Parallax while that time is recent.
+        """
+        current = self._current_data()
+        stale = set()
+        for key in VEHICLE_STATE_FAST_FIELDS & vijson.keys():
+            if not (item := vijson[key]):
+                continue
+            if (reported := _report_time(item)) is None:
+                # No report time to judge it by, so it counts as just sent
+                self._graphql_fast_seen[key] = self._last_message
+            elif (held := _report_time(current.get(key))) and reported <= held:
+                stale.add(key)
+            else:
+                self._graphql_fast_seen[key] = reported
+        if stale:
+            _LOGGER.debug("Ignoring GraphQL %s no newer than held values", stale)
+            vijson = {k: v for k, v in vijson.items() if k not in stale}
+        return vijson
+
+    def _graphql_fast_fields(self) -> set[str]:
+        """Return the fast driving fields GraphQL reported recently, so it owns them."""
+        now = dt_util.utcnow()
+        return {
+            key
+            for key, seen in self._graphql_fast_seen.items()
+            if now - seen <= GRAPHQL_FAST_FIELD_FRESHNESS
+        }
+
     def _use_newest_location(self, clean: dict[str, Any]) -> None:
         """Set gnssLocation, gnssSpeed and gnssBearing from the newest fix.
 
@@ -1504,9 +1631,10 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         resending its last fix after navigation ends, so it's only used while
         recent, and only a newer fix wins.
 
-        GraphQL's position fixes (_process_graphql_location) are often newer,
-        but carry no speed or bearing, so those are compared with the fix they
-        last came from rather than with the position's.
+        GraphQL's position fixes (_process_graphql_position) are often newer, but
+        carry no speed or bearing of their own, so those are compared with the
+        fix they last came from (Parallax's, or GraphQL's own speed report)
+        rather than with the position's.
         """
         fix = {k: clean.pop(k) for k in GNSS_FIX_FIELDS if k in clean}
         lat, lon = clean.get("latitude"), clean.get("longitude")
@@ -1662,8 +1790,9 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         `component` is a gnssError key: positionHorizontal (the location),
         positionVertical (the altitude), speed or bearing. gnssError describes
         Parallax's fix, while the location, speed and bearing come from the
-        newest fix from any source (Parallax, navigation or GraphQL), so the
-        estimate only applies while the value shown came from that same fix.
+        newest fix from any source (Parallax, navigation or GraphQL), and the
+        altitude from Parallax's fix or GraphQL's, so the estimate only applies
+        while the value shown came from that same fix.
         """
         error = self.get("gnssError") if self.data else None
         if not isinstance(error, dict) or not (fix_time := error.get("timeStamp")):
@@ -1672,9 +1801,10 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             shown = (self._current_data().get("gnssLocation") or {}).get("timeStamp")
         elif component in ("speed", "bearing"):
             shown = self._motion_fix_time
+        elif component == "positionVertical":
+            shown = self._altitude_fix_time
         else:
-            # The altitude only comes from Parallax's fix
-            shown = fix_time
+            return None
         if shown != fix_time:
             return None
         return error.get(component)
@@ -1994,6 +2124,12 @@ class RivianData:
     user_coordinator: UserCoordinator
     vehicle_coordinators: dict[str, VehicleCoordinator]
     wallbox_coordinator: WallboxCoordinator
+    # One per entry, shared by the Outside temperature sensor and drive
+    # analytics so they share its cache; sends nothing with weather_lookups off
+    weather_client: OpenMeteoWeatherClient
+    # Drive analytics, per VIN; empty while the option is off
+    drive_trackers: dict[str, DriveTracker] = field(default_factory=dict)
+    drive_stores: dict[str, DriveStore] = field(default_factory=dict)
 
 
 type RivianConfigEntry = ConfigEntry[RivianData]

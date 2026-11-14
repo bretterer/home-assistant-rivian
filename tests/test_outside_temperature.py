@@ -356,12 +356,10 @@ async def test_setup_follows_the_option(enabled: bool) -> None:
         stale_calls.append((set(possible), set(created)))
 
     with (
-        patch.object(sensor, "OpenMeteoWeatherClient") as client_cls,
         patch.object(sensor, "async_remove_stale_entities", _remove_stale),
     ):
-        await sensor.async_setup_entry(
-            MagicMock(), _entry({CONF_WEATHER_LOOKUPS: enabled}), added.extend
-        )
+        entry = _entry({CONF_WEATHER_LOOKUPS: enabled})
+        await sensor.async_setup_entry(MagicMock(), entry, added.extend)
 
     outside = [
         e
@@ -369,7 +367,8 @@ async def test_setup_follows_the_option(enabled: bool) -> None:
         if isinstance(e, outside_temperature.RivianOutsideTemperatureEntity)
     ]
     assert len(outside) == (1 if enabled else 0)
-    assert client_cls.called == enabled
+    # The entry's client, which drive analytics shares
+    assert all(e._client is entry.runtime_data.weather_client for e in outside)
     unique_id = "VIN1-outside_temperature"
     # Offered for removal every time; only removed when it wasn't created
     calls = [call for call in stale_calls if unique_id in call[0]]

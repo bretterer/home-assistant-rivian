@@ -55,7 +55,7 @@ def graphql_fix(
         "timeStamp": at.isoformat().replace("+00:00", "Z"),
         "isAuthorized": True,
     } | extra
-    coor._process_graphql_location(
+    coor._process_graphql_position(
         {
             "type": "next",
             "payload": {"data": {"vehicleState": {"gnssLocation": location}}},
@@ -171,7 +171,7 @@ def test_unexpected_messages_are_ignored(
     before = coor.data
 
     with patch.object(coor, "async_set_update_error", create=True) as set_update_error:
-        coor._process_graphql_location(message)
+        coor._process_graphql_position(message)
 
     assert coor.data == before
     assert coor._error_count == 0
@@ -222,7 +222,7 @@ def subscribing_vehicle(
     async def subscribe(
         vehicle_id: str, properties: set[str], callback: Any, on_error: Any = None
     ) -> AsyncMock | None:
-        if properties == coordinator.GRAPHQL_LOCATION_FIELDS:
+        if properties == coordinator.GRAPHQL_POSITION_FIELDS:
             coor.location_on_error = on_error
             if error_first:
                 on_error(VALIDATION_ERROR)
@@ -251,12 +251,15 @@ async def test_position_is_its_own_subscription() -> None:
         call.kwargs["properties"]
         for call in coor.api.subscribe_for_vehicle_updates.await_args_list
     ]
+    # The main subscription stays minimal; the position and the fast driving
+    # fields (speed, altitude, bearing, odometer) share the other one, so
+    # Rivian rejecting any of them can't take the main one down
     assert requested == [
         coordinator.VEHICLE_STATE_API_FIELDS,
-        coordinator.GRAPHQL_LOCATION_FIELDS,
+        coordinator.GRAPHQL_LOCATION_FIELDS | coordinator.VEHICLE_STATE_FAST_FIELDS,
     ]
-    assert (
-        not coordinator.VEHICLE_STATE_API_FIELDS & coordinator.GRAPHQL_LOCATION_FIELDS
+    assert not requested[0] & (
+        coordinator.GRAPHQL_LOCATION_FIELDS | coordinator.VEHICLE_STATE_FAST_FIELDS
     )
 
     await coor._unsubscribe()
@@ -285,6 +288,21 @@ async def test_setup_carries_on_when_the_position_subscription_raises() -> None:
 
     assert await coor._async_update_data() == {"activeDriverName": {"value": "Driver"}}
     assert coor._unsub_location is None
+
+
+async def test_failed_position_subscription_falls_back_to_parallax_for_all(
+    coor: coordinator.VehicleCoordinator,
+) -> None:
+    """After the error, Parallax's speed and fix are used; main stays up."""
+    sub = subscribing_vehicle(AsyncMock())
+    await sub._async_update_data()
+    sub.location_on_error(VALIDATION_ERROR)
+    await asyncio.sleep(0)
+    assert sub._unsub_handler is not None  # main subscription intact
+
+    parallax_fix(coor, T0, speed=12.5)
+    assert coor.get("gnssSpeed") == 12.5
+    assert coor.data["gnssLocation"]["latitude"] == 40.2
 
 
 async def test_failed_position_subscription_warns_once_and_ends(
@@ -351,7 +369,7 @@ async def test_regular_refresh_retries_the_position_subscription() -> None:
     async def subscribe(
         vehicle_id: str, properties: set[str], callback: Any, on_error: Any = None
     ) -> AsyncMock:
-        assert properties == coordinator.GRAPHQL_LOCATION_FIELDS
+        assert properties == coordinator.GRAPHQL_POSITION_FIELDS
         return location_unsubscribe
 
     coor.api.subscribe_for_vehicle_updates = AsyncMock(side_effect=subscribe)
