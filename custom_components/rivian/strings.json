@@ -27,7 +27,22 @@
         "data": {
           "vehicle_image_style": "Vehicle image style",
           "vehicle_control": "Enable vehicle control (experimental and at your own risk)",
-          "zone": "Limit vehicle control to the following zones"
+          "zone": "Limit vehicle control to the following zones",
+          "drive_analytics": "Drive analytics",
+          "analytics_all_users": "Let non-admin users view drive analytics",
+          "analytics_retention_days": "Analytics history retention (days, 0 = keep forever)",
+          "track_capture": "Store GPS routes for drives",
+          "track_retention_days": "Keep GPS routes for (days, 0 = as long as the drive)",
+          "track_full_detail_days": "Thin routes older than (days, 0 = never)",
+          "weather_lookups": "Weather for drives"
+        },
+        "data_description": {
+          "drive_analytics": "Record drives, GPS routes and charging sessions in a local database (.storage/rivian_analytics.db) for the drive sensors and statistics. Off by default; when off, nothing is recorded or stored.",
+          "analytics_all_users": "By default only administrators can read drive analytics, which include the full route history. Turn on to let every Home Assistant user see them.",
+          "track_capture": "When off, drives are still recorded but no GPS route is stored for them, so the route view is unavailable.",
+          "track_retention_days": "How long a drive's full GPS route is kept before it's deleted (the drive summary itself follows the analytics history retention setting above). A typical daily-driving route history runs roughly 12 MB/year at full detail.",
+          "track_full_detail_days": "Routes older than this are simplified to about 10% of their original size (same overall shape, fewer points) to save storage, without being deleted.",
+          "weather_lookups": "When on, each drive gets its outside temperature from the public Open-Meteo API. Only coordinates rounded to about 1 km and times are sent. Off by default; when off, nothing is sent and drives show no temperature."
         }
       }
     },
@@ -968,6 +983,34 @@
           "charging_disabled_not_parked": "Charging disabled (not in park)"
         }
       },
+      "last_drive_efficiency": {
+        "name": "Last drive efficiency"
+      },
+      "efficiency_30d": {
+        "name": "Efficiency (30 days)"
+      },
+      "efficiency_all_time": {
+        "name": "Efficiency (all-time)"
+      },
+      "last_drive_distance": {
+        "name": "Last drive distance"
+      },
+      "last_drive_mpge": {
+        "name": "Last drive MPGe"
+      },
+      "mpge_30d": {
+        "name": "MPGe (30 days)"
+      },
+      "mpge_all_time": {
+        "name": "MPGe (all-time)"
+      },
+      "drive_status": {
+        "name": "Drive status",
+        "state": {
+          "parked": "Parked",
+          "driving": "Driving"
+        }
+      },
       "window_rear_calibrated": {
         "name": "Window calibration liftgate state",
         "state": {
@@ -1074,6 +1117,30 @@
       }
     }
   },
+  "services": {
+    "backfill_drive_history": {
+      "name": "Backfill drive history",
+      "description": "Reconstruct past drive efficiency and MPGe from Home Assistant recorder history through the recorder history API (any recorder database), without modifying it.",
+      "fields": {
+        "vin": {
+          "name": "Vehicle VIN",
+          "description": "Specific vehicle VIN to backfill (leave blank for all configured vehicles)."
+        },
+        "days": {
+          "name": "Days",
+          "description": "Number of past days of history to backfill (defaults to 365 days)."
+        },
+        "dry_run": {
+          "name": "Dry run",
+          "description": "If true, analyzes and logs detected drives in Home Assistant logs without saving to storage."
+        },
+        "tracks": {
+          "name": "Rebuild GPS routes",
+          "description": "Also rebuild GPS routes for stored drives from the recorder's location history (only the recorder retention window, ~10 days by default)."
+        }
+      }
+    }
+  },
   "issues": {
     "state_values_changed": {
       "title": "Rivian sensor states have changed",
@@ -1086,6 +1153,14 @@
         }
       }
     },
+    "analytics_db_repaired": {
+      "title": "Rivian analytics database was corrupt and has been rebuilt",
+      "description": "The SQLite analytics database at `.storage/rivian_analytics.db` failed an integrity check and was quarantined. A fresh database was created and the original legacy JSON drive history is still on disk as a recovery source, but recent analytics may need to be re-imported (for example via the `rivian.backfill_drive_history` service)."
+    },
+    "analytics_db_read_only": {
+      "title": "Rivian analytics database is read-only after a downgrade",
+      "description": "The analytics database schema version is newer than this version of the integration supports, which usually means the integration was downgraded. To avoid corrupting data, analytics writes are paused until you update the integration to a version that supports this schema."
+    },
     "rate_limited": {
       "title": "Rivian live updates are rate limited",
       "fix_flow": {
@@ -1096,6 +1171,10 @@
           }
         }
       }
+    },
+    "analytics_unavailable": {
+      "title": "Rivian drive analytics couldn't start",
+      "description": "The drive analytics database couldn't be opened, so drives aren't being recorded. The rest of the integration works normally. Check that Home Assistant can write to its .storage folder and has free disk space, then reload the integration.\n\nError: {error}"
     }
   }
 }
