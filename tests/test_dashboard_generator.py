@@ -16,6 +16,7 @@ from custom_components.rivian.const import (
 from custom_components.rivian.dashboard_generator import (
     ENTITY_KEY_MAP,
     _async_resolve_vehicle_entities,
+    _collect_vehicle_models,
     async_create_efficiency_dashboard,
     async_discover_vehicle_prefixes,
 )
@@ -570,6 +571,79 @@ async def test_no_card_has_an_empty_or_missing_entity(vehicle_count: int) -> Non
     views = saved["lovelace.rivian_dashboard"]["config"]["views"]
     values = _all_entity_values(views)
     assert not any(v in ("", None) for v in values)
+
+
+DEMO_R2_VIN = "DEMO0R2EAGLE00001"
+DEMO_R1T_VIN = "DEMO1R1TEAGLE0002"
+DEMO_VEHICLES = [
+    {"vin": DEMO_R2_VIN, "name": "Demo R2", "model": "R2"},
+    {"vin": DEMO_R1T_VIN, "name": "Demo R1T", "model": "R1T"},
+]
+
+
+def _add_demo_vehicles(hass: MagicMock) -> None:
+    hass.data[DOMAIN]["_demo_vehicles"] = [dict(v) for v in DEMO_VEHICLES]
+
+
+@pytest.mark.asyncio
+async def test_discovery_includes_demo_vehicles_without_entities() -> None:
+    """Demo vehicles join discovery with name/vin, no entity prefix, and the real entry id."""
+    hass = _hass_with_one_vehicle()
+    _add_demo_vehicles(hass)
+
+    with _er_patch(_MockEntityRegistry()):
+        found = await async_discover_vehicle_prefixes(hass)
+
+    by_vin = {vin: (name, prefix, entry_id) for name, prefix, vin, entry_id in found}
+    assert by_vin[TEST_VIN][0] == "Rivi"
+    assert by_vin[DEMO_R2_VIN] == ("Demo R2", "", "entry1")
+    assert by_vin[DEMO_R1T_VIN] == ("Demo R1T", "", "entry1")
+    models = _collect_vehicle_models(hass)
+    assert models[DEMO_R2_VIN] == "R2"
+    assert models[DEMO_R1T_VIN] == "R1T"
+    # The demo registry key is not mistaken for a config entry.
+    assert all(not name.startswith("_") for name, *_ in found)
+
+
+@pytest.mark.asyncio
+async def test_demo_vehicles_appear_in_overview() -> None:
+    """One real vehicle + two demo ones: all listed on Overview, one card per tab."""
+    hass = _hass_with_one_vehicle()
+    _add_demo_vehicles(hass)
+    registry = _MockEntityRegistry()
+    saved: dict[str, Any] = {}
+
+    with (
+        patch(
+            "custom_components.rivian.dashboard_generator.Store",
+            side_effect=_grid_dashboards_store(saved),
+        ),
+        _er_patch(registry),
+    ):
+        await async_create_efficiency_dashboard(hass=hass)
+
+    views = saved["lovelace.rivian_dashboard"]["config"]["views"]
+    overview = next(v for v in views if v["path"] == "overview")
+    listed = {v["vin"]: v for v in overview["cards"][0]["vehicles"]}
+    assert set(listed) == {TEST_VIN, DEMO_R2_VIN, DEMO_R1T_VIN}
+    assert listed[DEMO_R2_VIN]["name"] == "Demo R2"
+    assert listed[DEMO_R2_VIN]["model"] == "R2"
+    assert listed[DEMO_R2_VIN]["entities"] == {}
+
+    for view in views:
+        if view["path"] != "overview":
+            assert len(view["cards"]) == 1
+
+    # No card for a demo vehicle reads a missing entity.
+    values = _all_entity_values(views)
+    assert not any(v in ("", None) for v in values)
+    demo_strings = [
+        text
+        for view in views
+        for text in _strings(view)
+        if text.startswith("sensor.") and "demo" in text.lower()
+    ]
+    assert demo_strings == []
 
 
 class _LiveDashboard:

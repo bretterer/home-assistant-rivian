@@ -30,7 +30,7 @@ test("overview: every stats row and window header has a title", () => {
 
 test("overview: chip titles say when a chip opens details", () => {
   assert.equal(overview.overviewChipTitle({ text: "Parked", entityId: "sensor.x" }), "Parked — tap for details");
-  assert.equal(overview.overviewChipTitle({ text: "Parked" }), "Parked");
+  assert.equal(overview.overviewChipTitle({ text: "Demo" }), "Demo");
   assert.equal(overview.overviewChipTitle(null), "");
 });
 

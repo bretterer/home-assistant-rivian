@@ -313,6 +313,10 @@ test("buildOverlayLines: a drive is ranked and compared against its own car", ()
   assert.equal(onlyA.Fastest, "12:40");
 });
 
-test("datasetGroups (routes): the selection is queried as the real dataset", () => {
-  assert.deepEqual(datasetGroups(CARS, ["VA", "ZZ"]), [{ dataset: "real", vins: ["VA"] }]);
+test("datasetGroups (routes): real and demo are queried separately", () => {
+  const vehicles = [...CARS, { vin: "DD", letter: "C", is_demo: true }];
+  assert.deepEqual(datasetGroups(vehicles, ["DD", "VA"]), [
+    { dataset: "real", vins: ["VA"] },
+    { dataset: "demo", vins: ["DD"] },
+  ]);
 });
