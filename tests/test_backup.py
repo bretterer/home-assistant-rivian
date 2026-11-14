@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC
 import os
 import threading
 import time
@@ -161,3 +162,38 @@ def test_write_in_flight_finishes_before_checkpoint(
     holder.join(5)
     assert order == ["write", "hold"]
     assert db.get_meta("k") == "inflight"
+
+
+@pytest.mark.parametrize(
+    "write",
+    [
+        lambda db: db.delete_drives("V1", ["d1"]),
+        lambda db: db.save_cached_roads("key", []),
+        lambda db: db.save_track_fill("V1", "d1", 1.0, [], "none"),
+        lambda db: db.rebuild_heat("V1", UTC),
+    ],
+    ids=["delete_drives", "save_cached_roads", "save_track_fill", "rebuild_heat"],
+)
+def test_drive_map_writes_wait_for_the_hold(
+    held_db: AnalyticsDatabase, write: Any
+) -> None:
+    """Writes added with the Drives tab also wait out a backup hold."""
+    db = held_db
+    db.hold_for_backup()
+    done = threading.Event()
+    errors: list[Exception] = []
+
+    def _run() -> None:
+        try:
+            write(db)
+        except Exception as err:  # noqa: BLE001
+            errors.append(err)
+        done.set()
+
+    writer = _start(_run)
+    time.sleep(0.2)
+    assert not done.is_set()
+    db.release_after_backup()
+    writer.join(5)
+    assert done.is_set()
+    assert not errors, errors
