@@ -101,8 +101,8 @@ def registered(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-async def _store(mock_hass: Any, db: Any) -> DriveStore:
-    store = DriveStore(mock_hass, VIN, db)
+async def _store(mock_hass: Any, db: Any, demo: bool = False) -> DriveStore:
+    store = DriveStore(mock_hass, VIN, db, is_demo=demo)
     await store.async_load()
     return store
 
@@ -251,6 +251,14 @@ def test_replace_since_keeps_older_inferred_rows(analytics_db: Any) -> None:
     assert ids == [f"inferred:{VIN}:1000000", f"inferred:{VIN}:2100000"]
 
 
+async def test_demo_store_is_skipped(
+    mock_hass: Any, analytics_db: Any, reader: Any, registered: None
+) -> None:
+    store = await _store(mock_hass, analytics_db, demo=True)
+    assert await store.async_infer_charging_sessions(reader=reader) is None
+    assert _inferred(analytics_db) == []
+
+
 # -- WebSocket payload ------------------------------------------------------------------
 
 
@@ -319,10 +327,11 @@ async def test_soc_timeline_does_not_redetect_a_stored_inferred_span(
         options={}, runtime_data=SimpleNamespace(drive_stores={VIN: store}, vehicles={})
     )
     hass = SimpleNamespace(
+        data={},
         config_entries=SimpleNamespace(
             async_loaded_entries=lambda domain: [entry] if domain == "rivian" else [],
             async_entries=lambda domain: [entry] if domain == "rivian" else [],
-        )
+        ),
     )
 
     class Conn:

@@ -13,7 +13,7 @@ like ``vehicle_picture.py`` does, and requests ONLY the fields listed in
 ``SUMMARY_FIELDS`` -- never payment, price or account details. The response
 schema is undocumented, so everything is parsed defensively; a GraphQL error
 is logged once as a warning and the import stops (it is retried on the next
-daily run).
+daily run). Demo vehicles are never imported.
 
 This module also holds the daily job that merges the battery-capacity
 sensor's long-term statistics and drives into ``capacity_history`` (kept

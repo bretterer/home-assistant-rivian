@@ -374,6 +374,13 @@ const _BAR_STYLE = `
     white-space: nowrap;
   }
   .vb-name:hover { text-decoration: underline; }
+  .vb-demo {
+    font-size: 0.7em;
+    padding: 1px 5px;
+    border-radius: 6px;
+    color: var(--secondary-text-color, #727272);
+    border: 1px solid var(--divider-color, #cfcfcf);
+  }
   .vb-all {
     border: none;
     background: none;
@@ -390,7 +397,7 @@ const _BAR_STYLE = `
   }
   @media (max-width: 600px) {
     .vb { gap: 6px; }
-    .vb-thumb { display: none; }
+    .vb-thumb, .vb-demo { display: none; }
     .vb-chip { padding: 3px 10px 3px 4px; gap: 6px; }
     .vb-name { max-width: 9em; }
   }
@@ -531,6 +538,13 @@ class RivianVehicleBar extends BaseElement {
       });
       chip.appendChild(name);
 
+      if (v.is_demo) {
+        const demo = document.createElement("span");
+        demo.className = "vb-demo";
+        demo.textContent = "demo";
+        demo.title = "Demo vehicle with sample data, not a real Rivian";
+        chip.appendChild(demo);
+      }
       this._root.appendChild(chip);
     }
 

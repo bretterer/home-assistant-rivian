@@ -596,6 +596,7 @@ async def test_ws_sessions_payload_fields_and_filters() -> None:
 
     class Store:
         vin = "V"
+        is_demo = False
         last_drive = SimpleNamespace(battery_capacity_kwh=135.0)
 
         async def async_list_charging_sessions(
@@ -626,6 +627,7 @@ async def test_ws_sessions_payload_fields_and_filters() -> None:
         runtime_data=SimpleNamespace(drive_stores={"V": Store()}, vehicles={}),
     )
     hass = SimpleNamespace(
+        data={},
         config_entries=SimpleNamespace(
             async_loaded_entries=lambda domain: [entry] if domain == DOMAIN else [],
             async_entries=lambda domain: [entry] if domain == DOMAIN else [],

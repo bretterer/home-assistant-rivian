@@ -117,11 +117,33 @@ export function confirmMatches(input, name) {
 }
 
 /**
- * Text for the "Delete vehicle history…" prompt. The vehicle keeps
- * recording new drives afterward.
+ * Text for the "Delete vehicle history…" prompt. A real vehicle keeps
+ * recording new drives afterward; a demo vehicle is removed completely.
  */
-export function deleteVehicleMessage(name) {
+export function deleteVehicleMessage(name, demo) {
+  if (demo) {
+    return `This removes the demo vehicle “${name}” completely: its drives, routes, places, charging sessions and statistics, and it disappears from the dashboard. Type the vehicle name to confirm:`;
+  }
   return `This permanently deletes ALL recorded drives, routes, places, charging sessions and statistics for “${name}”. New drives will still be recorded for a real vehicle. Type the vehicle name to confirm:`;
+}
+
+/**
+ * Battery / range / odometer / location readings for a vehicle that has no
+ * entities (a demo vehicle), from the summary payload's `vehicle` block.
+ * Missing values come back as null.
+ */
+export function demoStatus(vehicle) {
+  const v = vehicle || {};
+  const num = (x) => (typeof x === "number" && !Number.isNaN(x) ? x : null);
+  const soc = num(v.battery_pct);
+  const range = num(v.range_mi);
+  const odo = num(v.odometer_mi);
+  return {
+    socValue: soc,
+    rangeText: range !== null ? `${formatNumber(range, 0)} mi` : null,
+    odometerText: odo !== null ? `${formatNumber(odo, 0)} mi` : null,
+    locationText: typeof v.location === "string" && v.location ? v.location : null,
+  };
 }
 
 /** Human label for a device_tracker location state. */
@@ -956,9 +978,16 @@ class RivianOverviewCard extends BaseElement {
   async _confirmDeleteVehicleHistory(v) {
     if (!v.vin) return;
     const name = (v.config && v.config.name) || "this vehicle";
-    const input = window.prompt(deleteVehicleMessage(name));
+    const input = window.prompt(deleteVehicleMessage(name, !!v.demo));
     if (!confirmMatches(input, name)) return;
     await this._hass.callWS({ type: "rivian/analytics/delete_vehicle_history", vin: v.vin });
+    if (v.demo) {
+      // Removed completely: nothing left to fetch (the dashboard is
+      // regenerated server-side and drops this vehicle on its next load).
+      v.statsSeq += 1;
+      v.card.style.display = "none";
+      return;
+    }
     await this._fetchStats(v);
   }
 
@@ -1043,7 +1072,16 @@ class RivianOverviewCard extends BaseElement {
         break;
       }
     }
-    const isRender = !!(picture && entities.picture && pictureKey.startsWith(`${entities.picture}|`));
+    // A demo vehicle has no image entity; the summary payload carries the URL
+    // of a neutral bundled illustration for it instead.
+    let isRender = !!(picture && entities.picture && pictureKey.startsWith(`${entities.picture}|`));
+    if (!picture && v.demoVehicle && v.demoVehicle.picture_url) {
+      picture = v.demoVehicle.picture_url;
+      pictureKey = `demo|${picture}`;
+      // Only a configurator render needs the zoom-and-crop; a bundled
+      // illustration is already framed and is shown whole.
+      isRender = picture.includes("/compimg/");
+    }
     if (!force && v.pictureKey === pictureKey) return;
     v.pictureKey = pictureKey;
     v.imageWrap.textContent = "";
@@ -1066,7 +1104,8 @@ class RivianOverviewCard extends BaseElement {
 
     // Battery block
     const socObj = entities.soc && hass ? hass.states[entities.soc] : null;
-    const socValue = _numericState(socObj);
+    const demo = v.demo ? demoStatus(v.demoVehicle) : null;
+    const socValue = demo && !entities.soc ? demo.socValue : _numericState(socObj);
     const limitObj = entities.soc_limit && hass ? hass.states[entities.soc_limit] : null;
     const limitValue = _numericState(limitObj);
     v.batteryFill.style.width = `${Math.max(0, Math.min(100, socValue ?? 0))}%`;
@@ -1079,7 +1118,7 @@ class RivianOverviewCard extends BaseElement {
     }
     const socText = socValue !== null ? `${Math.round(socValue)}%` : "–";
     const rangeObj = entities.range && hass ? hass.states[entities.range] : null;
-    const rangeText = _stateText(hass, rangeObj);
+    const rangeText = demo && !entities.range ? demo.rangeText : _stateText(hass, rangeObj);
     _escapeText(v.batteryText, rangeText ? `${socText}  ·  ${rangeText}` : socText);
 
     // Chips
@@ -1093,6 +1132,19 @@ class RivianOverviewCard extends BaseElement {
     const hass = this._hass;
     const entities = v.entities;
     const chips = [];
+
+    if (v.demo) {
+      // A demo vehicle has no entities: a "Demo" chip plus chips from the
+      // summary payload's synthesized vehicle block.
+      const demo = demoStatus(v.demoVehicle);
+      chips.push({ icon: "mdi:flask-outline", text: "Demo", variant: "warning" });
+      if (demo.locationText) {
+        chips.push({ icon: "mdi:map-marker", text: demo.locationText });
+      }
+      if (demo.odometerText) {
+        chips.push({ icon: "mdi:counter", text: demo.odometerText });
+      }
+    }
 
     if (entities.location && hass) {
       const stateObj = hass.states[entities.location];
@@ -1212,6 +1264,8 @@ class RivianOverviewCard extends BaseElement {
       if (seq !== v.statsSeq) return;
       v.windows = result.windows || {};
       v.lastDrive = result.last_drive || null;
+      v.demo = !!result.demo;
+      v.demoVehicle = result.demo ? result.vehicle || null : null;
       v.statsError = null;
       this._scheduleHousehold();
       this._renderImage(v);

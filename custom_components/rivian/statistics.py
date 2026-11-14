@@ -549,3 +549,18 @@ async def async_soc_history(
     if not fine:
         return coarse
     return [p for p in coarse if p[0] < fine[0][0]] + list(fine)
+
+
+async def async_wait_for_recorder(hass: HomeAssistant) -> None:
+    """Wait until the recorder has processed everything queued so far.
+
+    ``async_clear_statistics`` only queues its work; a caller that reads the
+    statistics right afterwards (a re-install's rewrite) waits here first.
+    Never raises.
+    """
+    if "recorder" not in hass.config.components:
+        return
+    try:
+        await recorder.get_instance(hass).async_block_till_done()
+    except Exception as err:  # noqa: BLE001 - waiting is best effort
+        _LOGGER.debug("Could not wait for the recorder: %s", err)

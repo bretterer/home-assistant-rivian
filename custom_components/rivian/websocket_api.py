@@ -42,6 +42,7 @@ from homeassistant.util import dt as dt_util
 
 from . import battery_analytics, charge_curves, charger_lookup
 from .const import (
+    ATTR_DEMO_STORES,
     CONF_ANALYTICS_ALL_USERS,
     CONF_DRIVE_ANALYTICS,
     DEFAULT_ANALYTICS_ALL_USERS,
@@ -49,6 +50,7 @@ from .const import (
     DOMAIN,
     RIVIAN_ANALYTICS_UPDATED_EVENT,
 )
+from .demo import async_remove_demo_vehicle_history, demo_picture_url, get_demo_vehicles
 from .drive_models import (
     AC_L1_MAX_KW,
     MPGE_FACTOR,
@@ -58,7 +60,13 @@ from .drive_models import (
     VampireDrainRecord,
 )
 from .drive_storage import DriveStore
-from .places import DATASET_REAL, DATASETS, PLACE_CATEGORIES, category_options
+from .places import (
+    DATASET_DEMO,
+    DATASET_REAL,
+    DATASETS,
+    PLACE_CATEGORIES,
+    category_options,
+)
 from .statistics import async_entity_statistics, async_soc_points
 
 _LOGGER = logging.getLogger(__name__)
@@ -201,7 +209,14 @@ def _require_analytics_viewer[HandlerT: Callable[..., Any]](func: HandlerT) -> H
 
 
 def _find_store(hass: HomeAssistant, vin: str) -> DriveStore | None:
-    """Find the DriveStore for a given VIN across every loaded config entry."""
+    """Find the DriveStore for a given VIN across every loaded config entry.
+
+    Demo vehicles' detached stores (``hass.data[DOMAIN]["_demo_stores"]``,
+    keyed by VIN) are searched first; they belong to no config entry.
+    """
+    demo_store = (hass.data.get(DOMAIN, {}).get(ATTR_DEMO_STORES) or {}).get(vin)
+    if demo_store is not None:
+        return demo_store
     for entry in hass.config_entries.async_loaded_entries(DOMAIN):
         for store in entry.runtime_data.drive_stores.values():
             if store.vin == vin:
@@ -279,7 +294,7 @@ def _vehicle_letter(index: int) -> str:
 def assign_vehicle_slots(stored: dict[str, int], vins: list[str]) -> dict[str, int]:
     """Stable palette slots: a VIN keeps its slot for good, even while absent.
 
-    A vehicle can be missing for a while (its config entry reloading,
+    A vehicle can be missing for a while (its config entry reloading, a demo
     car removed and re-added), and it should come back in the same color, so
     absent VINs keep their stored slot. A new VIN takes the lowest slot no
     known VIN holds; once every slot is held, the lowest one no *present*
@@ -668,6 +683,37 @@ def _last_drive_dict(drive: DriveRecord | None) -> dict[str, Any] | None:
     }
 
 
+async def _demo_vehicle_block(store: DriveStore) -> dict[str, Any]:
+    """Synthesize the live-vehicle chips a demo vehicle (no entities) can't supply.
+
+    Battery % is the last drive's end SoC, range its end range, odometer its
+    end odometer and location its end place's label.
+    """
+    drive = store.last_drive
+    from .demo import demo_picture_url
+
+    block: dict[str, Any] = {
+        "battery_pct": None,
+        "range_mi": None,
+        "odometer_mi": None,
+        "location": None,
+        "picture_url": demo_picture_url(store.vin),
+    }
+    if drive is None:
+        return block
+    if drive.end_soc is not None:  # never known -> stays None, not 0 %
+        block["battery_pct"] = round(drive.end_soc, 1)
+    if drive.end_range_mi is not None:
+        block["range_mi"] = round(drive.end_range_mi, 1)
+    if drive.end_odometer_mi is not None:
+        block["odometer_mi"] = round(drive.end_odometer_mi, 1)
+    detail = await store.async_get_drive_detail(drive.drive_id)
+    end_place = ((detail or {}).get("drive") or {}).get("end_place")
+    if end_place:
+        block["location"] = end_place.get("label")
+    return block
+
+
 async def _summary_for_store(
     store: DriveStore,
 ) -> tuple[dict[str, Any], list[AggregatedDriveStats]]:
@@ -683,6 +729,9 @@ async def _summary_for_store(
         "windows": windows,
         "last_drive": _last_drive_dict(store.last_drive),
     }
+    if getattr(store, "is_demo", False) is True:
+        payload["demo"] = True
+        payload["vehicle"] = await _demo_vehicle_block(store)
     return payload, list(results)
 
 
@@ -1011,7 +1060,7 @@ async def _websocket_vehicles_list(
 ) -> None:
     """Handle ``rivian/vehicles/list``: the vehicles in display order.
 
-    Vehicles in config order. Letters A, B, C... follow
+    Real vehicles in config order, then demo vehicles. Letters A, B, C... follow
     that order; colors come from a persisted, stable palette slot per VIN.
     """
     from .dashboard_generator import _model_str
@@ -1031,9 +1080,26 @@ async def _websocket_vehicles_list(
                     "vin": vin,
                     "name": str(v_info.get("name") or v_info.get("model") or "Rivian"),
                     "model": _model_str(v_info),
+                    "is_demo": False,
                     "picture_entity": picture if isinstance(picture, str) else None,
+                    "picture_url": None,
                 }
             )
+    for demo in get_demo_vehicles(hass):
+        vin = demo["vin"]
+        if vin in seen:
+            continue
+        seen.add(vin)
+        entries.append(
+            {
+                "vin": vin,
+                "name": demo.get("name", ""),
+                "model": demo.get("model", ""),
+                "is_demo": True,
+                "picture_entity": None,
+                "picture_url": demo_picture_url(vin),
+            }
+        )
 
     vins = [e["vin"] for e in entries]
     meta_store = next((s for s in (_find_store(hass, v) for v in vins) if s), None)
@@ -1107,12 +1173,19 @@ async def _websocket_analytics_delete_vehicle_history(
     if store is None:
         _not_found(connection, msg["id"], vin)
         return
+    if await async_remove_demo_vehicle_history(hass, vin):
+        # A demo vehicle is removed completely (registry, store, picker and
+        # dashboard too), not just emptied like a real vehicle's history.
+        connection.send_result(msg["id"])
+        return
     await store.async_delete_vehicle_history()
     connection.send_result(msg["id"])
 
 
 def _dataset_stores(hass: HomeAssistant, dataset: str) -> list[DriveStore]:
     """Return every DriveStore whose vehicle belongs to ``dataset``."""
+    if dataset == DATASET_DEMO:
+        return list((hass.data.get(DOMAIN, {}).get(ATTR_DEMO_STORES) or {}).values())
     if dataset != DATASET_REAL:
         return []
     stores: list[DriveStore] = []
@@ -1127,7 +1200,8 @@ def _dataset_target(
     """Resolve a places/routes command to ``(store, dataset, vins)``.
 
     Places and routes belong to no vehicle, so ``vin`` is no longer required:
-    ``dataset`` ('real' by default) picks the data. ``vin`` is still accepted as an alias that implies its vehicle's
+    ``dataset`` ('real' by default, 'demo' for the synthetic demo cars) picks
+    the data. ``vin`` is still accepted as an alias that implies its vehicle's
     dataset, and ``vins`` (reads only) names the vehicles whose visits/drives
     to count -- vehicles of the other dataset are ignored. ``store`` is any
     store of that dataset, used to run the (dataset-wide) operation.
@@ -1142,14 +1216,15 @@ def _dataset_target(
         if store is None:
             _not_found(connection, msg["id"], vin)
             return None
-        dataset = DATASET_REAL
+        dataset = DATASET_DEMO if store.is_demo else DATASET_REAL
     elif "dataset" in msg:
         dataset = msg["dataset"]
     elif vins:
-        if _find_store(hass, vins[0]) is None:
+        first = _find_store(hass, vins[0])
+        if first is None:
             _not_found(connection, msg["id"], vins[0])
             return None
-        dataset = DATASET_REAL
+        dataset = DATASET_DEMO if first.is_demo else DATASET_REAL
     else:
         dataset = DATASET_REAL
     if vins is not None:
@@ -1157,7 +1232,7 @@ def _dataset_target(
         if missing is not None:
             _not_found(connection, msg["id"], missing)
             return None
-        vins = [s.vin for s in resolved] if dataset == DATASET_REAL else []
+        vins = [s.vin for s in resolved if (s.is_demo) == (dataset == DATASET_DEMO)]
     if store is None:
         candidates = _dataset_stores(hass, dataset)
         if not candidates:
@@ -1431,7 +1506,8 @@ def _vehicle_model_and_capacity(
 ) -> tuple[str | None, float | None]:
     """Return ``(model, capacity_kwh)`` for a vehicle, as far as they are known.
 
-    The model and capacity come from the discovered vehicle info; the capacity is the newest drive's reported battery capacity when
+    Real vehicles: the discovered vehicle info. Demo vehicles: the registry's
+    model. The capacity is the newest drive's reported battery capacity when
     there is one (it tracks degradation), else the vehicle info's.
     """
     model: str | None = None
@@ -1441,6 +1517,9 @@ def _vehicle_model_and_capacity(
         if info is not None:
             model = info.get("model") or model
             capacity = info.get("battery_capacity") or capacity
+    for demo in get_demo_vehicles(hass):
+        if demo.get("vin") == store.vin:
+            model = demo.get("model") or model
     last = store.last_drive
     if last is not None and last.battery_capacity_kwh:
         capacity = last.battery_capacity_kwh
@@ -1677,24 +1756,25 @@ async def _soc_timeline_for_store(
     A real vehicle uses its battery-level sensor's recorder statistics (5-minute
     for a window of 10 days or less, hourly beyond). Where 5-minute statistics
     have already been purged (older than ~10 days), hourly statistics fill the
-    uncovered start of the window. A vehicle with no statistics at
-    all is synthesized from its drives and charging sessions.
+    uncovered start of the window. A demo vehicle, or one with no statistics at
+    all, is synthesized from its drives and charging sessions.
     """
-    entity_id = er.async_get(hass).async_get_entity_id(
-        "sensor", DOMAIN, f"{store.vin}-battery_level"
-    )
-    if entity_id:
-        fine = end_ts - start_ts <= SOC_TIMELINE_FINE_MAX_DAYS * SECONDS_PER_DAY
-        points = await async_soc_points(
-            hass,
-            entity_id,
-            start_ts,
-            end_ts,
-            fine=fine,
-            reader=async_entity_statistics,
+    if not store.is_demo:
+        entity_id = er.async_get(hass).async_get_entity_id(
+            "sensor", DOMAIN, f"{store.vin}-battery_level"
         )
-        if points:
-            return points, "statistics"
+        if entity_id:
+            fine = end_ts - start_ts <= SOC_TIMELINE_FINE_MAX_DAYS * SECONDS_PER_DAY
+            points = await async_soc_points(
+                hass,
+                entity_id,
+                start_ts,
+                end_ts,
+                fine=fine,
+                reader=async_entity_statistics,
+            )
+            if points:
+                return points, "statistics"
     events = await store.async_soc_events(start_ts, end_ts)
     # An open-ended request ("All", start 0) would otherwise hold the first
     # level flat back to 1970: start the synthesized series at the vehicle's
@@ -1798,16 +1878,17 @@ async def _websocket_battery_capacity(
         rows = await store.async_capacity_rows()
         history = await store.async_capacity_history()
         live: tuple[float, float] | None = None
-        entity_id = registry.async_get_entity_id(
-            "sensor", DOMAIN, f"{store.vin}-battery_capacity"
-        )
-        state = hass.states.get(entity_id) if entity_id else None
-        try:
-            value = float(state.state) if state is not None else 0.0
-        except (TypeError, ValueError):
-            value = 0.0
-        if value > 0:
-            live = (now_ts, value)
+        if not store.is_demo:
+            entity_id = registry.async_get_entity_id(
+                "sensor", DOMAIN, f"{store.vin}-battery_capacity"
+            )
+            state = hass.states.get(entity_id) if entity_id else None
+            try:
+                value = float(state.state) if state is not None else 0.0
+            except (TypeError, ValueError):
+                value = 0.0
+            if value > 0:
+                live = (now_ts, value)
         model, capacity = _vehicle_model_and_capacity(hass, store)
         pack = charge_curves.pack_for(model, capacity, _vehicle_model_year(hass, store))
         ref = charge_curves.reference(pack)

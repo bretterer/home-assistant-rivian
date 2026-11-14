@@ -18,7 +18,7 @@ import {
 const TZ = "America/Denver";
 const VEHICLES = [
   { vin: "VA", name: "Rivi", letter: "A", color: "#1b6ac9", color_dark: "#5aa0f0" },
-  { vin: "VB", name: "Test R2", letter: "B", color: "#c9561b", color_dark: "#f0925a" },
+  { vin: "VB", name: "Demo R2", letter: "B", color: "#c9561b", color_dark: "#f0925a" },
 ];
 
 // A: two drives (home -> work -> home). B: one drive, starting next to A's start.

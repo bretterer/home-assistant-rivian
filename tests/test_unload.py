@@ -21,6 +21,7 @@ async def test_vehicles_stop_before_the_client_closes() -> None:
     api = SimpleNamespace(close=AsyncMock(side_effect=lambda: order.append("api")))
     hass = SimpleNamespace(
         data={},
+        services=SimpleNamespace(has_service=lambda *_: False),
         config_entries=SimpleNamespace(
             async_unload_platforms=AsyncMock(return_value=True),
             async_loaded_entries=lambda domain: [],
@@ -210,6 +211,7 @@ async def test_one_vehicle_failing_to_stop_still_closes_the_client() -> None:
     api = SimpleNamespace(close=AsyncMock(side_effect=lambda: order.append("api")))
     hass = SimpleNamespace(
         data={},
+        services=SimpleNamespace(has_service=lambda *_: False),
         config_entries=SimpleNamespace(
             async_unload_platforms=AsyncMock(return_value=True),
             async_loaded_entries=lambda domain: [],

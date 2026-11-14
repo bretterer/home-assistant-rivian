@@ -47,6 +47,8 @@ RIVIAN_ANALYTICS_UPDATED_EVENT: Final[str] = "rivian_analytics_updated"
 
 # The shared AnalyticsDatabase, under hass.data[DOMAIN]
 ATTR_ANALYTICS_DB = "_analytics_db"
+ATTR_DEMO_STORES = "_demo_stores"  # {vin: DriveStore}, under hass.data[DOMAIN]
+ATTR_DEMO_VEHICLES = "_demo_vehicles"  # [{vin, name, model}], under hass.data[DOMAIN]
 
 # Config properties
 CONF_ACCESS_TOKEN = "access_token"
