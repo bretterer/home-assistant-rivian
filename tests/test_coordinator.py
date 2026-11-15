@@ -133,7 +133,7 @@ async def test_schedule_refresh_during_resubscribe_is_not_lost(
 def test_precondition_departure_never_shortens_lead(
     now: datetime, expected: datetime
 ) -> None:
-    """The vehicle ignores a departure 15 minutes or less away, so never round down."""
+    """Never round down: a lead just under 15 minutes failed to precondition."""
     depart = precondition_departure(now, 20)
     assert depart == expected
     assert depart - now >= timedelta(minutes=20)

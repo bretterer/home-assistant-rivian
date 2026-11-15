@@ -367,7 +367,7 @@ def precondition_departure(now: datetime, lead_minutes: int) -> datetime:
 
     Schedules depart on a whole minute. Rounding up keeps the departure at least
     ``lead_minutes`` away: rounding down would shorten the lead by up to a minute,
-    and the vehicle ignores a departure 15 minutes or less away.
+    and the vehicle may not precondition for a departure about 15 minutes away.
     """
     depart = now + timedelta(minutes=lead_minutes)
     if depart.second or depart.microsecond:
@@ -710,8 +710,8 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         """Start cabin preconditioning without a paired phone.
 
         Creates a temporary departure schedule a configurable number of minutes out,
-        which the vehicle preconditions for right away. The vehicle ignores a departure
-        15 minutes or less away, so the lead is at least
+        which the vehicle preconditions for right away. The vehicle may not precondition
+        for a departure about 15 minutes or less away, so the lead is at least
         ``PRECONDITION_LEAD_MINUTES_MINIMUM`` and the departure minute is rounded up,
         never down. There is no keyless way to stop it early: deleting the schedule
         does not stop a session that has started, so it runs until the departure time.
