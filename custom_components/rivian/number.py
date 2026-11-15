@@ -165,7 +165,11 @@ class RivianPreconditionNumberEntity(RivianVehicleEntity, RestoreNumber):
         if (last := await self.async_get_last_number_data()) and (
             last.native_value is not None
         ):
-            setattr(self.coordinator, self._coordinator_attr, last.native_value)
+            # clamp: a value saved before the range changed may now be out of range
+            value = max(
+                self.native_min_value, min(self.native_max_value, last.native_value)
+            )
+            setattr(self.coordinator, self._coordinator_attr, value)
             self.async_write_ha_state()
 
     async def async_set_native_value(self, value: float) -> None:

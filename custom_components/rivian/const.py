@@ -1679,15 +1679,17 @@ DEPARTURE_SCHEDULE_SURFACES: Final[dict[str, str]] = {
     "steering_wheel": "steeringWheel",
 }
 # Keyless "precondition now": a temporary departure schedule this many minutes out
-# starts cabin preconditioning right away and runs until the departure time. Shorter
-# leads (observed ~4 min) may not trigger the vehicle's adaptive preconditioning.
+# starts cabin preconditioning right away and runs until the departure time. The
+# vehicle ignores a departure 15 minutes or less away: on a 2025 R1T a lead of about
+# 14.6 minutes never started preconditioning, while 16 and 20 minutes started it
+# within seconds, whether the vehicle was asleep or awake. Hence a 20 minute minimum.
 # Rivian rejects a departure schedule name longer than this ("Bad user input")
 DEPARTURE_SCHEDULE_NAME_MAX_LENGTH: Final[int] = 24
 PRECONDITION_SCHEDULE_NAME: Final[str] = "HA Precondition"
-PRECONDITION_LEAD_MINUTES_MINIMUM: Final[int] = 10
+PRECONDITION_LEAD_MINUTES_MINIMUM: Final[int] = 20
 PRECONDITION_LEAD_MINUTES_MAXIMUM: Final[int] = 60
 PRECONDITION_LEAD_MINUTES_STEP: Final[int] = 5
-DEFAULT_PRECONDITION_LEAD_MINUTES: Final[int] = 15
+DEFAULT_PRECONDITION_LEAD_MINUTES: Final[int] = 20
 DEFAULT_PRECONDITION_TEMPERATURE: Final[int] = 21
 
 DEFAULT_DEPARTURE_SCHEDULE: Final[dict[str, Any]] = {

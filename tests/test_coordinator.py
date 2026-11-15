@@ -7,6 +7,7 @@ precondition schedules.
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime, timedelta
 import time
 from types import SimpleNamespace
 from typing import Any
@@ -16,9 +17,12 @@ import pytest
 from rivian.exceptions import RivianApiException
 
 from custom_components.rivian import coordinator as coordinator_module
+from custom_components.rivian.const import PRECONDITION_LEAD_MINUTES_MINIMUM
 from custom_components.rivian.coordinator import (
+    PRECONDITION_CLEANUP_GRACE_SECONDS,
     PRECONDITION_RETRY_SECONDS,
     VehicleCoordinator,
+    precondition_departure,
 )
 from homeassistant.exceptions import HomeAssistantError
 
@@ -114,6 +118,59 @@ async def test_schedule_refresh_during_resubscribe_is_not_lost(
     await coordinator._departure_schedule_mutation("updateDepartureSchedule", request())
     assert time.monotonic() - start < 0.4
     assert not coordinator._departure_stale
+
+
+@pytest.mark.parametrize(
+    ("now", "expected"),
+    [
+        (datetime(2026, 11, 14, 12, 51, 24), datetime(2026, 11, 14, 13, 12)),
+        (datetime(2026, 11, 14, 12, 51, 0), datetime(2026, 11, 14, 13, 11)),
+        (datetime(2026, 11, 14, 12, 51, 0, 1), datetime(2026, 11, 14, 13, 12)),
+        (datetime(2026, 11, 14, 23, 45, 30), datetime(2026, 11, 15, 0, 6)),
+    ],
+    ids=["rounds-up", "whole-minute", "microsecond", "next-day"],
+)
+def test_precondition_departure_never_shortens_lead(
+    now: datetime, expected: datetime
+) -> None:
+    """The vehicle ignores a departure 15 minutes or less away, so never round down."""
+    depart = precondition_departure(now, 20)
+    assert depart == expected
+    assert depart - now >= timedelta(minutes=20)
+
+
+def _precondition_coordinator(lead: float) -> tuple[VehicleCoordinator, list]:
+    coordinator = _coordinator({})
+    coordinator.precondition_lead_minutes = lead
+    coordinator.precondition_temperature = 21
+    coordinator._precondition_pending = []
+    coordinator._ensure_precondition_loaded = AsyncMock()
+    coordinator._save_precondition_state = AsyncMock()
+    coordinator._reconcile_and_cleanup = AsyncMock()
+    created: list[dict[str, Any]] = []
+    coordinator.create_departure_schedule = AsyncMock(side_effect=created.append)
+    return coordinator, created
+
+
+@pytest.mark.parametrize(("lead", "minutes"), [(15, 20), (10, 20), (30, 30)])
+async def test_precondition_now_enforces_minimum_lead(
+    monkeypatch: pytest.MonkeyPatch, lead: float, minutes: int
+) -> None:
+    """A lead restored from before the minimum was raised is clamped up."""
+    now = datetime(2026, 11, 14, 12, 51, 24, tzinfo=UTC)
+    monkeypatch.setattr(coordinator_module.dt_util, "now", lambda: now)
+    coordinator, created = _precondition_coordinator(lead)
+
+    await coordinator.precondition_now()
+
+    depart = precondition_departure(now, minutes)
+    occurrence = created[0]["repeatsWeekly"]
+    assert occurrence["startsAtMin"] == depart.hour * 60 + depart.minute
+    assert minutes >= PRECONDITION_LEAD_MINUTES_MINIMUM
+    # cleanup waits for the rounded-up departure, not just the nominal lead
+    assert coordinator._precondition_pending[0]["expiry"] == (
+        depart.timestamp() + PRECONDITION_CLEANUP_GRACE_SECONDS
+    )
 
 
 class _Drivers:

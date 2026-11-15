@@ -59,6 +59,8 @@ from .const import (
     PARALLAX_NONE_VALUES,
     PARALLAX_RVM_DEFAULTS,
     PARALLAX_UNDEFINED_IS_VALID,
+    PRECONDITION_LEAD_MINUTES_MAXIMUM,
+    PRECONDITION_LEAD_MINUTES_MINIMUM,
     PRECONDITION_SCHEDULE_NAME,
     VEHICLE_STATE_API_FIELDS,
     WEEK_DAYS_ORDERED,
@@ -358,6 +360,19 @@ class UserCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             }
             for vehicle in self.data["vehicles"]
         }
+
+
+def precondition_departure(now: datetime, lead_minutes: int) -> datetime:
+    """Return the departure for a temporary precondition schedule.
+
+    Schedules depart on a whole minute. Rounding up keeps the departure at least
+    ``lead_minutes`` away: rounding down would shorten the lead by up to a minute,
+    and the vehicle ignores a departure 15 minutes or less away.
+    """
+    depart = now + timedelta(minutes=lead_minutes)
+    if depart.second or depart.microsecond:
+        depart = depart.replace(second=0, microsecond=0) + timedelta(minutes=1)
+    return depart
 
 
 class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
@@ -695,9 +710,12 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         """Start cabin preconditioning without a paired phone.
 
         Creates a temporary departure schedule a configurable number of minutes out,
-        which the vehicle preconditions for right away. There is no keyless way to stop
-        it early, so it runs until the departure time. The schedule is deleted shortly
-        after so it does not repeat weekly.
+        which the vehicle preconditions for right away. The vehicle ignores a departure
+        15 minutes or less away, so the lead is at least
+        ``PRECONDITION_LEAD_MINUTES_MINIMUM`` and the departure minute is rounded up,
+        never down. There is no keyless way to stop it early: deleting the schedule
+        does not stop a session that has started, so it runs until the departure time.
+        The schedule is deleted shortly after so it does not repeat weekly.
 
         The departure minute and day are computed in Home Assistant's timezone. Rivian
         interprets them in the vehicle's local timezone, which the API does not expose
@@ -707,16 +725,20 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         avoids the mismatch.
         """
         await self._ensure_precondition_loaded()
-        lead = int(self.precondition_lead_minutes)
+        # clamp: a value restored from before the minimum was raised may be too short
+        lead = max(
+            PRECONDITION_LEAD_MINUTES_MINIMUM,
+            min(PRECONDITION_LEAD_MINUTES_MAXIMUM, int(self.precondition_lead_minutes)),
+        )
         temperature = max(
             DEPARTURE_SCHEDULE_TEMPERATURE_MINIMUM,
             min(DEPARTURE_SCHEDULE_TEMPERATURE_MAXIMUM, self.precondition_temperature),
         )
-        depart = dt_util.now() + timedelta(minutes=lead)
+        depart = precondition_departure(dt_util.now(), lead)
         # give the schedule a unique name so its id can be identified unambiguously and
         # no unrelated schedule that merely shares the base name is ever claimed as ours
         name = f"{PRECONDITION_SCHEDULE_NAME} {secrets.token_hex(3)}"
-        expiry = time.time() + lead * 60 + PRECONDITION_CLEANUP_GRACE_SECONDS
+        expiry = depart.timestamp() + PRECONDITION_CLEANUP_GRACE_SECONDS
         schedule = deep_merge(
             DEFAULT_DEPARTURE_SCHEDULE,
             {
