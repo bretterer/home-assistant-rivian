@@ -76,12 +76,6 @@ class RivianClimateEntity(RivianVehicleControlEntity, ClimateEntity):
         """Return the temperature we try to reach."""
         return self._get_value("hvacTargetTemperature")
 
-    if not hasattr(ClimateEntity, "native_temperature_unit"):
-        # Home Assistant before 2026.11 only reads the old names
-        _attr_temperature_unit = UnitOfTemperature.CELSIUS
-        current_temperature = native_current_temperature
-        target_temperature = native_target_temperature
-
     @property
     def hvac_mode(self) -> HVACMode | None:
         """Return hvac operation mode."""

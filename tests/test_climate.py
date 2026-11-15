@@ -21,8 +21,6 @@ def test_native_temperatures() -> None:
     )
     assert cabin.native_current_temperature == 18.5
     assert cabin.native_target_temperature == 21
-    # The test harness's ClimateEntity stands in for Home Assistant before 2026.11
-    assert (cabin.current_temperature, cabin.target_temperature) == (18.5, 21)
 
 
 def test_lo_hi_presets_read_celsius() -> None:
