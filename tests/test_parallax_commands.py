@@ -96,7 +96,7 @@ async def test_parallax_when_available() -> None:
     """A command whose category is available over Parallax is sent that way."""
     coor = vehicle(["PVS_BD_CMD"])
     encode = await send(coor, "UNLOCK")
-    encode.assert_called_once_with("UNLOCK", None)
+    encode.assert_called_once_with("UNLOCK", None, model="R1S")
     coor.api.send_parallax_command.assert_awaited_once_with(
         "vehicle",
         "body.locks.unlock",

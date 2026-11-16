@@ -867,7 +867,10 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         if (feature := vehicle_command_feature(command)) and feature in vehicle[
             "supported_features"
         ]:
-            rvm, payload = encode_vehicle_command(command, params)
+            # The model picks an R1T's tailgate or another model's liftgate
+            rvm, payload = encode_vehicle_command(
+                command, params, model=vehicle["model"]
+            )
             # The cloud wakes the vehicle for Parallax commands
             await self.send_parallax_command(rvm, payload)
             return
