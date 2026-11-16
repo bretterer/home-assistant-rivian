@@ -4,7 +4,11 @@ create_departure_schedule:
       required: true
       selector:
         device:
-          integration: rivian
+          filter:
+            - integration: rivian
+          # only vehicles have a device tracker, so wallboxes aren't offered
+          entity:
+            - domain: device_tracker
     name:
       required: true
       example: Weekdays

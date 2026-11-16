@@ -191,6 +191,9 @@ DEPARTURE_SCHEDULES_SENSOR = RivianSensorEntityDescription(
 class RivianDepartureSchedulesEntity(RivianVehicleEntity, SensorEntity):
     """Departure Schedules Entity."""
 
+    # the full list changes with every schedule edit; keep it out of the recorder
+    _unrecorded_attributes = frozenset({"schedules"})
+
     @property
     def available(self) -> bool:
         """Return availability."""

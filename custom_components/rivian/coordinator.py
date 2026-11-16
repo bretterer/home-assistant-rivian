@@ -561,7 +561,9 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             await self._ensure_fresh_departure_schedules()
             if not (current := self.get_departure_schedule(schedule_id)):
                 raise ServiceValidationError(
-                    f"Departure schedule {schedule_id} not found"
+                    translation_domain=DOMAIN,
+                    translation_key="schedule_not_found",
+                    translation_placeholders={"schedule_id": schedule_id},
                 )
             schedule = deep_merge(departure_schedule_to_input(current), changes)
             await self._departure_schedule_mutation(
@@ -577,7 +579,9 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             await self._ensure_fresh_departure_schedules()
             if not self.get_departure_schedule(schedule_id):
                 raise ServiceValidationError(
-                    f"Departure schedule {schedule_id} not found"
+                    translation_domain=DOMAIN,
+                    translation_key="schedule_not_found",
+                    translation_placeholders={"schedule_id": schedule_id},
                 )
             await self._departure_schedule_mutation(
                 "deleteDepartureSchedule",
@@ -605,7 +609,11 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
                 ", ".join(str(error.get("message")) for error in errors)
                 or type(err).__name__
             )
-            raise HomeAssistantError(f"Rivian rejected {key}: {reason}") from None
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="schedule_rejected",
+                translation_placeholders={"action": key, "reason": reason},
+            ) from None
         finally:
             # whatever the outcome (success, error, timeout, cancellation) Rivian may
             # have applied the write, and a payload that arrived mid-request may predate
@@ -614,7 +622,11 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             # _process_departure_schedules) clears the flag.
             self._departure_stale = True
         if not ((data.get("data") or {}).get(key) or {}).get("success"):
-            raise HomeAssistantError(f"Rivian rejected {key}: {redact(data)}")
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="schedule_rejected",
+                translation_placeholders={"action": key, "reason": str(redact(data))},
+            )
         # clear before resubscribing: the refreshed list often arrives during the
         # resubscribe itself, and clearing afterwards would discard that signal
         self._departure_refreshed.clear()
@@ -646,7 +658,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             )
         except TimeoutError as err:
             raise HomeAssistantError(
-                "Departure schedules are out of sync with Rivian; please try again"
+                translation_domain=DOMAIN, translation_key="schedules_out_of_sync"
             ) from err
 
     async def _subscribe_departure_schedules(self, force: bool = False) -> None:

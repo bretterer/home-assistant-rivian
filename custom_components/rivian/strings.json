@@ -1070,6 +1070,9 @@
       },
       "steering_wheel_heat": {
         "name": "Steering wheel heat"
+      },
+      "departure_schedule": {
+        "name": "Departure schedule {name}"
       }
     },
     "time": {
@@ -1244,6 +1247,26 @@
           "description": "The schedule to delete, from the departure schedules sensor or the schedule's switch."
         }
       }
+    }
+  },
+  "exceptions": {
+    "invalid_device": {
+      "message": "{device_id} is not a Rivian vehicle"
+    },
+    "schedule_not_found": {
+      "message": "Departure schedule {schedule_id} not found"
+    },
+    "schedule_rejected": {
+      "message": "Rivian rejected {action}: {reason}"
+    },
+    "schedules_out_of_sync": {
+      "message": "Departure schedules are out of sync with Rivian; please try again"
+    },
+    "temperature_out_of_range": {
+      "message": "Cabin temperature must be between {min} and {max} {unit}"
+    },
+    "vehicle_not_loaded": {
+      "message": "The Rivian integration for this vehicle isn't loaded"
     }
   }
 }

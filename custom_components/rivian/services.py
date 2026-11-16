@@ -113,27 +113,46 @@ DELETE_DEPARTURE_SCHEDULE_SCHEMA: Final = vol.Schema(
 
 def _get_coordinator(hass: HomeAssistant, device_id: str) -> VehicleCoordinator:
     """Get the vehicle coordinator for a device."""
-    if device := dr.async_get(hass).async_get(device_id):
-        for entry_data in hass.data.get(DOMAIN, {}).values():
-            coordinators = entry_data[ATTR_COORDINATOR][ATTR_VEHICLE]
-            for vehicle_id, vehicle in entry_data[ATTR_VEHICLE].items():
-                if device.identifiers & {
-                    (DOMAIN, vehicle_id),
-                    (DOMAIN, vehicle["vin"]),
-                }:
-                    return coordinators[vehicle_id]
-    raise ServiceValidationError(f"{device_id} is not a loaded Rivian vehicle")
+    device = dr.async_get(hass).async_get(device_id)
+    ids = (
+        {id_ for domain, id_ in device.identifiers if domain == DOMAIN}
+        if device
+        else set()
+    )
+    loaded = hass.data.get(DOMAIN, {})
+    for entry_data in loaded.values():
+        coordinators = entry_data[ATTR_COORDINATOR][ATTR_VEHICLE]
+        for vehicle_id, vehicle in entry_data[ATTR_VEHICLE].items():
+            if ids & {vehicle_id, vehicle["vin"]}:
+                return coordinators[vehicle_id]
+    if ids and device.config_entries.isdisjoint(loaded):
+        # a Rivian device whose config entry isn't set up; a loaded one that has no
+        # vehicle coordinator is a wallbox
+        raise ServiceValidationError(
+            translation_domain=DOMAIN, translation_key="vehicle_not_loaded"
+        )
+    raise ServiceValidationError(
+        translation_domain=DOMAIN,
+        translation_key="invalid_device",
+        translation_placeholders={"device_id": device_id},
+    )
 
 
-async def _async_verify_vehicle_control(hass: HomeAssistant, call: ServiceCall) -> None:
-    """Require the caller to be allowed to control the target vehicle.
+async def _async_get_controlled_vehicle(
+    hass: HomeAssistant, call: ServiceCall
+) -> VehicleCoordinator:
+    """Return the target vehicle's coordinator, if the caller may control it.
+
+    The vehicle is looked up first, so an unknown device is reported as such rather
+    than as unauthorized (it has no entities the caller could control).
 
     These actions target a device, so Home Assistant's entity permission checks do
     not run for them. A user may act on a vehicle when they can control at least one
     of its entities. Calls without a user (automations, scripts) are trusted.
     """
+    coordinator = _get_coordinator(hass, call.data[ATTR_DEVICE_ID])
     if not (user_id := call.context.user_id):
-        return
+        return coordinator
     if (user := await hass.auth.async_get_user(user_id)) is None:
         raise UnknownUser(
             context=call.context, permission=POLICY_CONTROL, user_id=user_id
@@ -151,6 +170,7 @@ async def _async_verify_vehicle_control(hass: HomeAssistant, call: ServiceCall) 
             user_id=user_id,
             perm_category=CAT_ENTITIES,
         )
+    return coordinator
 
 
 def _get_schedule_changes(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, Any]:
@@ -191,7 +211,13 @@ def _get_schedule_changes(hass: HomeAssistant, data: dict[str, Any]) -> dict[str
                 DEPARTURE_SCHEDULE_TEMPERATURE_MAXIMUM, UnitOfTemperature.CELSIUS, unit
             )
             raise ServiceValidationError(
-                f"Cabin temperature must be between {low:g} and {high:g} {unit}"
+                translation_domain=DOMAIN,
+                translation_key="temperature_out_of_range",
+                translation_placeholders={
+                    "min": f"{low:g}",
+                    "max": f"{high:g}",
+                    "unit": unit,
+                },
             )
         # the Rivian app uses 0.5 °C increments; keep whole values as ints
         celsius = round(celsius * 2) / 2
@@ -222,8 +248,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
 
     async def create_departure_schedule(call: ServiceCall) -> None:
         """Create a departure schedule."""
-        await _async_verify_vehicle_control(hass, call)
-        coordinator = _get_coordinator(hass, call.data[ATTR_DEVICE_ID])
+        coordinator = await _async_get_controlled_vehicle(hass, call)
         await coordinator.create_departure_schedule(
             deep_merge(
                 DEFAULT_DEPARTURE_SCHEDULE, _get_schedule_changes(hass, call.data)
@@ -232,16 +257,14 @@ def async_setup_services(hass: HomeAssistant) -> None:
 
     async def update_departure_schedule(call: ServiceCall) -> None:
         """Update a departure schedule."""
-        await _async_verify_vehicle_control(hass, call)
-        coordinator = _get_coordinator(hass, call.data[ATTR_DEVICE_ID])
+        coordinator = await _async_get_controlled_vehicle(hass, call)
         await coordinator.update_departure_schedule(
             call.data[ATTR_SCHEDULE_ID], _get_schedule_changes(hass, call.data)
         )
 
     async def delete_departure_schedule(call: ServiceCall) -> None:
         """Delete a departure schedule."""
-        await _async_verify_vehicle_control(hass, call)
-        coordinator = _get_coordinator(hass, call.data[ATTR_DEVICE_ID])
+        coordinator = await _async_get_controlled_vehicle(hass, call)
         await coordinator.delete_departure_schedule(call.data[ATTR_SCHEDULE_ID])
 
     hass.services.async_register(

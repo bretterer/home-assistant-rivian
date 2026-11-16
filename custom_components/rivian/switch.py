@@ -142,16 +142,16 @@ class RivianDepartureScheduleSwitchEntity(RivianVehicleEntity, SwitchEntity):
         )
         super().__init__(coordinator, config_entry, description, vehicle)
         self._schedule_id = schedule_id
-        self._attr_name = self._get_name()
+        self._attr_translation_placeholders = {"name": self._schedule_name()}
 
     @property
     def _schedule(self) -> dict[str, Any]:
         """Return the departure schedule or empty dict."""
         return self.coordinator.get_departure_schedule(self._schedule_id) or {}
 
-    def _get_name(self) -> str:
-        """Return the name of the entity."""
-        return f"Departure schedule {self._schedule.get('name', '')}".strip()
+    def _schedule_name(self) -> str:
+        """Return the schedule's name, for the entity name's placeholder."""
+        return self._schedule.get("name") or self._schedule_id
 
     @property
     def available(self) -> bool:
@@ -173,9 +173,13 @@ class RivianDepartureScheduleSwitchEntity(RivianVehicleEntity, SwitchEntity):
     @callback
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
-        if self._schedule:
-            # the name is cached, setting it again picks up a renamed schedule
-            self._attr_name = self._get_name()
+        if self._schedule and (
+            name := self._schedule_name()
+        ) != self.translation_placeholders.get("name"):
+            # a renamed schedule: Home Assistant caches the translated name, so drop
+            # the cached value the way it does when _attr_name is set
+            self._attr_translation_placeholders = {"name": name}
+            self.__dict__.pop("name", None)
         super()._handle_coordinator_update()
 
     async def async_turn_on(self, **kwargs: Any) -> None:

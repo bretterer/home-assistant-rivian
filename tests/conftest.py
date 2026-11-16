@@ -746,6 +746,9 @@ def _setup_mock_environment() -> None:
             sys.modules[f"homeassistant.components.{comp_name}"] = submod
             setattr(comp_mod, comp_name, submod)
 
+        # number: the precondition entities set their display mode at import
+        sys.modules["homeassistant.components.number"].NumberMode = DynamicEnum  # type: ignore[attr-defined]
+
         # cover: the feature flags RivianCoverEntity combines at import
         class CoverEntityFeature(IntFlag):
             """Mock CoverEntityFeature."""
@@ -812,6 +815,13 @@ def _setup_mock_environment() -> None:
         zone_mod.in_zone = lambda *args, **kwargs: True  # type: ignore[attr-defined]
         sys.modules["homeassistant.components.zone"] = zone_mod
         comp_mod.zone = zone_mod  # type: ignore[attr-defined]
+
+        # button.py imports bluetooth for phone pairing
+        bluetooth_mod = DynamicModule(
+            "homeassistant.components.bluetooth", is_package=False
+        )
+        sys.modules["homeassistant.components.bluetooth"] = bluetooth_mod
+        comp_mod.bluetooth = bluetooth_mod  # type: ignore[attr-defined]
 
         # homeassistant.util.dt: backs statistics.py (imported transitively via
         # __init__.py -> history_backfill.py -> statistics.py). No test in this
@@ -923,6 +933,11 @@ def _setup_mock_environment() -> None:
         parallax_submod.decode_parallax_message = MagicMock(return_value=None)  # type: ignore[attr-defined]
         rivian_mod.parallax = parallax_submod  # type: ignore[attr-defined]
         sys.modules["rivian.parallax"] = parallax_submod
+
+        # button.py imports the BLE pairing helpers
+        ble_submod = DynamicModule("rivian.ble", is_package=False)
+        rivian_mod.ble = ble_submod  # type: ignore[attr-defined]
+        sys.modules["rivian.ble"] = ble_submod
 
 
 _setup_mock_environment()

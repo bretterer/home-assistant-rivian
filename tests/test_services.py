@@ -141,3 +141,90 @@ async def test_every_schedule_action_checks_permission(
     with pytest.raises(Unauthorized):
         await handler(_call("user"))
     assert not coordinator.method_calls
+
+
+class _TranslatedError(Exception):
+    """Stands in for Home Assistant's errors, keeping their translation."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(kwargs.get("translation_key"))
+        self.translation_key = kwargs.get("translation_key")
+        self.translation_placeholders = kwargs.get("translation_placeholders")
+
+
+@pytest.fixture
+def devices(monkeypatch: pytest.MonkeyPatch) -> dict[str, SimpleNamespace]:
+    """Device registry stand-in; tests add devices by id."""
+    registry: dict[str, SimpleNamespace] = {}
+    monkeypatch.setattr(
+        services,
+        "dr",
+        SimpleNamespace(async_get=lambda hass: SimpleNamespace(async_get=registry.get)),
+        raising=False,
+    )
+    monkeypatch.setattr(services, "ServiceValidationError", _TranslatedError)
+    return registry
+
+
+def _loaded(hass: SimpleNamespace, coordinator: MagicMock) -> None:
+    hass.data = {
+        services.DOMAIN: {
+            "entry": {
+                services.ATTR_COORDINATOR: {
+                    services.ATTR_VEHICLE: {"vid": coordinator}
+                },
+                services.ATTR_VEHICLE: {"vid": {"vin": "VIN"}},
+            }
+        }
+    }
+
+
+@pytest.mark.parametrize("identifier", ["vid", "VIN"])
+def test_vehicle_found_by_id_or_vin(
+    hass: SimpleNamespace, devices: dict[str, SimpleNamespace], identifier: str
+) -> None:
+    coordinator = MagicMock()
+    _loaded(hass, coordinator)
+    devices["device"] = SimpleNamespace(
+        identifiers={(services.DOMAIN, identifier)}, config_entries={"entry"}
+    )
+    assert services._get_coordinator(hass, "device") is coordinator
+
+
+async def test_unknown_device_is_invalid_not_unauthorized(
+    hass: SimpleNamespace, devices: dict[str, SimpleNamespace]
+) -> None:
+    """The vehicle lookup runs before the permission check."""
+    _loaded(hass, MagicMock())
+    hass.auth.async_get_user.return_value = _user()
+    delete = _handlers(hass)[services.SERVICE_DELETE_DEPARTURE_SCHEDULE]
+
+    with pytest.raises(_TranslatedError) as err:
+        await delete(_call("user"))
+    assert err.value.translation_key == "invalid_device"
+    assert err.value.translation_placeholders == {"device_id": DEVICE_ID}
+
+
+def test_wallbox_device_is_invalid(
+    hass: SimpleNamespace, devices: dict[str, SimpleNamespace]
+) -> None:
+    """A device of a loaded entry that isn't a vehicle is a wallbox."""
+    _loaded(hass, MagicMock())
+    devices["wallbox"] = SimpleNamespace(
+        identifiers={(services.DOMAIN, "serial")}, config_entries={"entry"}
+    )
+    with pytest.raises(_TranslatedError) as err:
+        services._get_coordinator(hass, "wallbox")
+    assert err.value.translation_key == "invalid_device"
+
+
+def test_vehicle_of_unloaded_entry(
+    hass: SimpleNamespace, devices: dict[str, SimpleNamespace]
+) -> None:
+    _loaded(hass, MagicMock())
+    devices["device"] = SimpleNamespace(
+        identifiers={(services.DOMAIN, "other")}, config_entries={"unloaded"}
+    )
+    with pytest.raises(_TranslatedError) as err:
+        services._get_coordinator(hass, "device")
+    assert err.value.translation_key == "vehicle_not_loaded"

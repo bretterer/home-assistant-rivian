@@ -8,6 +8,7 @@ from typing import Any, Final
 from rivian import VehicleCommand
 
 from homeassistant.components.number import (
+    DOMAIN as NUMBER_DOMAIN,
     NumberDeviceClass,
     NumberEntity,
     NumberEntityDescription,
@@ -43,8 +44,12 @@ from .const import (
 from .coordinator import VehicleCoordinator
 from .data_classes import RivianNumberEntityDescription
 from .entity import RivianVehicleControlEntity, RivianVehicleEntity
+from .helpers import async_remove_stale_entities
 
 _LOGGER = logging.getLogger(__name__)
+
+PRECONDITION_LEAD_TIME_KEY: Final = "precondition_lead_time"
+PRECONDITION_TEMPERATURE_KEY: Final = "precondition_temperature"
 
 
 NUMBERS: Final[tuple[RivianNumberEntityDescription, ...]] = (
@@ -99,6 +104,18 @@ async def async_setup_entry(
         if not coord.has_paired_phone(vehicle.get("phone_identity_id")):
             entities.append(RivianPreconditionLeadTimeEntity(coord, entry, vehicle))
             entities.append(RivianPreconditionTemperatureEntity(coord, entry, vehicle))
+    # the keyless precondition settings are only for vehicles without a paired phone;
+    # remove them from a vehicle that has since been paired
+    async_remove_stale_entities(
+        hass,
+        NUMBER_DOMAIN,
+        (
+            f"{vehicle['vin']}-{key}"
+            for vehicle in vehicles.values()
+            for key in (PRECONDITION_LEAD_TIME_KEY, PRECONDITION_TEMPERATURE_KEY)
+        ),
+        (entity.unique_id for entity in entities),
+    )
     async_add_entities(entities)
 
 
@@ -190,7 +207,7 @@ class RivianPreconditionLeadTimeEntity(RivianPreconditionNumberEntity):
     def __init__(self, coordinator, config_entry, vehicle) -> None:
         """Initialize the entity."""
         description = NumberEntityDescription(
-            key="precondition_lead_time", translation_key="precondition_lead_time"
+            key=PRECONDITION_LEAD_TIME_KEY, translation_key=PRECONDITION_LEAD_TIME_KEY
         )
         super().__init__(coordinator, config_entry, description, vehicle)
         self.coordinator.precondition_lead_minutes = DEFAULT_PRECONDITION_LEAD_MINUTES
@@ -214,7 +231,8 @@ class RivianPreconditionTemperatureEntity(RivianPreconditionNumberEntity):
     def __init__(self, coordinator, config_entry, vehicle) -> None:
         """Initialize the entity."""
         description = NumberEntityDescription(
-            key="precondition_temperature", translation_key="precondition_temperature"
+            key=PRECONDITION_TEMPERATURE_KEY,
+            translation_key=PRECONDITION_TEMPERATURE_KEY,
         )
         super().__init__(coordinator, config_entry, description, vehicle)
         self.coordinator.precondition_temperature = DEFAULT_PRECONDITION_TEMPERATURE
