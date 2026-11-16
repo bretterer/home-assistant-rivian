@@ -717,6 +717,21 @@ def _setup_mock_environment() -> None:
 
         comp_mod.cover.CoverEntityFeature = CoverEntityFeature  # type: ignore[attr-defined]
 
+        class ClimateEntityFeature(IntFlag):
+            TARGET_TEMPERATURE = 1
+            PRESET_MODE = 16
+            TURN_OFF = 128
+            TURN_ON = 256
+
+        class HVACMode(StrEnum):
+            OFF = "off"
+            HEAT = "heat"
+            HEAT_COOL = "heat_cool"
+
+        climate_mod = sys.modules["homeassistant.components.climate"]
+        climate_mod.ClimateEntityFeature = ClimateEntityFeature  # type: ignore[attr-defined]
+        climate_mod.HVACMode = HVACMode  # type: ignore[attr-defined]
+
         # homeassistant.components.websocket_api: backs websocket_api.py
         # (registered from __init__.py). No test in this suite exercises the
         # WebSocket command handler itself; this only needs to import and

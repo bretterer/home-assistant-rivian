@@ -63,16 +63,15 @@ class RivianClimateEntity(RivianVehicleControlEntity, ClimateEntity):
         | ClimateEntityFeature.TURN_ON
     )
     _attr_target_temperature_step = PRECISION_WHOLE
-    _attr_temperature_unit = UnitOfTemperature.CELSIUS
-    _enable_turn_on_off_backwards_compatibility = False
+    _attr_native_temperature_unit = UnitOfTemperature.CELSIUS
 
     @property
-    def current_temperature(self) -> float | None:
+    def native_current_temperature(self) -> float | None:
         """Return the current temperature."""
         return self._get_value("cabinClimateInteriorTemperature")
 
     @property
-    def target_temperature(self) -> float | None:
+    def native_target_temperature(self) -> float | None:
         """Return the temperature we try to reach."""
         return self._get_value("hvacTargetTemperature")
 
@@ -90,7 +89,7 @@ class RivianClimateEntity(RivianVehicleControlEntity, ClimateEntity):
         """Return the current preset mode."""
         if self._get_value("defrostDefogStatus") != "off":
             return DEFROST_DEFOG
-        return {0: "LO", 63.5: "HI"}.get(self.target_temperature)
+        return {0: "LO", 63.5: "HI"}.get(self.native_target_temperature)
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         """Set new target hvac mode."""

@@ -1,5 +1,5 @@
 # Home Assistant
-homeassistant>=2026.9.0
+homeassistant>=2026.11.0
 
 # Integration
 rivian-python-client[ble]==2.5.0
