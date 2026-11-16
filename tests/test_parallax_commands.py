@@ -50,6 +50,7 @@ def vehicle(
             "entry": {
                 ATTR_VEHICLE: {
                     "vehicle": {
+                        "name": "W4LT3R",
                         "model": "R1S",
                         "supported_features": features,
                         "phone_identity_id": "identity",
@@ -222,7 +223,10 @@ async def test_side_bin_timeout_is_a_warning(caplog: pytest.LogCaptureFixture) -
         }
     ]
     await send(vehicle(["PVS_BD_CMD"], states=timeout), SIDE_BIN)
-    assert "may not have fully opened" in caplog.text
+    assert (
+        "RELEASE_LEFT_SIDE_BIN sent to W4LT3R, but the side bin may not have fully"
+        " opened" in caplog.text
+    )
     with pytest.raises(HomeAssistantError):
         await send(vehicle(["PVS_BD_CMD"], states=timeout), "UNLOCK")
 

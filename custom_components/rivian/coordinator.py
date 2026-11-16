@@ -79,8 +79,10 @@ RATE_LIMIT_ISSUE_PLACEHOLDERS = {
 # How long to wait for the vehicle's result for a Parallax command, which can
 # include waking it up
 PARALLAX_COMMAND_TIMEOUT = 90
-# VehicleCommand values (a StrEnum) of the side bin releases
-SIDE_BIN_COMMANDS = {"RELEASE_LEFT_SIDE_BIN", "RELEASE_RIGHT_SIDE_BIN"}
+SIDE_BIN_COMMANDS = {
+    VehicleCommand.RELEASE_LEFT_SIDE_BIN,
+    VehicleCommand.RELEASE_RIGHT_SIDE_BIN,
+}
 CHARGING_SCHEDULE_COOL_OFF = 10
 CHARGING_SCHEDULE_REFRESH_INTERVAL = 900
 # Max age of a navigation location fix to use (trip_progress resends its last
@@ -811,12 +813,16 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         return None
 
     async def send_parallax_command(
-        self, rvm: str, payload: bytes = b"", *, side_bin: bool = False
+        self,
+        rvm: str,
+        payload: bytes = b"",
+        *,
+        command: VehicleCommand | None = None,
     ) -> None:
         """Send a signed Parallax command and wait for the vehicle's result.
 
         A released side bin that doesn't clear its latch reports a timeout though
-        it opened, so `side_bin` logs that instead of raising.
+        it opened, so for those `command`s that's logged instead of raised.
         """
         vehicle = self.hass.data[DOMAIN][self.config_entry.entry_id][ATTR_VEHICLE][
             self.vehicle_id
@@ -865,9 +871,11 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
                     translation_placeholders={"rvm": rvm},
                 ) from err
             _LOGGER.debug("%s command %s finished: %s", rvm, command_id, state)
-            if side_bin and state["status"] == "timeout":
+            if command in SIDE_BIN_COMMANDS and state["status"] == "timeout":
                 _LOGGER.warning(
-                    "The side bin was released, but it may not have fully opened"
+                    "%s sent to %s, but the side bin may not have fully opened",
+                    command,
+                    vehicle["name"],
                 )
                 return
             if state["error"] or state["status"] != "success":
@@ -898,11 +906,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
                 command, params, model=vehicle["model"]
             )
             # The cloud wakes the vehicle for Parallax commands
-            await self.send_parallax_command(
-                rvm,
-                payload,
-                side_bin=command in SIDE_BIN_COMMANDS,
-            )
+            await self.send_parallax_command(rvm, payload, command=command)
             return
 
         if self.get("powerState") == "sleep" and command != VehicleCommand.WAKE_VEHICLE:
