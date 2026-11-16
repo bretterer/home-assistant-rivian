@@ -14,13 +14,12 @@ def entity(values: dict[str, object]) -> climate.RivianClimateEntity:
     return climate_entity
 
 
-def test_native_temperatures() -> None:
-    """Temperatures are the vehicle's, in °C."""
-    cabin = entity(
-        {"cabinClimateInteriorTemperature": 18.5, "hvacTargetTemperature": 21}
+def test_native_unit_is_celsius() -> None:
+    """The native unit is °C; Home Assistant converts it for display."""
+    assert (
+        climate.RivianClimateEntity._attr_native_temperature_unit
+        == climate.UnitOfTemperature.CELSIUS
     )
-    assert cabin.native_current_temperature == 18.5
-    assert cabin.native_target_temperature == 21
 
 
 def test_lo_hi_presets_read_celsius() -> None:

@@ -64,7 +64,6 @@ class RivianClimateEntity(RivianVehicleControlEntity, ClimateEntity):
     )
     _attr_target_temperature_step = PRECISION_WHOLE
     _attr_native_temperature_unit = UnitOfTemperature.CELSIUS
-    _enable_turn_on_off_backwards_compatibility = False
 
     @property
     def native_current_temperature(self) -> float | None:
