@@ -1097,5 +1097,16 @@
         }
       }
     }
+  },
+  "exceptions": {
+    "command_rejected": {
+      "message": "Rivian didn't accept {rvm}"
+    },
+    "command_unconfirmed": {
+      "message": "The vehicle didn't confirm {rvm}; it may still carry it out"
+    },
+    "command_failed": {
+      "message": "The vehicle didn't carry out {rvm}: {reason}"
+    }
   }
 }

@@ -79,6 +79,8 @@ RATE_LIMIT_ISSUE_PLACEHOLDERS = {
 # How long to wait for the vehicle's result for a Parallax command, which can
 # include waking it up
 PARALLAX_COMMAND_TIMEOUT = 90
+# VehicleCommand values (a StrEnum) of the side bin releases
+SIDE_BIN_COMMANDS = {"RELEASE_LEFT_SIDE_BIN", "RELEASE_RIGHT_SIDE_BIN"}
 CHARGING_SCHEDULE_COOL_OFF = 10
 CHARGING_SCHEDULE_REFRESH_INTERVAL = 900
 # Max age of a navigation location fix to use (trip_progress resends its last
@@ -808,8 +810,14 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             return entity.get("value")
         return None
 
-    async def send_parallax_command(self, rvm: str, payload: bytes = b"") -> None:
-        """Send a signed Parallax command and wait for the vehicle's result."""
+    async def send_parallax_command(
+        self, rvm: str, payload: bytes = b"", *, side_bin: bool = False
+    ) -> None:
+        """Send a signed Parallax command and wait for the vehicle's result.
+
+        A released side bin that doesn't clear its latch reports a timeout though
+        it opened, so `side_bin` logs that instead of raising.
+        """
         vehicle = self.hass.data[DOMAIN][self.config_entry.entry_id][ATTR_VEHICLE][
             self.vehicle_id
         ]
@@ -828,6 +836,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         unsubscribe = await self.api.subscribe_for_parallax_command_state(
             self.vehicle_id, command_id, on_state
         )
+        _LOGGER.debug("Sending %s over Parallax, command %s", rvm, command_id)
         try:
             if not await self.api.send_parallax_command(
                 self.vehicle_id,
@@ -838,7 +847,11 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
                 private_key=self.config_entry.options.get("private_key"),
                 command_id=command_id,
             ):
-                raise HomeAssistantError(f"Rivian didn't accept {rvm}")
+                raise HomeAssistantError(
+                    translation_domain=DOMAIN,
+                    translation_key="command_rejected",
+                    translation_placeholders={"rvm": rvm},
+                )
             if not unsubscribe:
                 # Couldn't follow it (already logged): sent, but unconfirmed
                 return
@@ -847,12 +860,25 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             except TimeoutError as err:
                 # Not retried: the vehicle may still carry it out
                 raise HomeAssistantError(
-                    f"The vehicle didn't confirm {rvm}; it may still carry it out"
+                    translation_domain=DOMAIN,
+                    translation_key="command_unconfirmed",
+                    translation_placeholders={"rvm": rvm},
                 ) from err
+            _LOGGER.debug("%s command %s finished: %s", rvm, command_id, state)
+            if side_bin and state["status"] == "timeout":
+                _LOGGER.warning(
+                    "The side bin was released, but it may not have fully opened"
+                )
+                return
             if state["error"] or state["status"] != "success":
                 raise HomeAssistantError(
-                    f"The vehicle didn't carry out {rvm}: "
-                    f"{(state['error'] or {}).get('message') or state['status']}"
+                    translation_domain=DOMAIN,
+                    translation_key="command_failed",
+                    translation_placeholders={
+                        "rvm": rvm,
+                        "reason": (state["error"] or {}).get("message")
+                        or state["status"],
+                    },
                 )
         finally:
             if unsubscribe:
@@ -872,7 +898,11 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
                 command, params, model=vehicle["model"]
             )
             # The cloud wakes the vehicle for Parallax commands
-            await self.send_parallax_command(rvm, payload)
+            await self.send_parallax_command(
+                rvm,
+                payload,
+                side_bin=command in SIDE_BIN_COMMANDS,
+            )
             return
 
         if self.get("powerState") == "sleep" and command != VehicleCommand.WAKE_VEHICLE:

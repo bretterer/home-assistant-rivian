@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
+from collections.abc import Iterator
+import importlib
+import sys
+from types import ModuleType, SimpleNamespace
 from typing import Any
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
@@ -18,7 +21,8 @@ from custom_components.rivian.const import (
 from homeassistant.exceptions import HomeAssistantError
 
 # Plain strings stand in for VehicleCommand, which conftest mocks
-FEATURES = {"UNLOCK": "PVS_BD_CMD"}
+SIDE_BIN = "RELEASE_LEFT_SIDE_BIN"
+FEATURES = {"UNLOCK": "PVS_BD_CMD", SIDE_BIN: "PVS_BD_CMD"}
 DONE_STATES = [
     {"progress": "executing", "status": None, "error": None},
     {"progress": "complete", "status": "success", "error": None},
@@ -169,3 +173,91 @@ async def test_parallax_command_sent_unconfirmed_without_a_subscription() -> Non
     coor.unsubscribe = None
     await send(coor, "UNLOCK")
     coor.api.send_parallax_command.assert_awaited_once()
+
+
+class TranslatedError(Exception):
+    """Stands in for Home Assistant's errors, keeping their translation."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__()
+        self.translation_key = kwargs.get("translation_key")
+        self.translation_placeholders = kwargs.get("translation_placeholders")
+
+
+@pytest.mark.parametrize(
+    ("states", "key", "placeholders"),
+    [
+        (
+            [{"progress": "complete", "status": "not_supported", "error": None}],
+            "command_failed",
+            {"rvm": "body.locks.unlock", "reason": "not_supported"},
+        ),
+        ([], "command_unconfirmed", {"rvm": "body.locks.unlock"}),
+    ],
+)
+async def test_parallax_errors_are_translated(
+    states: list[dict[str, Any]], key: str, placeholders: dict[str, str]
+) -> None:
+    """Failures raise translated errors naming the RVM."""
+    coor = vehicle(["PVS_BD_CMD"], states=states)
+    with (
+        patch.object(coordinator, "HomeAssistantError", TranslatedError),
+        pytest.raises(TranslatedError) as err,
+    ):
+        await send(coor, "UNLOCK")
+    assert err.value.translation_key == key
+    assert err.value.translation_placeholders == placeholders
+
+
+async def test_side_bin_timeout_is_a_warning(caplog: pytest.LogCaptureFixture) -> None:
+    """A released side bin that reports a timeout is logged, not raised."""
+    timeout = [
+        {
+            "progress": "complete",
+            "status": "timeout",
+            "error": {
+                "code": 1,
+                "message": "Command execution timed out in vehicle services",
+            },
+        }
+    ]
+    await send(vehicle(["PVS_BD_CMD"], states=timeout), SIDE_BIN)
+    assert "may not have fully opened" in caplog.text
+    with pytest.raises(HomeAssistantError):
+        await send(vehicle(["PVS_BD_CMD"], states=timeout), "UNLOCK")
+
+
+@pytest.fixture
+def real_parallax() -> Iterator[ModuleType]:
+    """The installed rivian.parallax, which conftest otherwise mocks."""
+    with patch.dict(sys.modules):
+        for name in [
+            n for n in sys.modules if n == "rivian" or n.startswith("rivian.")
+        ]:
+            del sys.modules[name]
+        yield importlib.import_module("rivian.parallax")
+
+
+async def test_r1t_tailgate_with_the_real_client(real_parallax: ModuleType) -> None:
+    """The client opens an R1T's tailgate over Parallax for the liftgate command."""
+    body_pb2 = importlib.import_module("rivian.parallax.proto.body_pb2")
+    command = "OPEN_LIFTGATE_UNLATCH_TAILGATE"
+    coor = vehicle(["PVS_BD_CMD"])
+    coor.hass.data[DOMAIN]["entry"][ATTR_VEHICLE]["vehicle"]["model"] = "R1T"
+    with (
+        patch.object(coordinator, "decode_command_state_message", lambda m: m),
+        patch.object(
+            coordinator,
+            "vehicle_command_feature",
+            real_parallax.vehicle_command_feature,
+        ),
+        patch.object(
+            coordinator, "encode_vehicle_command", real_parallax.encode_vehicle_command
+        ),
+    ):
+        await coor.send_vehicle_command(command)
+    args = coor.api.send_parallax_command.await_args.args
+    assert args[1:] == (
+        "body.closures.open",
+        real_parallax.encode_closures(body_pb2.TAILGATE),
+    )
