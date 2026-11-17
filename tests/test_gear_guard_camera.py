@@ -48,6 +48,50 @@ def test_cameras_need_live_view_streaming_and_a_key() -> None:
     assert not camera.vehicle_cameras({**key, "supported_features": ["V_GGVS"]})
 
 
+async def test_cameras_a_vehicle_no_longer_gets_are_removed() -> None:
+    """Cameras go once V_GGVS does, but stay if features didn't load or no key."""
+    streams = ["LIVE_CAM", "V_GGVS"]
+    vehicles = {
+        v: {"vin": v, "model": "R1S", "phone_identity_id": "id", **extra}
+        for v, extra in {
+            "streams": {"supported_features": streams},
+            "lapsed": {"supported_features": ["LIVE_CAM"]},
+            "unloaded": {"supported_features": []},
+        }.items()
+    }
+    vehicles["keyless"] = {
+        "vin": "keyless",
+        "model": "R1S",
+        "supported_features": streams,
+    }
+    hass = MagicMock()
+    hass.data = {
+        camera.DOMAIN: {
+            "entry": {
+                camera.ATTR_VEHICLE: vehicles,
+                camera.ATTR_COORDINATOR: {camera.ATTR_VEHICLE: dict.fromkeys(vehicles)},
+            }
+        }
+    }
+
+    def entity(_coor: Any, _entry: Any, _desc: Any, vehicle: Any, cam: str) -> Any:
+        return MagicMock(unique_id=f"{vehicle['vin']}-gear_guard_{cam}")
+
+    with (
+        patch.object(camera, "RivianGearGuardCamera", entity),
+        patch.object(camera, "async_remove_stale_entities") as remove,
+    ):
+        await camera.async_setup_entry(hass, MagicMock(entry_id="entry"), MagicMock())
+    _, domain, possible, created = remove.call_args.args
+    stale = set(possible) - set(created)
+    assert domain == camera.CAMERA_DOMAIN
+    # An R1S never gets the interior or bed camera, so those are never created
+    assert stale == {f"lapsed-gear_guard_{cam}" for cam in camera.CAMERAS} | {
+        "streams-gear_guard_interior",
+        "streams-gear_guard_bed",
+    }
+
+
 async def test_early_candidates_follow_the_offer() -> None:
     """Browser candidates sent while the stream starts reach the vehicle after the offer."""
     entity = object.__new__(camera.RivianGearGuardCamera)

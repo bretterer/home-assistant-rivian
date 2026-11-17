@@ -12,6 +12,7 @@ from rivian.exceptions import RivianApiException
 from webrtc_models import RTCIceCandidateInit
 
 from homeassistant.components.camera import (
+    DOMAIN as CAMERA_DOMAIN,
     Camera,
     CameraEntityDescription,
     CameraEntityFeature,
@@ -28,6 +29,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import ATTR_COORDINATOR, ATTR_VEHICLE, DOMAIN
 from .coordinator import VehicleCoordinator
 from .entity import RivianVehicleControlEntity
+from .helpers import async_remove_stale_entities
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -71,7 +73,7 @@ async def async_setup_entry(
     vehicles: dict[str, dict[str, Any]] = data[ATTR_VEHICLE]
     coordinators: dict[str, VehicleCoordinator] = data[ATTR_COORDINATOR][ATTR_VEHICLE]
 
-    async_add_entities(
+    cameras = [
         RivianGearGuardCamera(
             coordinators[vehicle_id],
             entry,
@@ -84,7 +86,22 @@ async def async_setup_entry(
         )
         for vehicle_id, vehicle in vehicles.items()
         for camera in vehicle_cameras(vehicle)
+    ]
+    # Remove cameras a vehicle no longer gets, e.g. once Connect+ lapses
+    async_remove_stale_entities(
+        hass,
+        CAMERA_DOMAIN,
+        (
+            f"{vehicle['vin']}-gear_guard_{camera}"
+            for vehicle in vehicles.values()
+            # Keep them if the features didn't load, and while there's no phone key,
+            # like the other entities that need one
+            if vehicle.get("supported_features") and vehicle.get("phone_identity_id")
+            for camera in CAMERAS
+        ),
+        (camera.unique_id for camera in cameras),
     )
+    async_add_entities(cameras)
 
 
 def _signal(action: str, payload: dict[str, Any], recipient: str = "") -> str:
