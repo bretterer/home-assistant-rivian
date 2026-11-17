@@ -81,7 +81,7 @@
         },
         "number": {
             "climate_hold_duration": {
-                "default": "mdi:timer-cog-outline"
+                "default": "mdi:fan-clock"
             },
             "charging_schedule_amperage": {
                 "default": "mdi:current-ac"
