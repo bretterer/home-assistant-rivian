@@ -182,9 +182,16 @@ let openTooltip;
  * shown on hover or keyboard focus, and toggled by a tap. Styled inline, as
  * it's placed inside the map.
  */
-function markerElement({ number, name, time, charging, next }, { color, chargingColor }) {
+function markerElement(
+  { number, name, time, title: label, charging, next },
+  { color, chargingColor }
+) {
   const element = document.createElement("div");
   element.textContent = String(number);
+  // The map sets these for interactive markers too, and keeps ones already set
+  element.setAttribute("role", "button");
+  element.setAttribute("aria-label", label);
+  element.tabIndex = 0;
   Object.assign(element.style, {
     position: "relative",
     // Fills the size the map gives it (some maps size only a wrapper)
@@ -268,6 +275,13 @@ function markerElement({ number, name, time, charging, next }, { color, charging
   element.addEventListener("focus", () => {
     if (element.matches?.(":focus-visible")) show();
   });
+  element.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (tooltip.style.display === "none") show();
+    else hide();
+  });
   element.addEventListener("blur", hide);
   return element;
 }
@@ -301,13 +315,18 @@ function loadMap() {
   mapLoaded ??= (async () => {
     const helpers = await window.loadCardHelpers?.();
     helpers?.createCardElement({ type: "map", entities: ["zone.home"] });
-    const timeout = new Promise((resolve) =>
-      setTimeout(() => resolve(false), MAP_LOAD_TIMEOUT_MS)
-    );
-    return Promise.race([
+    let timer;
+    const timeout = new Promise((resolve) => {
+      timer = setTimeout(() => resolve(false), MAP_LOAD_TIMEOUT_MS);
+    });
+    const loaded = await Promise.race([
       customElements.whenDefined("ha-map").then(() => true),
       timeout,
     ]);
+    clearTimeout(timer);
+    // Let a later call try again
+    if (!loaded) mapLoaded = undefined;
+    return loaded;
   })();
   return mapLoaded;
 }
@@ -451,6 +470,7 @@ if (typeof customElements !== "undefined" && !customElements.get(CARD_TYPE)) {
       const timingKey = JSON.stringify([tripStart, arrival, stops]);
       const viewChanged = route !== this._routeKey || entitiesKey !== this._entitiesKey;
       const engineChanged = numbered && this._map._engine !== this._routeEngine;
+      if (route && !this._map._engine && this.isConnected) this._retryForEngine();
       if (!viewChanged && !engineChanged && timingKey === this._timingKey) return;
       this._routeKey = route;
       this._entitiesKey = entitiesKey;
@@ -533,6 +553,11 @@ if (typeof customElements !== "undefined" && !customElements.get(CARD_TYPE)) {
       const path = buildRoutePath(route, tripStart, arrival);
       this._map.paths = path ? [path] : [];
       if (engine) return;
+      this._retryForEngine();
+    }
+
+    /** Check for the map's engine again shortly, until it's ready. */
+    _retryForEngine() {
       this._engineRetry ??= setTimeout(() => {
         this._engineRetry = undefined;
         this._update();

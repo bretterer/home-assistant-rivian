@@ -54,7 +54,10 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the Rivian integration."""
-    await async_register_cards(hass)
+    try:
+        await async_register_cards(hass)
+    except Exception:  # the vehicles still set up without the dashboard cards
+        _LOGGER.exception("Couldn't load the Rivian dashboard cards")
     return True
 
 

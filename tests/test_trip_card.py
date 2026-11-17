@@ -6,6 +6,8 @@ from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 from custom_components.rivian import frontend, sensor
 
 START = datetime(2026, 10, 12, 18, 0, tzinfo=UTC)
@@ -96,3 +98,16 @@ async def test_card_skipped_without_frontend() -> None:
         await frontend.async_register_cards(hass)
     hass.http.async_register_static_paths.assert_not_called()
     add_js.assert_not_called()
+
+
+async def test_setup_continues_when_the_cards_fail(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A card that can't be registered doesn't stop the vehicles setting up."""
+    from custom_components import rivian
+
+    with patch.object(
+        rivian, "async_register_cards", AsyncMock(side_effect=OSError("missing"))
+    ):
+        assert await rivian.async_setup(MagicMock(), {}) is True
+    assert "Couldn't load the Rivian dashboard cards" in caplog.text
