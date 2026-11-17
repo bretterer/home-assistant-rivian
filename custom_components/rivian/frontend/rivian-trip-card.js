@@ -455,7 +455,10 @@ if (typeof customElements !== "undefined" && !customElements.get(CARD_TYPE)) {
 
       const next = this._hass.states[nextStop]?.attributes;
       // With numbered stops, the vehicle and destination are the entities shown
-      const numbered = Boolean(route) && canNumberStops(this._map._engine);
+      const numbered =
+        Boolean(route) &&
+        canNumberStops(this._map._engine) &&
+        this._map._engine !== this._failedEngine;
       const entities = numbered
         ? [vehicle, this._config.entity].filter(Boolean)
         : mapEntities({
@@ -473,7 +476,8 @@ if (typeof customElements !== "undefined" && !customElements.get(CARD_TYPE)) {
       // map's engine is ready.
       const stops = destination.attributes.stops ?? [];
       const entitiesKey = entities.join(",");
-      const timingKey = JSON.stringify([tripStart, arrival, stops]);
+      // Numbered stops only show the stops; the fallback path also times its points
+      const timingKey = JSON.stringify(numbered ? stops : [tripStart, arrival, stops]);
       const viewChanged = route !== this._routeKey || entitiesKey !== this._entitiesKey;
       const engineChanged = numbered && this._map._engine !== this._routeEngine;
       if (route && !this._map._engine && this.isConnected) this._retryForEngine();
@@ -499,14 +503,23 @@ if (typeof customElements !== "undefined" && !customElements.get(CARD_TYPE)) {
         if (typeof location?.latitude === "number") {
           points.push([location.latitude, location.longitude]);
         }
-        this._map.fitBounds(points.filter(([lat, lng]) => typeof lat === "number" && typeof lng === "number"));
+        const valid = points.filter(
+          ([lat, lng]) => typeof lat === "number" && typeof lng === "number"
+        );
+        if (valid.length) this._map.fitBounds(valid);
       } else {
         this._map.fitMap?.({ unpause_autofit: true });
       }
     }
 
     _removeRouteLayer() {
-      for (const handle of this._routeHandles ?? []) handle.remove();
+      for (const handle of this._routeHandles ?? []) {
+        try {
+          handle.remove();
+        } catch {
+          // Already gone with a failed or replaced engine
+        }
+      }
       this._routeHandles = undefined;
       this._routeEngine = undefined;
     }
@@ -517,41 +530,16 @@ if (typeof customElements !== "undefined" && !customElements.get(CARD_TYPE)) {
       if (!route) return;
 
       const engine = this._map._engine;
-      if (canNumberStops(engine)) {
-        const style = typeof getComputedStyle === "function" ? getComputedStyle(this._map) : null;
-        const color =
-          style?.getPropertyValue("--dark-primary-color").trim() || "#03a9f4";
-        const chargingColor =
-          style?.getPropertyValue("--success-color").trim() || "#43a047";
-        const language = this._hass.locale?.language;
-        const layer = buildRouteLayer(route, color);
-        if (!layer) return;
-        this._routeHandles = [engine.addPath(layer)];
-        const markers = stopMarkers(stops, {
-          destination,
-          formatTime: (date) =>
-            date.toLocaleTimeString(language, { hour: "numeric", minute: "2-digit" }),
-        });
-        // The next stop is placed last, on top of any stops it overlaps
-        const ordered = [...markers.filter((m) => !m.next), ...markers.filter((m) => m.next)];
-        for (const marker of ordered) {
-          const size = marker.next ? 34 : 22;
-          const element = markerElement(marker, { color, chargingColor });
-          this._routeHandles.push(
-            engine.addMarker(element, marker.location, {
-              size: [size, size],
-              title: marker.title,
-              // Its own tooltip replaces the browser's
-              nativeTitle: false,
-              interactive: true,
-              raised: marker.next,
-            })
-          );
-          // Above the other raised markers too, such as the vehicle when selected
-          if (marker.next) element.style.zIndex = "2";
+      if (canNumberStops(engine) && engine !== this._failedEngine) {
+        try {
+          this._drawNumbered({ engine, route, stops, destination });
+          return;
+        } catch (err) {
+          // The engine is internal to Home Assistant's map, so its API can change
+          console.warn("Rivian trip card: falling back to the map's paths", err);
+          this._removeRouteLayer();
+          this._failedEngine = engine;
         }
-        this._routeEngine = engine;
-        return;
       }
 
       // The engine isn't ready yet (or can't number stops): use the map's
@@ -560,6 +548,43 @@ if (typeof customElements !== "undefined" && !customElements.get(CARD_TYPE)) {
       this._map.paths = path ? [path] : [];
       if (engine) return;
       this._retryForEngine();
+    }
+
+    /** Draw the route and numbered stops through the map's engine. */
+    _drawNumbered({ engine, route, stops, destination }) {
+      const style = typeof getComputedStyle === "function" ? getComputedStyle(this._map) : null;
+      const color =
+        style?.getPropertyValue("--dark-primary-color").trim() || "#03a9f4";
+      const chargingColor =
+        style?.getPropertyValue("--success-color").trim() || "#43a047";
+      const language = this._hass.locale?.language;
+      const layer = buildRouteLayer(route, color);
+      if (!layer) return;
+      this._routeHandles = [engine.addPath(layer)];
+      const markers = stopMarkers(stops, {
+        destination,
+        formatTime: (date) =>
+          date.toLocaleTimeString(language, { hour: "numeric", minute: "2-digit" }),
+      });
+      // The next stop is placed last, on top of any stops it overlaps
+      const ordered = [...markers.filter((m) => !m.next), ...markers.filter((m) => m.next)];
+      for (const marker of ordered) {
+        const size = marker.next ? 34 : 22;
+        const element = markerElement(marker, { color, chargingColor });
+        this._routeHandles.push(
+          engine.addMarker(element, marker.location, {
+            size: [size, size],
+            title: marker.title,
+            // Its own tooltip replaces the browser's
+            nativeTitle: false,
+            interactive: true,
+            raised: marker.next,
+          })
+        );
+        // Above the other raised markers too, such as the vehicle when selected
+        if (marker.next) element.style.zIndex = "2";
+      }
+      this._routeEngine = engine;
     }
 
     /** Check for the map's engine again shortly, until it's ready. */

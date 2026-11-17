@@ -65,7 +65,7 @@ def test_destination_without_trip() -> None:
 def test_route_is_not_recorded() -> None:
     """The route can be larger than the recorder allows; stop times churn."""
     unrecorded = sensor.RivianNavigationSensorEntity._unrecorded_attributes
-    assert unrecorded >= {"route", "stops"}
+    assert unrecorded >= {"route", "stops", "arrival"}
 
 
 async def test_card_is_served_and_loaded() -> None:

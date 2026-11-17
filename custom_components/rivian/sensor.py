@@ -424,8 +424,9 @@ class RivianNavigationSensorEntity(RivianVehicleEntity, SensorEntity):
     """Rivian navigation sensor entity, unknown while not navigating."""
 
     # The destination's route for the trip card can exceed the recorder's
-    # attribute size limit, and the stops' arrival times change throughout a trip
-    _unrecorded_attributes = frozenset({"route", "stops"})
+    # attribute size limit, the stops' arrival times change throughout a trip,
+    # and the live arrival time is recorded by the Destination ETA sensor
+    _unrecorded_attributes = frozenset({"route", "stops", "arrival"})
 
     entity_description: RivianNavigationSensorEntityDescription
 
