@@ -160,12 +160,11 @@ def test_pet_comfort_listed_only_while_on() -> None:
 
 
 async def test_climate_hold_preset_turns_it_on() -> None:
-    """Choosing climate hold sends the same command as its switch."""
+    """Choosing climate hold turns it on, like its switch."""
     cabin = commanded({})
+    cabin.coordinator.start_climate_hold = AsyncMock()
     await cabin.async_set_preset_mode(climate.CLIMATE_HOLD)
-    assert cabin.coordinator.send_parallax_command.await_args_list == [
-        call(climate.SET_CLIMATE_HOLD_RVM, ("hold", True))
-    ]
+    cabin.coordinator.start_climate_hold.assert_awaited_once()
 
 
 async def test_pet_comfort_preset_while_on_does_nothing() -> None:

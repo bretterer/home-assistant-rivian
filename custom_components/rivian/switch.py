@@ -62,9 +62,7 @@ SWITCHES: Final[tuple[RivianSwitchEntityDescription, ...]] = (
         turn_off=lambda coor: coor.send_parallax_command(
             SET_CLIMATE_HOLD_RVM, encode_climate_hold(False)
         ),
-        turn_on=lambda coor: coor.send_parallax_command(
-            SET_CLIMATE_HOLD_RVM, encode_climate_hold(True)
-        ),
+        turn_on=lambda coor: coor.start_climate_hold(),
     ),
     RivianSwitchEntityDescription(
         key="gear_guard_video",

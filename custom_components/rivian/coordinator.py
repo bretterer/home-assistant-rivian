@@ -20,8 +20,10 @@ from rivian.exceptions import (
     RivianUnauthenticated,
 )
 from rivian.parallax import (
+    SET_CLIMATE_HOLD_RVM,
     decode_command_state_message,
     decode_parallax_message,
+    encode_climate_hold,
     encode_vehicle_command,
     vehicle_command_feature,
 )
@@ -79,6 +81,12 @@ RATE_LIMIT_ISSUE_PLACEHOLDERS = {
 # How long to wait for the vehicle's result for a Parallax command, which can
 # include waking it up
 PARALLAX_COMMAND_TIMEOUT = 90
+# How long to wait for a sleeping vehicle to wake after a climate hold, then at
+# least for its climate hold to start up (1-5.6 s seen after waking) before
+# sending it again, and then for a hold still starting up
+CLIMATE_HOLD_WAKE_WAIT = 30
+CLIMATE_HOLD_START_WAIT = 8
+CLIMATE_HOLD_START_UP_WAIT = 10
 SIDE_BIN_COMMANDS = {
     VehicleCommand.RELEASE_LEFT_SIDE_BIN,
     VehicleCommand.RELEASE_RIGHT_SIDE_BIN,
@@ -1053,6 +1061,87 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         finally:
             if unsubscribe:
                 await unsubscribe()
+
+    async def start_climate_hold(self) -> None:
+        """Start a climate hold, sending it again if a waking vehicle lost it.
+
+        A sleeping vehicle seems to get the command while its climate hold is
+        still starting up, and loses it: the command fails, or succeeds and the
+        hold then restarts (reads unavailable, for no given reason). Sending it
+        again once the vehicle is awake and the hold has started up starts it.
+        Without a known power state, the vehicle is taken as awake.
+        """
+        if self.get("powerState") != "sleep":
+            await self.send_parallax_command(
+                SET_CLIMATE_HOLD_RVM, encode_climate_hold(True)
+            )
+            return
+        awake = asyncio.Event()
+        restarted = asyncio.Event()
+        started_up = asyncio.Event()
+        # A restart before the result is the command's own, which may still work
+        result_in = False
+        seen_restart = False
+
+        def restarting() -> bool:
+            return self.get("climateHoldStatus") == "unavailable" and self.get(
+                "climateHoldUnavailabilityReason"
+            ) in (None, "unknown")
+
+        @callback
+        def watch() -> None:
+            nonlocal seen_restart
+            if self.get("powerState") not in (None, "sleep"):
+                awake.set()
+            if restarting():
+                seen_restart = True
+                # A restart starts with the whole hold unavailable; one already
+                # past that began before the result
+                if result_in and self.get("climateHoldAvailability") == "unavailable":
+                    restarted.set()
+                started_up.clear()
+            elif seen_restart and self.get("climateHoldStatus") == "off":
+                # Not e.g. the stale "unspecified" the vehicle replays
+                started_up.set()
+
+        unsubscribe = self.async_add_listener(watch)
+        try:
+            error: HomeAssistantError | None = None
+            try:
+                await self.send_parallax_command(
+                    SET_CLIMATE_HOLD_RVM, encode_climate_hold(True)
+                )
+            except HomeAssistantError as err:
+                error = err
+            result_in = True
+            watch()
+            try:
+                await asyncio.wait_for(awake.wait(), CLIMATE_HOLD_WAKE_WAIT)
+                await asyncio.sleep(CLIMATE_HOLD_START_WAIT)
+                if restarted.is_set() and restarting():
+                    await asyncio.wait_for(
+                        started_up.wait(), CLIMATE_HOLD_START_UP_WAIT
+                    )
+            except TimeoutError:
+                if error:
+                    raise error from None
+                return
+        finally:
+            unsubscribe()
+        if self.get("climateHoldStatus") == "on":
+            return
+        if not (error or restarted.is_set()) or self.get(
+            "climateHoldUnavailabilityReason"
+        ) not in (None, "unknown"):
+            # Not lost (it may still be starting), or unavailable for a reason
+            # like low_soc that won't clear
+            if error:
+                raise error
+            return
+        _LOGGER.debug("Sending the climate hold again, now that the vehicle is awake")
+        await self.send_parallax_command(
+            SET_CLIMATE_HOLD_RVM, encode_climate_hold(True)
+        )
 
     async def set_climate_hold_duration(self, minutes: int) -> None:
         """Set how long a climate hold lasts."""

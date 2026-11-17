@@ -180,9 +180,7 @@ class RivianClimateEntity(RivianVehicleControlEntity, ClimateEntity):
             return
         self._check_pet_comfort_off()
         if preset_mode == CLIMATE_HOLD:
-            await self.coordinator.send_parallax_command(
-                SET_CLIMATE_HOLD_RVM, encode_climate_hold(True)
-            )
+            await self.coordinator.start_climate_hold()
             return
         ended_hold = await self._end_climate_hold()
         if preset_mode == DEFROST_DEFOG:
