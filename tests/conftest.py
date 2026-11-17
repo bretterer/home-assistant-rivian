@@ -786,6 +786,14 @@ def _setup_mock_environment() -> None:
         sys.modules["homeassistant.components.zone"] = zone_mod
         comp_mod.zone = zone_mod  # type: ignore[attr-defined]
 
+        # frontend/http: the integration serves its dashboard cards
+        for comp_name in ("frontend", "http"):
+            comp_submod = DynamicModule(
+                f"homeassistant.components.{comp_name}", is_package=False
+            )
+            sys.modules[f"homeassistant.components.{comp_name}"] = comp_submod
+            setattr(comp_mod, comp_name, comp_submod)
+
         # homeassistant.util.dt: backs statistics.py (imported transitively via
         # __init__.py -> history_backfill.py -> statistics.py). No test in this
         # suite targets statistics.py directly, so these only need to import

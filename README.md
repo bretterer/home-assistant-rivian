@@ -284,6 +284,20 @@ These controls need a phone key paired over Bluetooth (see [Remote Vehicle Contr
 | Wake                       | Button  | Wake vehicle                                                                                                                                             |
 | Windows                    | Cover   | Vent/close all windows                                                                                                                                   |
 
+## Trip Route Card
+
+The integration includes a dashboard card that shows a vehicle on a map. While it's navigating, the card shows the trip's route, the vehicle and the destination, with the stops along the way numbered in trip order. The next stop is larger, charging stops are in a different color, and hovering a stop shows its name and arrival time. Otherwise, it follows the vehicle's location.
+
+The card is loaded automatically. Add it from the card picker ("Rivian trip") and pick the vehicle's Destination sensor in the visual editor, or use YAML:
+
+```yaml
+type: custom:rivian-trip-card
+entity: sensor.<vehicle>_destination # the vehicle's Destination sensor
+title: Trip # optional
+```
+
+The vehicle's location and next stop are found automatically.
+
 ## Special Thanks
 
 - [jrgutier](https://github.com/jrgutier) - Helped with getting information on the Rivian API
