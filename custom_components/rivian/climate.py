@@ -141,19 +141,22 @@ class RivianClimateEntity(RivianVehicleControlEntity, ClimateEntity):
                 translation_domain=DOMAIN, translation_key="pet_comfort_on"
             )
 
-    async def _end_climate_hold(self) -> None:
-        """End a climate hold, which stopping preconditioning leaves running."""
-        if self._get_value("climateHoldStatus") == "on":
-            await self.coordinator.send_parallax_command(
-                SET_CLIMATE_HOLD_RVM, encode_climate_hold(False)
-            )
+    async def _end_climate_hold(self) -> bool:
+        """End a climate hold, which stopping preconditioning leaves running.
+
+        Return whether one was running.
+        """
+        if self._get_value("climateHoldStatus") != "on":
+            return False
+        await self.coordinator.send_parallax_command(
+            SET_CLIMATE_HOLD_RVM, encode_climate_hold(False)
+        )
+        return True
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         """Set new target hvac mode."""
         if hvac_mode == HVACMode.HEAT:
-            await self.coordinator.send_vehicle_command(
-                command=VehicleCommand.CABIN_HVAC_DEFROST_DEFOG, params={"level": 1}
-            )
+            await self.async_set_preset_mode(DEFROST_DEFOG)
             return
         if hvac_mode == HVACMode.OFF:
             self._check_pet_comfort_off()
@@ -168,8 +171,9 @@ class RivianClimateEntity(RivianVehicleControlEntity, ClimateEntity):
         """Set new preset mode."""
         if preset_mode != PET_COMFORT:
             self._check_pet_comfort_off()
+        ended_hold = False
         if preset_mode not in (PET_COMFORT, CLIMATE_HOLD):
-            await self._end_climate_hold()
+            ended_hold = await self._end_climate_hold()
         if preset_mode == PET_COMFORT:
             await self.coordinator.send_parallax_command(
                 SET_PET_MODE_RVM, encode_pet_mode(True)
@@ -185,6 +189,11 @@ class RivianClimateEntity(RivianVehicleControlEntity, ClimateEntity):
                 command=VehicleCommand.CABIN_HVAC_DEFROST_DEFOG, params={"level": 1}
             )
             return
+        if ended_hold:
+            # The hold kept the cabin conditioned, without preconditioning
+            await self.coordinator.send_vehicle_command(
+                command=VehicleCommand.VEHICLE_CABIN_PRECONDITION_ENABLE
+            )
         await self.async_set_temperature(
             temperature={"LO": 0, "HI": 63.5}.get(preset_mode)
         )

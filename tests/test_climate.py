@@ -161,16 +161,45 @@ async def test_other_presets_keep_pet_comfort() -> None:
 
 
 async def test_other_presets_end_climate_hold() -> None:
-    """LO, HI and defrost/defog end a climate hold first; pet comfort leaves it."""
-    cabin = commanded({"climateHoldStatus": "on", "cabinPreconditioningType": "x"})
+    """LO and HI end a hold and turn the cabin on; pet comfort leaves a hold."""
+    # A hold keeps the cabin conditioned without reporting preconditioning
+    hold = {"climateHoldStatus": "on", "cabinPreconditioningType": "none"}
+    cabin = commanded(hold)
     await cabin.async_set_preset_mode("HI")
     assert cabin.coordinator.send_parallax_command.await_args_list == [
         call(climate.SET_CLIMATE_HOLD_RVM, ("hold", False))
     ]
-    cabin.coordinator.send_vehicle_command.assert_awaited()
+    command = climate.VehicleCommand
+    assert cabin.coordinator.send_vehicle_command.await_args_list == [
+        call(command=command.VEHICLE_CABIN_PRECONDITION_ENABLE),
+        call(
+            command=command.CABIN_PRECONDITIONING_SET_TEMP,
+            params={"HVAC_set_temp": 63.5},
+        ),
+    ]
 
-    cabin = commanded({"climateHoldStatus": "on"})
+    cabin = commanded(hold)
     await cabin.async_set_preset_mode(climate.PET_COMFORT)
     assert cabin.coordinator.send_parallax_command.await_args_list == [
         call(climate.SET_PET_MODE_RVM, ("pet", True))
+    ]
+
+
+async def test_heat_is_the_defrost_preset() -> None:
+    """Heat (defrost/defog) is refused with pet comfort on and ends a hold."""
+    cabin = commanded({"petModeStatus": "on"})
+    with pytest.raises(TranslatedError):
+        await cabin.async_set_hvac_mode(climate.HVACMode.HEAT)
+    cabin.coordinator.send_vehicle_command.assert_not_awaited()
+
+    cabin = commanded({"climateHoldStatus": "on"})
+    await cabin.async_set_hvac_mode(climate.HVACMode.HEAT)
+    assert cabin.coordinator.send_parallax_command.await_args_list == [
+        call(climate.SET_CLIMATE_HOLD_RVM, ("hold", False))
+    ]
+    assert cabin.coordinator.send_vehicle_command.await_args_list == [
+        call(
+            command=climate.VehicleCommand.CABIN_HVAC_DEFROST_DEFOG,
+            params={"level": 1},
+        )
     ]
