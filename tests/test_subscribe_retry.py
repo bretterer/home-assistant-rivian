@@ -41,6 +41,7 @@ def vehicle(
     coor.data = data
     coor.last_update_success = True
     coor._unsub_handler = coor._unsub_parallax = coor._unsub_location = None
+    coor._location_failed = False
     coor._initial = asyncio.Event()
     coor._rate_limited_since = None
     coor._subscribe_failures = 0

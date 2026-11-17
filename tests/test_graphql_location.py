@@ -12,6 +12,17 @@ import pytest
 from custom_components.rivian import coordinator
 
 T0 = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+# What Rivian sends when a subscription asks for a field it doesn't accept
+VALIDATION_ERROR = {
+    "id": "subscription",
+    "type": "error",
+    "payload": [
+        {
+            "message": 'Cannot query field "gnssLocation" on type "VehicleState".',
+            "locations": [{"line": 1, "column": 70}],
+        }
+    ],
+}
 
 
 @pytest.fixture
@@ -190,6 +201,7 @@ def test_unusable_fixes_are_ignored(
 
 def subscribing_vehicle(
     location_unsubscribe: AsyncMock | Exception | None,
+    error_first: bool = False,
 ) -> coordinator.VehicleCoordinator:
     """A vehicle coordinator whose subscriptions start, but maybe not GraphQL's position."""
     coor = coordinator.VehicleCoordinator(
@@ -198,12 +210,20 @@ def subscribing_vehicle(
     coor.data = None
     coor.last_update_success = True
     coor.get_charging_schedule_data = AsyncMock()
+    coor.hass = MagicMock()
+    coor.config_entry = MagicMock()
+    coor.config_entry.async_create_task = lambda hass, coro, eager_start=True: (
+        asyncio.ensure_future(coro)
+    )
     unsubscribe = AsyncMock()
 
     async def subscribe(
-        vehicle_id: str, properties: set[str], callback: Any
+        vehicle_id: str, properties: set[str], callback: Any, on_error: Any = None
     ) -> AsyncMock | None:
         if properties == coordinator.GRAPHQL_LOCATION_FIELDS:
+            coor.location_on_error = on_error
+            if error_first:
+                on_error(VALIDATION_ERROR)
             if isinstance(location_unsubscribe, Exception):
                 raise location_unsubscribe
             return location_unsubscribe
@@ -263,3 +283,58 @@ async def test_setup_carries_on_when_the_position_subscription_raises() -> None:
 
     assert await coor._async_update_data() == {"activeDriverName": {"value": "Driver"}}
     assert coor._unsub_location is None
+
+
+async def test_failed_position_subscription_warns_once_and_ends(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    location_unsubscribe = AsyncMock()
+    coor = subscribing_vehicle(location_unsubscribe)
+    await coor._async_update_data()
+
+    coor.location_on_error(VALIDATION_ERROR)
+    coor.location_on_error(VALIDATION_ERROR)  # again, e.g. after a reconnect
+    await asyncio.sleep(0)
+
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1
+    assert 'Cannot query field "gnssLocation"' in warnings[0].getMessage()
+    assert "Parallax" in warnings[0].getMessage()
+    location_unsubscribe.assert_awaited_once()
+    assert coor._unsub_location is None
+
+
+async def test_failed_position_subscription_is_not_subscribed_again() -> None:
+    coor = subscribing_vehicle(AsyncMock())
+    await coor._async_update_data()
+    coor.location_on_error(VALIDATION_ERROR)
+    await asyncio.sleep(0)
+    coor.api.subscribe_for_vehicle_updates.reset_mock()
+
+    await coor._subscribe_location()
+
+    coor.api.subscribe_for_vehicle_updates.assert_not_awaited()
+
+
+async def test_error_before_the_unsubscribe_handle_still_ends_it() -> None:
+    location_unsubscribe = AsyncMock()
+    coor = subscribing_vehicle(location_unsubscribe, error_first=True)
+
+    await coor._async_update_data()
+    await asyncio.sleep(0)
+
+    location_unsubscribe.assert_awaited_once()
+    assert coor._unsub_location is None
+
+
+async def test_unexpected_error_message_still_warns(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    coor = subscribing_vehicle(AsyncMock())
+    await coor._async_update_data()
+
+    coor.location_on_error({"type": "error", "payload": "unexpected"})
+    await asyncio.sleep(0)
+
+    assert any(r.levelname == "WARNING" for r in caplog.records)
+    assert coor._location_failed

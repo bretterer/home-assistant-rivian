@@ -377,6 +377,9 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         self._unsub_handler: Callable[[], Awaitable[None]] | None = None
         self._unsub_parallax: Callable[[], Awaitable[None]] | None = None
         self._unsub_location: Callable[[], Awaitable[None]] | None = None
+        # Whether GraphQL's position fix subscription failed, e.g. the field
+        # failing validation; it isn't subscribed again until the entry reloads
+        self._location_failed = False
         # Time of the fix gnssSpeed and gnssBearing last came from, which can be
         # older than gnssLocation's when GraphQL's fix is the newer position
         self._motion_fix_time: datetime | None = None
@@ -530,13 +533,17 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         """Subscribe to GraphQL's position fixes, which are optional.
 
         Not subscribing (the client has already logged why) or the field failing
-        GraphQL validation leaves the position to Parallax, as before.
+        GraphQL validation leaves the position to Parallax, as before. After a
+        subscription error it isn't subscribed again until the entry reloads.
         """
+        if self._location_failed:
+            return
         try:
             self._unsub_location = await self.api.subscribe_for_vehicle_updates(
                 vehicle_id=self.vehicle_id,
                 properties=GRAPHQL_LOCATION_FIELDS,
                 callback=self._process_graphql_location,
+                on_error=self._location_subscription_failed,
             )
         except Exception:  # optional, so it never fails the update
             _LOGGER.debug(
@@ -549,6 +556,46 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
                 "Not subscribed to vehicle %s GraphQL position fixes; using Parallax's",
                 self.vehicle_id,
             )
+        elif self._location_failed:
+            # The error arrived before the unsubscribe handle did
+            await self._end_location_subscription()
+
+    @callback
+    def _location_subscription_failed(self, message: dict[str, Any]) -> None:
+        """Fall back to Parallax's position fixes once GraphQL's subscription fails.
+
+        Such as Rivian no longer accepting the field. The subscription has ended,
+        and the client would subscribe it again after every reconnect, so it's
+        ended here and not subscribed again until the entry reloads.
+        """
+        if self._location_failed:
+            return
+        self._location_failed = True
+        errors = message.get("payload")
+        reason = (
+            "; ".join(
+                str(error.get("message") or error)
+                for error in errors
+                if isinstance(error, dict)
+            )
+            if isinstance(errors, list)
+            else None
+        ) or redact(message)
+        _LOGGER.warning(
+            "Rivian stopped sending vehicle %s position fixes over GraphQL (%s). "
+            "Using Parallax's instead, which update about once a minute",
+            self.vehicle_id,
+            reason,
+        )
+        self.config_entry.async_create_task(
+            self.hass, self._end_location_subscription(), eager_start=True
+        )
+
+    async def _end_location_subscription(self) -> None:
+        """Unsubscribe from GraphQL's position fixes."""
+        unsub_location, self._unsub_location = self._unsub_location, None
+        if unsub_location:
+            await unsub_location()
 
     def _subscribe_retry_delay(self, message: str) -> float:
         """Return how long to wait before subscribing again after it failed.
