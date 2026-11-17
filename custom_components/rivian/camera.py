@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import base64
+import functools
 import json
 import logging
+from pathlib import Path
 from typing import Any, Final
 
 from aiohttp import ClientError, ClientWebSocketResponse, WSMsgType
@@ -28,7 +30,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import ATTR_COORDINATOR, ATTR_VEHICLE, DOMAIN
 from .coordinator import VehicleCoordinator
-from .entity import RivianVehicleControlEntity
+from .entity import RivianVehicleEntity
 from .helpers import async_remove_stale_entities
 
 _LOGGER = logging.getLogger(__name__)
@@ -116,8 +118,16 @@ def _signal(action: str, payload: dict[str, Any], recipient: str = "") -> str:
     )
 
 
-class RivianGearGuardCamera(RivianVehicleControlEntity, Camera):
-    """A Gear Guard camera, streamed live over WebRTC."""
+# Shown until a stream starts, as the cameras have no still images
+PLACEHOLDER = Path(__file__).parent / "placeholder.png"
+
+
+class RivianGearGuardCamera(RivianVehicleEntity, Camera):
+    """A Gear Guard camera, streamed live over WebRTC.
+
+    Not limited to the vehicle control zones, which are about commands: live
+    view is most useful away from home.
+    """
 
     _attr_supported_features = CameraEntityFeature.STREAM
 
@@ -132,17 +142,29 @@ class RivianGearGuardCamera(RivianVehicleControlEntity, Camera):
         """Create a Gear Guard camera."""
         super().__init__(coordinator, config_entry, description, vehicle)
         Camera.__init__(self)
+        self.content_type = "image/png"
         self._camera = camera
         # session id -> (signaling socket, the vehicle's client id once it answers)
         self._sessions: dict[str, tuple[ClientWebSocketResponse, str]] = {}
         # Browser candidates that arrive while the stream is still starting
         self._pending: dict[str, list[RTCIceCandidateInit]] = {}
 
+    @property
+    def available(self) -> bool:
+        """Return whether the vehicle is parked, which live view needs."""
+        return super().available and self._get_value("gearStatus") == "park"
+
     async def async_camera_image(
         self, width: int | None = None, height: int | None = None
     ) -> bytes | None:
-        """Return None; the cameras only stream, so there's no thumbnail."""
-        return None
+        """Return a placeholder; the cameras only stream."""
+        return await self.hass.async_add_executor_job(self.placeholder_image)
+
+    @classmethod
+    @functools.cache
+    def placeholder_image(cls) -> bytes:
+        """Return the placeholder image."""
+        return PLACEHOLDER.read_bytes()
 
     async def async_handle_async_webrtc_offer(
         self, offer_sdp: str, session_id: str, send_message: WebRTCSendMessage

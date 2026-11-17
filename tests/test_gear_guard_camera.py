@@ -12,6 +12,7 @@ import pytest
 from webrtc_models import RTCIceCandidateInit
 
 from custom_components.rivian import camera, coordinator
+from custom_components.rivian.entity import RivianVehicleControlEntity
 
 
 def test_signal() -> None:
@@ -241,3 +242,25 @@ async def test_failed_offer_closes_the_socket() -> None:
     assert err.value.translation_key == "live_stream_unreachable"
     socket.close.assert_awaited_once()
     assert not entity._sessions and not entity._pending
+
+
+def test_available_when_parked_regardless_of_control_zones() -> None:
+    """Live view needs the vehicle parked, but not in a vehicle control zone."""
+    assert not issubclass(camera.RivianGearGuardCamera, RivianVehicleControlEntity)
+    entity = object.__new__(camera.RivianGearGuardCamera)
+    entity.entity_description = MagicMock(spec=[])
+    entity._available = True
+    entity._config_entry = MagicMock(options={"zone": ["zone.home"]})
+    for gear, available in (("park", True), ("drive", False), (None, False)):
+        entity.coordinator = MagicMock(get={"gearStatus": gear}.get)
+        assert entity.available is available
+
+
+async def test_placeholder_image() -> None:
+    """Until a stream starts, the cameras show a placeholder PNG."""
+    entity = object.__new__(camera.RivianGearGuardCamera)
+    entity.hass = MagicMock(
+        async_add_executor_job=AsyncMock(side_effect=lambda job: job())
+    )
+    image = await entity.async_camera_image()
+    assert image is not None and image.startswith(b"\x89PNG")
