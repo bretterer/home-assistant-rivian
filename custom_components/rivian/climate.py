@@ -22,6 +22,7 @@ from homeassistant.components.climate import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_TEMPERATURE, PRECISION_WHOLE, UnitOfTemperature
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import ATTR_COORDINATOR, ATTR_VEHICLE, DOMAIN
@@ -35,6 +36,8 @@ CLIMATE: Final[ClimateEntityDescription] = ClimateEntityDescription(
 )
 
 DEFROST_DEFOG = "Defrost/Defog"
+PET_COMFORT = "pet_comfort"
+CLIMATE_HOLD = "climate_hold"
 
 
 async def async_setup_entry(
@@ -61,7 +64,6 @@ class RivianClimateEntity(RivianVehicleControlEntity, ClimateEntity):
     _attr_max_temp = 29
     _attr_min_temp = 16
     _attr_precision = PRECISION_WHOLE
-    _attr_preset_modes = ["LO", "HI", DEFROST_DEFOG]
     _attr_supported_features = (
         ClimateEntityFeature.TARGET_TEMPERATURE
         | ClimateEntityFeature.PRESET_MODE
@@ -70,6 +72,24 @@ class RivianClimateEntity(RivianVehicleControlEntity, ClimateEntity):
     )
     _attr_target_temperature_step = PRECISION_WHOLE
     _attr_native_temperature_unit = UnitOfTemperature.CELSIUS
+
+    def __init__(
+        self,
+        coordinator: VehicleCoordinator,
+        config_entry: ConfigEntry,
+        description: ClimateEntityDescription,
+        vehicle: dict[str, Any],
+    ) -> None:
+        """Create the climate entity, with the presets the vehicle supports."""
+        super().__init__(coordinator, config_entry, description, vehicle)
+        features = vehicle.get("supported_features", [])
+        self._attr_preset_modes = [
+            "LO",
+            "HI",
+            DEFROST_DEFOG,
+            *([PET_COMFORT] if "PET_COMFORT_CONTROL" in features else []),
+            *([CLIMATE_HOLD] if "CLM_HOLD" in features else []),
+        ]
 
     @property
     def native_current_temperature(self) -> float | None:
@@ -84,7 +104,7 @@ class RivianClimateEntity(RivianVehicleControlEntity, ClimateEntity):
     @property
     def hvac_mode(self) -> HVACMode | None:
         """Return hvac operation mode."""
-        if self.preset_mode == DEFROST_DEFOG:
+        if self._defrosting:
             return HVACMode.HEAT
         if (
             self._get_value("cabinPreconditioningType") != "none"
@@ -98,9 +118,35 @@ class RivianClimateEntity(RivianVehicleControlEntity, ClimateEntity):
     @property
     def preset_mode(self) -> str | None:
         """Return the current preset mode."""
-        if self._get_value("defrostDefogStatus") != "off":
+        if self._get_value("petModeStatus") == "on":
+            return PET_COMFORT
+        if self._get_value("climateHoldStatus") == "on":
+            return CLIMATE_HOLD
+        if self._defrosting:
             return DEFROST_DEFOG
         return {0: "LO", 63.5: "HI"}.get(self.native_target_temperature)
+
+    @property
+    def _defrosting(self) -> bool:
+        """Return whether defrost/defog is on."""
+        return self._get_value("defrostDefogStatus") != "off"
+
+    def _check_pet_comfort_off(self) -> None:
+        """Raise if pet comfort is on: only its switch turns it off.
+
+        The Rivian app asks to confirm there are no pets inside first.
+        """
+        if self._get_value("petModeStatus") == "on":
+            raise ServiceValidationError(
+                translation_domain=DOMAIN, translation_key="pet_comfort_on"
+            )
+
+    async def _end_climate_hold(self) -> None:
+        """End a climate hold, which stopping preconditioning leaves running."""
+        if self._get_value("climateHoldStatus") == "on":
+            await self.coordinator.send_parallax_command(
+                SET_CLIMATE_HOLD_RVM, encode_climate_hold(False)
+            )
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         """Set new target hvac mode."""
@@ -110,15 +156,8 @@ class RivianClimateEntity(RivianVehicleControlEntity, ClimateEntity):
             )
             return
         if hvac_mode == HVACMode.OFF:
-            # Stopping preconditioning leaves pet mode and climate hold running
-            if self._get_value("petModeStatus") == "on":
-                await self.coordinator.send_parallax_command(
-                    SET_PET_MODE_RVM, encode_pet_mode(False)
-                )
-            if self._get_value("climateHoldStatus") == "on":
-                await self.coordinator.send_parallax_command(
-                    SET_CLIMATE_HOLD_RVM, encode_climate_hold(False)
-                )
+            self._check_pet_comfort_off()
+            await self._end_climate_hold()
         await self.coordinator.send_vehicle_command(
             command=VehicleCommand.VEHICLE_CABIN_PRECONDITION_DISABLE
             if hvac_mode == HVACMode.OFF
@@ -127,6 +166,20 @@ class RivianClimateEntity(RivianVehicleControlEntity, ClimateEntity):
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
         """Set new preset mode."""
+        if preset_mode != PET_COMFORT:
+            self._check_pet_comfort_off()
+        if preset_mode not in (PET_COMFORT, CLIMATE_HOLD):
+            await self._end_climate_hold()
+        if preset_mode == PET_COMFORT:
+            await self.coordinator.send_parallax_command(
+                SET_PET_MODE_RVM, encode_pet_mode(True)
+            )
+            return
+        if preset_mode == CLIMATE_HOLD:
+            await self.coordinator.send_parallax_command(
+                SET_CLIMATE_HOLD_RVM, encode_climate_hold(True)
+            )
+            return
         if preset_mode == DEFROST_DEFOG:
             await self.coordinator.send_vehicle_command(
                 command=VehicleCommand.CABIN_HVAC_DEFROST_DEFOG, params={"level": 1}
@@ -140,7 +193,7 @@ class RivianClimateEntity(RivianVehicleControlEntity, ClimateEntity):
         """Set new target temperature."""
         if (temperature := kwargs.get(ATTR_TEMPERATURE)) is None:
             return
-        if self.preset_mode == DEFROST_DEFOG:
+        if self._defrosting:
             # need to turn off defrost/defog before we can adjust
             await self.coordinator.send_vehicle_command(
                 command=VehicleCommand.CABIN_HVAC_DEFROST_DEFOG, params={"level": 0}
