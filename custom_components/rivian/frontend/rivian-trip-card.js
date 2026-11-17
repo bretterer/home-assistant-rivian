@@ -550,8 +550,25 @@ if (typeof customElements !== "undefined" && !customElements.get(CARD_TYPE)) {
       this._render();
     }
 
+    /**
+     * The form's schema, rebuilt only when the Destination sensors change: the
+     * editor gets every state update, and a new schema re-renders the form. The
+     * entity registry is only searched again when it changes.
+     */
     _schema() {
-      const destinations = destinationSensors(this._hass.entities);
+      const entities = this._hass.entities;
+      if (this._schemaCache?.entities === entities) return this._schemaCache.schema;
+      const destinations = destinationSensors(entities);
+      const key = destinations.join(",");
+      const schema =
+        this._schemaCache?.key === key
+          ? this._schemaCache.schema
+          : this._buildSchema(destinations);
+      this._schemaCache = { entities, key, schema };
+      return schema;
+    }
+
+    _buildSchema(destinations) {
       return [
         {
           name: "entity",
