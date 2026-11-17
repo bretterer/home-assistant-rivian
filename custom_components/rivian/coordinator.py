@@ -102,6 +102,11 @@ GRAPHQL_LOCATION_FIELDS = {"gnssLocation"}
 # resent snapshots keep their original timestamps)
 UPDATES_STALE_AFTER = timedelta(minutes=10)
 
+# Seconds to wait for video monitoring to turn on before a live stream
+GEAR_GUARD_VIDEO_WAIT = 30
+# Live stream starts to try; each waits up to 40 s for the vehicle
+GEAR_GUARD_LIVE_ATTEMPTS = 3
+
 
 class RivianDataUpdateCoordinator(DataUpdateCoordinator[T], ABC, Generic[T]):
     """Data update coordinator for the Rivian integration."""
@@ -960,6 +965,17 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             return entity.get("value")
         return None
 
+    def _phone_key(self) -> dict[str, str]:
+        """Return the paired phone's key, as `send_parallax_command` takes it."""
+        vehicle = self.hass.data[DOMAIN][self.config_entry.entry_id][ATTR_VEHICLE][
+            self.vehicle_id
+        ]
+        return {
+            "identity_id": vehicle["phone_identity_id"],
+            "vehicle_key": vehicle["public_key"],
+            "private_key": self.config_entry.options.get("private_key"),
+        }
+
     async def send_parallax_command(
         self,
         rvm: str,
@@ -996,10 +1012,8 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
                 self.vehicle_id,
                 rvm,
                 payload,
-                identity_id=vehicle["phone_identity_id"],
-                vehicle_key=vehicle["public_key"],
-                private_key=self.config_entry.options.get("private_key"),
                 command_id=command_id,
+                **self._phone_key(),
             ):
                 raise HomeAssistantError(
                     translation_domain=DOMAIN,
@@ -1057,6 +1071,26 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
                 translation_domain=DOMAIN,
                 translation_key="climate_hold_duration_rejected",
             )
+
+    async def start_gear_guard_live_stream(self, camera: str) -> dict[str, Any] | None:
+        """Start a Gear Guard live stream, turning video monitoring on first."""
+        if self.get("gearGuardVideoStatus") == "disabled":
+            await self.send_vehicle_command(VehicleCommand.ENABLE_GEAR_GUARD_VIDEO)
+            for _ in range(GEAR_GUARD_VIDEO_WAIT):
+                await asyncio.sleep(1)
+                if self.get("gearGuardVideoStatus") != "disabled":
+                    break
+        # A sleeping vehicle can wake too late for the first start, and a start
+        # can't be reused, so retry with a fresh one
+        for _ in range(GEAR_GUARD_LIVE_ATTEMPTS):
+            if config := await self.api.start_gear_guard_live_stream(
+                self.vehicle_id,
+                camera=camera,
+                device_id="home-assistant",
+                **self._phone_key(),
+            ):
+                return config
+        return None
 
     async def send_vehicle_command(
         self, command: VehicleCommand, params: dict[str, Any] | None = None

@@ -74,6 +74,26 @@
                 }
             }
         },
+        "camera": {
+            "gear_guard_front": {
+                "default": "mdi:cctv"
+            },
+            "gear_guard_rear": {
+                "default": "mdi:cctv"
+            },
+            "gear_guard_left": {
+                "default": "mdi:cctv"
+            },
+            "gear_guard_right": {
+                "default": "mdi:cctv"
+            },
+            "gear_guard_interior": {
+                "default": "mdi:cctv"
+            },
+            "gear_guard_bed": {
+                "default": "mdi:cctv"
+            }
+        },
         "button": {
             "wake": {
                 "default": "mdi:weather-night"
