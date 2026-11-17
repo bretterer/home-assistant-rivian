@@ -46,23 +46,21 @@ NUMBERS: Final[tuple[RivianNumberEntityDescription, ...]] = (
             command=VehicleCommand.CHARGING_LIMITS, params={"SOC_limit": int(value)}
         ),
     ),
-    RivianNumberEntityDescription(
-        key="climate_hold_duration",
-        translation_key="climate_hold_duration",
-        entity_category=EntityCategory.CONFIG,
-        device_class=NumberDeviceClass.DURATION,
-        native_min_value=120,
-        native_max_value=480,
-        native_step=15,
-        native_unit_of_measurement=UnitOfTime.MINUTES,
-        supported_feature="CLM_HOLD",
-        field="climateHoldDuration",
-        # Seconds, 0 when no hold is set
-        value_lambda=lambda seconds: seconds // 60 if seconds else None,
-        set_fn=lambda coordinator, value: coordinator.set_climate_hold_duration(
-            int(value)
-        ),
-    ),
+)
+
+# Set with an unsigned vehicle operation, so unlike NUMBERS it doesn't need a
+# paired phone
+CLIMATE_HOLD_DURATION_NUMBER = RivianNumberEntityDescription(
+    key="climate_hold_duration",
+    translation_key="climate_hold_duration",
+    entity_category=EntityCategory.CONFIG,
+    device_class=NumberDeviceClass.DURATION,
+    native_min_value=120,
+    native_max_value=480,
+    native_step=15,
+    native_unit_of_measurement=UnitOfTime.MINUTES,
+    field="climateHoldDuration",
+    set_fn=lambda coordinator, value: coordinator.set_climate_hold_duration(int(value)),
 )
 
 CHARGING_SCHEDULE_AMPERAGE_NUMBER = RivianNumberEntityDescription(
@@ -92,8 +90,6 @@ async def async_setup_entry(
         for vehicle_id, vehicle in vehicles.items()
         if vehicle.get("phone_identity_id")
         for description in NUMBERS
-        if description.supported_feature is None
-        or description.supported_feature in vehicle.get("supported_features", [])
     ]
     for vehicle_id, vehicle in vehicles.items():
         coord = coordinators[vehicle_id]
@@ -102,6 +98,12 @@ async def async_setup_entry(
                 coord, entry, CHARGING_SCHEDULE_AMPERAGE_NUMBER, vehicle
             )
         )
+        if "CLM_HOLD" in vehicle.get("supported_features", []):
+            entities.append(
+                RivianClimateHoldDurationEntity(
+                    coord, entry, CLIMATE_HOLD_DURATION_NUMBER, vehicle
+                )
+            )
     async_add_entities(entities)
 
 
@@ -127,6 +129,23 @@ class RivianChargingScheduleAmperageEntity(RivianVehicleEntity, NumberEntity):
         await self.entity_description.set_fn(self.coordinator, value)
 
 
+class RivianClimateHoldDurationEntity(RivianVehicleEntity, NumberEntity):
+    """Climate hold duration, which needs no paired phone, gear or zone check."""
+
+    entity_description: RivianNumberEntityDescription
+
+    @property
+    def native_value(self) -> int | None:
+        """Return the duration in minutes."""
+        # Seconds, 0 when no hold is set
+        seconds = self._get_value(self.entity_description.field)
+        return seconds // 60 if seconds else None
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Set new value."""
+        await self.entity_description.set_fn(self.coordinator, value)
+
+
 class RivianNumberEntity(RivianVehicleControlEntity, NumberEntity):
     """Representation of a Rivian number entity."""
 
@@ -135,8 +154,7 @@ class RivianNumberEntity(RivianVehicleControlEntity, NumberEntity):
     @property
     def native_value(self) -> float | None:
         """Return the value reported by the number."""
-        value = self._get_value(self.entity_description.field)
-        return fn(value) if (fn := self.entity_description.value_lambda) else value
+        return self._get_value(self.entity_description.field)
 
     async def async_set_native_value(self, value: float) -> None:
         """Set new value."""

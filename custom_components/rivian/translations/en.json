@@ -1115,6 +1115,12 @@
     },
     "command_failed": {
       "message": "The vehicle didn't carry out {rvm}: {reason}"
+    },
+    "climate_hold_duration_failed": {
+      "message": "Couldn't set the climate hold duration: {error}"
+    },
+    "climate_hold_duration_rejected": {
+      "message": "Rivian didn't accept the climate hold duration"
     }
   }
 }
