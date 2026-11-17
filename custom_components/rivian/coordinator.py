@@ -90,6 +90,11 @@ CHARGING_SCHEDULE_REFRESH_INTERVAL = 900
 NAVIGATION_FIX_MAX_AGE = timedelta(minutes=5)
 # Fields set from the newest position fix (GNSS or navigation)
 GNSS_FIX_FIELDS = ("gnssLocation", "gnssSpeed", "gnssBearing")
+# GraphQL sends a position fix every few seconds while driving, where Parallax's
+# dynamics.vehicle.gnss sends one about once a minute. It's a subscription of its
+# own: if Rivian stops accepting the field, only that subscription fails (with an
+# error message, and no data) and everything else carries on
+GRAPHQL_LOCATION_FIELDS = {"gnssLocation"}
 # Updates are stale after this long without either any message (the client
 # resubscribes after a minute without one, and the subscriptions resend their
 # snapshot, so a working connection never goes this long), or, while awake,
@@ -371,6 +376,13 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         self._initial = asyncio.Event()
         self._unsub_handler: Callable[[], Awaitable[None]] | None = None
         self._unsub_parallax: Callable[[], Awaitable[None]] | None = None
+        self._unsub_location: Callable[[], Awaitable[None]] | None = None
+        # Whether GraphQL's position fix subscription failed, e.g. the field
+        # failing validation; it isn't subscribed again until the entry reloads
+        self._location_failed = False
+        # Time of the fix gnssSpeed and gnssBearing last came from, which can be
+        # older than gnssLocation's when GraphQL's fix is the newer position
+        self._motion_fix_time: datetime | None = None
         self._awake = asyncio.Event()
         # When any message last arrived, and the newest time the vehicle reported
         self._last_message: datetime | None = None
@@ -513,8 +525,82 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
                     "Timed out waiting for initial vehicle data after "
                     f"{INITIAL_UPDATE_TIMEOUT}s"
                 ) from err
+            await self._subscribe_location()
+        elif self._unsub_handler and not self._unsub_location:
+            # Subscribing to the position fixes can fail on its own, e.g. if the web
+            # socket dropped in between, and the client only resubscribes what it
+            # has, so try again on the regular refresh
+            await self._subscribe_location()
 
         return self.data
+
+    async def _subscribe_location(self) -> None:
+        """Subscribe to GraphQL's position fixes, which are optional.
+
+        Not subscribing (the client has already logged why) or the field failing
+        GraphQL validation leaves the position to Parallax, as before. After a
+        subscription error it isn't subscribed again until the entry reloads.
+        """
+        if self._location_failed:
+            return
+        try:
+            self._unsub_location = await self.api.subscribe_for_vehicle_updates(
+                vehicle_id=self.vehicle_id,
+                properties=GRAPHQL_LOCATION_FIELDS,
+                callback=self._process_graphql_location,
+                on_error=self._location_subscription_failed,
+            )
+        except Exception:  # optional, so it never fails the update
+            _LOGGER.debug(
+                "Couldn't subscribe to vehicle %s GraphQL position fixes",
+                self.vehicle_id,
+                exc_info=True,
+            )
+        if not self._unsub_location:
+            _LOGGER.debug(
+                "Not subscribed to vehicle %s GraphQL position fixes; using Parallax's",
+                self.vehicle_id,
+            )
+        elif self._location_failed:
+            # The error arrived before the unsubscribe handle did
+            await self._end_location_subscription()
+
+    @callback
+    def _location_subscription_failed(self, message: dict[str, Any]) -> None:
+        """Fall back to Parallax's position fixes once GraphQL's subscription fails.
+
+        Such as Rivian no longer accepting the field. The subscription has ended,
+        and the client would subscribe it again after every reconnect, so it's
+        ended here and not subscribed again until the entry reloads.
+        """
+        if self._location_failed:
+            return
+        self._location_failed = True
+        errors = message.get("payload")
+        reason = (
+            "; ".join(
+                str(error.get("message") or error)
+                for error in errors
+                if isinstance(error, dict)
+            )
+            if isinstance(errors, list)
+            else None
+        ) or redact(message)
+        _LOGGER.warning(
+            "Rivian stopped sending vehicle %s position fixes over GraphQL (%s). "
+            "Using Parallax's instead, which update about once a minute",
+            self.vehicle_id,
+            reason,
+        )
+        self.config_entry.async_create_task(
+            self.hass, self._end_location_subscription(), eager_start=True
+        )
+
+    async def _end_location_subscription(self) -> None:
+        """Unsubscribe from GraphQL's position fixes."""
+        unsub_location, self._unsub_location = self._unsub_location, None
+        if unsub_location:
+            await unsub_location()
 
     def _subscribe_retry_delay(self, message: str) -> float:
         """Return how long to wait before subscribing again after it failed.
@@ -665,6 +751,55 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         self._initial.set()
 
     @callback
+    def _process_graphql_location(self, data: dict[str, Any]) -> None:
+        """Use a GraphQL position fix if it's newer than the current one.
+
+        Anything unexpected is ignored rather than counted as a subscription
+        error: the position also comes from Parallax, so this feed is optional.
+        """
+        payload = data.get("payload")
+        pdata = payload.get("data") if isinstance(payload, dict) else None
+        state = pdata.get(self.key) if isinstance(pdata, dict) else None
+        location = state.get("gnssLocation") if isinstance(state, dict) else None
+        if not isinstance(location, dict):
+            _LOGGER.debug("Ignoring a GraphQL position update: %s", redact(data))
+            return
+        self._last_message = dt_util.utcnow()
+        lat, lon = location.get("latitude"), location.get("longitude")
+        fix_time = (
+            dt_util.parse_datetime(ts)
+            if isinstance(ts := location.get("timeStamp"), str)
+            else None
+        )
+        if (
+            not isinstance(lat, int | float)
+            or not isinstance(lon, int | float)
+            or fix_time is None
+            or fix_time.tzinfo is None
+            or location.get("isAuthorized") is False
+        ):
+            return
+        self._note_report(fix_time)
+        current = self._current_data()
+        current_time = (current.get("gnssLocation") or {}).get("timeStamp")
+        if (
+            isinstance(current_time, datetime)
+            and current_time.tzinfo
+            and fix_time <= current_time
+        ):
+            return
+        self.async_set_updated_data(
+            current
+            | {
+                "gnssLocation": {
+                    "latitude": round(lat, 6),
+                    "longitude": round(lon, 6),
+                    "timeStamp": fix_time,
+                }
+            }
+        )
+
+    @callback
     def _handle_subscription_error(self, source: str, data: dict[str, Any]) -> None:
         """Count a subscription error, unsubscribing both if they persist."""
         _LOGGER.error("Received an unknown %s subscription update: %s", source, data)
@@ -686,6 +821,10 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         trip_progress's location fix comes every ~5 seconds. trip_progress keeps
         resending its last fix after navigation ends, so it's only used while
         recent, and only a newer fix wins.
+
+        GraphQL's position fixes (_process_graphql_location) are often newer,
+        but carry no speed or bearing, so those are compared with the fix they
+        last came from rather than with the position's.
         """
         fix = {k: clean.pop(k) for k in GNSS_FIX_FIELDS if k in clean}
         lat, lon = clean.get("latitude"), clean.get("longitude")
@@ -706,13 +845,19 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             }
         if not (location := fix.get("gnssLocation")):
             return
+        new_time = location.get("timeStamp")
+        if new_time and self._motion_fix_time and new_time <= self._motion_fix_time:
+            fix.pop("gnssSpeed", None)
+            fix.pop("gnssBearing", None)
+        elif new_time:
+            self._motion_fix_time = new_time
         current = self._current_data().get("gnssLocation") or {}
         if (
             (current_time := current.get("timeStamp"))
-            and (new_time := location.get("timeStamp"))
-            and new_time <= current_time
+            and new_time
+            and (new_time <= current_time)
         ):
-            return
+            del fix["gnssLocation"]
         clean.update(fix)
 
     def _current_data(self) -> dict[str, Any]:
@@ -761,8 +906,11 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         # and don't clear handles set by a newer subscription
         unsub_parallax, self._unsub_parallax = self._unsub_parallax, None
         unsub_handler, self._unsub_handler = self._unsub_handler, None
+        unsub_location, self._unsub_location = self._unsub_location, None
         if unsub_handler:
             self._initial.clear()
+        if unsub_location:
+            await unsub_location()
         if unsub_parallax:
             await unsub_parallax()
         if unsub_handler:
