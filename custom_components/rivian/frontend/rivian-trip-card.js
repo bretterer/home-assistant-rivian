@@ -578,6 +578,9 @@ if (typeof customElements !== "undefined" && !customElements.get(CARD_TYPE)) {
         style?.getPropertyValue("--success-color").trim() || "#43a047";
       const language = this._hass.locale?.language;
       const layer = buildRouteLayer(route, color);
+      // Drawn for this engine even when there's no usable route, so it isn't
+      // redrawn on every state update
+      this._routeEngine = engine;
       if (!layer) return;
       this._routeHandles = [engine.addPath(layer)];
       const markers = stopMarkers(stops, {
