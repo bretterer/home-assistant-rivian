@@ -378,9 +378,17 @@ if (typeof customElements !== "undefined" && !customElements.get(CARD_TYPE)) {
       this._map = undefined;
     }
 
-    /** The vehicle and next stop on the same device as the destination sensor. */
+    /**
+     * The vehicle and next stop on the same device as the destination sensor.
+     * The card gets every state update, so the entity registry is only searched
+     * again when it or the card's configuration changes.
+     */
     _relatedEntities() {
       const registry = this._hass.entities ?? {};
+      const cache = this._relatedCache;
+      if (cache?.registry === registry && cache.config === this._config) {
+        return cache.related;
+      }
       const device = registry[this._config.entity]?.device_id;
       const onDevice = Object.values(registry).filter(
         (e) => device && e.device_id === device && e.platform === "rivian"
@@ -389,7 +397,9 @@ if (typeof customElements !== "undefined" && !customElements.get(CARD_TYPE)) {
         this._config.vehicle ??
         onDevice.find((e) => e.entity_id.startsWith("device_tracker."))?.entity_id;
       const nextStop = onDevice.find((e) => e.translation_key === "next_stop")?.entity_id;
-      return { vehicle, nextStop };
+      const related = { vehicle, nextStop };
+      this._relatedCache = { registry, config: this._config, related };
+      return related;
     }
 
     _update() {
