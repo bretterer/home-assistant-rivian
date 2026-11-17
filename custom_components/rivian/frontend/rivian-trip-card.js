@@ -313,17 +313,23 @@ let mapLoaded;
 function loadMap() {
   if (customElements.get("ha-map")) return Promise.resolve(true);
   mapLoaded ??= (async () => {
-    const helpers = await window.loadCardHelpers?.();
-    helpers?.createCardElement({ type: "map", entities: ["zone.home"] });
     let timer;
-    const timeout = new Promise((resolve) => {
-      timer = setTimeout(() => resolve(false), MAP_LOAD_TIMEOUT_MS);
-    });
-    const loaded = await Promise.race([
-      customElements.whenDefined("ha-map").then(() => true),
-      timeout,
-    ]);
-    clearTimeout(timer);
+    let loaded = false;
+    try {
+      const helpers = await window.loadCardHelpers?.();
+      helpers?.createCardElement({ type: "map", entities: ["zone.home"] });
+      const timeout = new Promise((resolve) => {
+        timer = setTimeout(() => resolve(false), MAP_LOAD_TIMEOUT_MS);
+      });
+      loaded = await Promise.race([
+        customElements.whenDefined("ha-map").then(() => true),
+        timeout,
+      ]);
+    } catch (err) {
+      console.error("Rivian trip card: couldn't load the map", err);
+    } finally {
+      clearTimeout(timer);
+    }
     // Let a later call try again
     if (!loaded) mapLoaded = undefined;
     return loaded;
