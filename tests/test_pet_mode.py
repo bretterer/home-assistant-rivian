@@ -1,4 +1,4 @@
-"""Tests for the pet mode switch."""
+"""Tests for the pet comfort switch."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ SWITCH = next(d for d in switch.SWITCHES if d.key == "pet_mode")
 
 
 def test_switch_follows_status() -> None:
-    """The switch is on only while pet mode is on."""
+    """The switch is on only while pet comfort is on."""
     coor = MagicMock()
     for status, on in (
         ("on", True),

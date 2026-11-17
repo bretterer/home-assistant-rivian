@@ -181,8 +181,8 @@ Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
 | Next stop ETA                                       | Sensor         | Estimated arrival at the next stop                                                                                             |
 | No updates since                                    | Sensor         | When the vehicle last reported data; empty unless that was over 10 minutes ago                                                 |
 | Odometer                                            | Sensor         |                                                                                                                                |
-| Pet mode                                            | Binary sensor  | Running/not running status                                                                                                     |
-| Pet mode temperature status                         | Sensor         |                                                                                                                                |
+| Pet comfort                                         | Binary sensor  | Running/not running status                                                                                                     |
+| Pet comfort temperature status                      | Sensor         |                                                                                                                                |
 | Power                                               | Sensor         | Wallbox power                                                                                                                  |
 | Power maximum                                       | Sensor         | Wallbox maximum power                                                                                                          |
 | Power state                                         | Sensor         |                                                                                                                                |
@@ -270,7 +270,7 @@ These controls need a phone key paired over Bluetooth (see [Remote Vehicle Contr
 | Open gear tunnel left      | Button  | Open left gear tunnel, R1T only                                                                                                                          |
 | Open gear tunnel right     | Button  | Open right gear tunnel, R1T only                                                                                                                         |
 | Pair                       | Button  | Initiate Bluetooth pairing from Home Assistant. When pairing is identified as completed, this entity will no longer be created and can safely be deleted |
-| Pet mode                   | Switch  | Turn pet mode on/off, vehicles with pet comfort only                                                                                                     |
+| Pet comfort                | Switch  | Turn pet comfort on/off, vehicles with pet comfort only                                                                                                  |
 | Seat front left heat       | Select  | Set front left seat heat level                                                                                                                           |
 | Seat front left vent       | Select  | Set front left seat vent level                                                                                                                           |
 | Seat front right heat      | Select  | Set front right seat heat level                                                                                                                          |
