@@ -5,6 +5,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 import asyncio
 from collections.abc import Awaitable, Callable
+import contextlib
 from datetime import UTC, datetime, timedelta
 import logging
 import time
@@ -1077,6 +1078,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             )
             return
         awake = asyncio.Event()
+        held = asyncio.Event()
         restarted = asyncio.Event()
         started_up = asyncio.Event()
         # A restart before the result is the command's own, which may still work
@@ -1093,6 +1095,8 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             nonlocal seen_restart
             if self.get("powerState") not in (None, "sleep"):
                 awake.set()
+            if self.get("climateHoldStatus") == "on":
+                held.set()
             if restarting():
                 seen_restart = True
                 # A restart starts with the whole hold unavailable; one already
@@ -1112,12 +1116,17 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
                     SET_CLIMATE_HOLD_RVM, encode_climate_hold(True)
                 )
             except HomeAssistantError as err:
+                # Only a sent command reaches, and wakes, the vehicle
+                if err.translation_key not in ("command_failed", "command_unconfirmed"):
+                    raise
                 error = err
             result_in = True
             watch()
             try:
                 await asyncio.wait_for(awake.wait(), CLIMATE_HOLD_WAKE_WAIT)
-                await asyncio.sleep(CLIMATE_HOLD_START_WAIT)
+                # A hold that comes on needs no more waiting
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(held.wait(), CLIMATE_HOLD_START_WAIT)
                 if restarted.is_set() and restarting():
                     await asyncio.wait_for(
                         started_up.wait(), CLIMATE_HOLD_START_UP_WAIT

@@ -360,3 +360,23 @@ async def test_failed_resend_is_raised() -> None:
     with pytest.raises(TranslatedError):
         await coor.start_climate_hold()
     assert coor.send_parallax_command.await_count == 2
+
+
+async def test_rejected_hold_raised_at_once() -> None:
+    """A hold the cloud rejects never reached the vehicle: raised without waiting."""
+    coor = holding([TranslatedError(translation_key="command_rejected")], [])
+    with (
+        patch.object(coordinator, "CLIMATE_HOLD_WAKE_WAIT", 10),
+        pytest.raises(TranslatedError) as err,
+    ):
+        await asyncio.wait_for(coor.start_climate_hold(), 1)
+    assert err.value.translation_key == "command_rejected"
+    assert coor.send_parallax_command.await_count == 1
+
+
+async def test_hold_that_comes_on_returns_at_once() -> None:
+    """Once the hold reads on, it's done without waiting out the start wait."""
+    coor = holding([None], [*WAKES, {"climateHoldStatus": "on"}])
+    with patch.object(coordinator, "CLIMATE_HOLD_START_WAIT", 10):
+        await asyncio.wait_for(coor.start_climate_hold(), 1)
+    assert coor.send_parallax_command.await_count == 1
