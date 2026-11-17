@@ -65,7 +65,6 @@ def encoders() -> Any:
     """Readable stand-ins for the Parallax encoders and translated errors."""
     with (
         patch.object(climate, "VehicleCommand"),
-        patch.object(climate, "encode_pet_mode", lambda on: ("pet", on)),
         patch.object(climate, "encode_climate_hold", lambda on: ("hold", on)),
         patch.object(climate, "ServiceValidationError", TranslatedError),
         # Home Assistant's value, which conftest mocks
@@ -109,7 +108,7 @@ def test_preset_order() -> None:
 def test_presets_follow_supported_features() -> None:
     """Pet comfort and climate hold are offered only when the vehicle has them."""
 
-    def presets(features: list[str]) -> list[str]:
+    def presets(features: list[str], pet_mode: str = "off") -> list[str]:
         vehicle = {
             "id": "id",
             "vin": "vin",
@@ -117,36 +116,64 @@ def test_presets_follow_supported_features() -> None:
             "model": "R1S",
             "supported_features": features,
         }
-        return climate.RivianClimateEntity(
+        cabin = climate.RivianClimateEntity(
             MagicMock(), MagicMock(), climate.CLIMATE, vehicle
-        )._attr_preset_modes
+        )
+        cabin._get_value = {"petModeStatus": pet_mode}.get  # type: ignore[method-assign]
+        return cabin.preset_modes
 
     assert presets([]) == ["LO", "HI", climate.DEFROST_DEFOG]
+    assert presets([], "on") == ["LO", "HI", climate.DEFROST_DEFOG]
     assert presets(["PET_COMFORT_CONTROL", "CLM_HOLD"]) == [
+        "LO",
+        "HI",
+        climate.DEFROST_DEFOG,
+        climate.CLIMATE_HOLD,
+    ]
+
+
+def test_pet_comfort_listed_only_while_on() -> None:
+    """Pet comfort is turned on from its switch, so it's listed only while on."""
+    vehicle = {
+        "id": "id",
+        "vin": "vin",
+        "name": "name",
+        "model": "R1S",
+        "supported_features": ["PET_COMFORT_CONTROL", "CLM_HOLD"],
+    }
+    cabin = climate.RivianClimateEntity(
+        MagicMock(), MagicMock(), climate.CLIMATE, vehicle
+    )
+    values = {"petModeStatus": "off"}
+    cabin._get_value = values.get  # type: ignore[method-assign]
+    assert climate.PET_COMFORT not in cabin.preset_modes
+    values["petModeStatus"] = "on"
+    assert cabin.preset_modes == [
         "LO",
         "HI",
         climate.DEFROST_DEFOG,
         climate.PET_COMFORT,
         climate.CLIMATE_HOLD,
     ]
+    values["petModeStatus"] = "off"
+    assert climate.PET_COMFORT not in cabin.preset_modes
 
 
-@pytest.mark.parametrize(
-    ("preset", "rvm", "payload"),
-    [
-        (climate.PET_COMFORT, climate.SET_PET_MODE_RVM, ("pet", True)),
-        (climate.CLIMATE_HOLD, climate.SET_CLIMATE_HOLD_RVM, ("hold", True)),
-    ],
-)
-async def test_presets_turn_on_pet_comfort_and_climate_hold(
-    preset: str, rvm: str, payload: tuple[str, bool]
-) -> None:
-    """Choosing pet comfort or climate hold sends the same command as its switch."""
+async def test_climate_hold_preset_turns_it_on() -> None:
+    """Choosing climate hold sends the same command as its switch."""
     cabin = commanded({})
-    await cabin.async_set_preset_mode(preset)
+    await cabin.async_set_preset_mode(climate.CLIMATE_HOLD)
     assert cabin.coordinator.send_parallax_command.await_args_list == [
-        call(rvm, payload)
+        call(climate.SET_CLIMATE_HOLD_RVM, ("hold", True))
     ]
+
+
+async def test_pet_comfort_preset_while_on_does_nothing() -> None:
+    """Choosing pet comfort, listed only while on, sends nothing and keeps a hold."""
+    cabin = commanded({"petModeStatus": "on", "climateHoldStatus": "on"})
+    await cabin.async_set_preset_mode(climate.PET_COMFORT)
+    cabin.coordinator.send_parallax_command.assert_not_awaited()
+    cabin.coordinator.send_vehicle_command.assert_not_awaited()
 
 
 async def test_other_presets_keep_pet_comfort() -> None:
@@ -161,7 +188,7 @@ async def test_other_presets_keep_pet_comfort() -> None:
 
 
 async def test_other_presets_end_climate_hold() -> None:
-    """LO and HI end a hold and turn the cabin on; pet comfort leaves a hold."""
+    """LO and HI end a hold and turn the cabin on."""
     # A hold keeps the cabin conditioned without reporting preconditioning
     hold = {"climateHoldStatus": "on", "cabinPreconditioningType": "none"}
     cabin = commanded(hold)
@@ -176,12 +203,6 @@ async def test_other_presets_end_climate_hold() -> None:
             command=command.CABIN_PRECONDITIONING_SET_TEMP,
             params={"HVAC_set_temp": 63.5},
         ),
-    ]
-
-    cabin = commanded(hold)
-    await cabin.async_set_preset_mode(climate.PET_COMFORT)
-    assert cabin.coordinator.send_parallax_command.await_args_list == [
-        call(climate.SET_PET_MODE_RVM, ("pet", True))
     ]
 
 

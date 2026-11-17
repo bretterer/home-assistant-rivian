@@ -6,12 +6,7 @@ import logging
 from typing import Any, Final
 
 from rivian import VehicleCommand
-from rivian.parallax import (
-    SET_CLIMATE_HOLD_RVM,
-    SET_PET_MODE_RVM,
-    encode_climate_hold,
-    encode_pet_mode,
-)
+from rivian.parallax import SET_CLIMATE_HOLD_RVM, encode_climate_hold
 
 from homeassistant.components.climate import (
     ClimateEntity,
@@ -83,12 +78,23 @@ class RivianClimateEntity(RivianVehicleControlEntity, ClimateEntity):
         """Create the climate entity, with the presets the vehicle supports."""
         super().__init__(coordinator, config_entry, description, vehicle)
         features = vehicle.get("supported_features", [])
-        self._attr_preset_modes = [
+        self._has_pet_comfort = "PET_COMFORT_CONTROL" in features
+        self._has_climate_hold = "CLM_HOLD" in features
+
+    @property
+    def preset_modes(self) -> list[str]:
+        """Return the presets the vehicle supports.
+
+        Pet comfort is listed only while it's on, to show why the cabin is
+        running: its switch turns it on and off.
+        """
+        pet_comfort = self._has_pet_comfort and self._get_value("petModeStatus") == "on"
+        return [
             "LO",
             "HI",
             DEFROST_DEFOG,
-            *([PET_COMFORT] if "PET_COMFORT_CONTROL" in features else []),
-            *([CLIMATE_HOLD] if "CLM_HOLD" in features else []),
+            *([PET_COMFORT] if pet_comfort else []),
+            *([CLIMATE_HOLD] if self._has_climate_hold else []),
         ]
 
     @property
@@ -169,21 +175,16 @@ class RivianClimateEntity(RivianVehicleControlEntity, ClimateEntity):
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
         """Set new preset mode."""
-        if preset_mode != PET_COMFORT:
-            self._check_pet_comfort_off()
-        ended_hold = False
-        if preset_mode not in (PET_COMFORT, CLIMATE_HOLD):
-            ended_hold = await self._end_climate_hold()
         if preset_mode == PET_COMFORT:
-            await self.coordinator.send_parallax_command(
-                SET_PET_MODE_RVM, encode_pet_mode(True)
-            )
+            # Only listed while pet comfort is already on
             return
+        self._check_pet_comfort_off()
         if preset_mode == CLIMATE_HOLD:
             await self.coordinator.send_parallax_command(
                 SET_CLIMATE_HOLD_RVM, encode_climate_hold(True)
             )
             return
+        ended_hold = await self._end_climate_hold()
         if preset_mode == DEFROST_DEFOG:
             await self.coordinator.send_vehicle_command(
                 command=VehicleCommand.CABIN_HVAC_DEFROST_DEFOG, params={"level": 1}
