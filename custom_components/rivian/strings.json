@@ -252,6 +252,9 @@
       }
     },
     "number": {
+      "climate_hold_duration": {
+        "name": "Climate hold duration"
+      },
       "charging_schedule_amperage": {
         "name": "Charging schedule amperage"
       },
@@ -1053,6 +1056,9 @@
       "charging_enabled": {
         "name": "Charging enabled"
       },
+      "climate_hold": {
+        "name": "Climate hold"
+      },
       "gear_guard_video": {
         "name": "Gear Guard video"
       },
@@ -1110,6 +1116,12 @@
     },
     "command_failed": {
       "message": "The vehicle didn't carry out {rvm}: {reason}"
+    },
+    "climate_hold_duration_failed": {
+      "message": "Couldn't set the climate hold duration: {error}"
+    },
+    "climate_hold_duration_rejected": {
+      "message": "Rivian didn't accept the climate hold duration"
     }
   }
 }
