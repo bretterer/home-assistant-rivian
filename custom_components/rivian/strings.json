@@ -246,7 +246,15 @@
     },
     "climate": {
       "cabin_climate": {
-        "name": "Cabin climate"
+        "name": "Cabin climate",
+        "state_attributes": {
+          "preset_mode": {
+            "state": {
+              "pet_comfort": "Pet comfort",
+              "climate_hold": "Climate hold"
+            }
+          }
+        }
       }
     },
     "cover": {
@@ -1154,6 +1162,9 @@
     },
     "climate_hold_duration_rejected": {
       "message": "Rivian didn't accept the climate hold duration"
+    },
+    "pet_comfort_on": {
+      "message": "Pet comfort is on: make sure there are no pets inside, then turn it off with its switch"
     }
   }
 }
