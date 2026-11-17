@@ -405,6 +405,8 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         # failed without a backoff, since it last worked
         self._rate_limited_since: datetime | None = None
         self._subscribe_failures = 0
+        # Bumped by each climate hold request, so an older one isn't sent again
+        self._climate_hold_request = 0
         # All of the vehicle's charging schedules (entities manage the first);
         # None until fetched successfully
         self._charging_schedules: list[dict[str, Any]] | None = None
@@ -1070,8 +1072,11 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         still starting up, and loses it: the command fails, or succeeds and the
         hold then restarts (reads unavailable, for no given reason). Sending it
         again once the vehicle is awake and the hold has started up starts it.
-        Without a known power state, the vehicle is taken as awake.
+        Without a known power state, the vehicle is taken as awake. It isn't
+        sent again once the hold is turned off or started again.
         """
+        self._climate_hold_request += 1
+        request = self._climate_hold_request
         if self.get("powerState") != "sleep":
             await self.send_parallax_command(
                 SET_CLIMATE_HOLD_RVM, encode_climate_hold(True)
@@ -1147,9 +1152,23 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             if error:
                 raise error
             return
+        if request != self._climate_hold_request:
+            # Turned off or started again meanwhile
+            return
         _LOGGER.debug("Sending the climate hold again, now that the vehicle is awake")
         await self.send_parallax_command(
             SET_CLIMATE_HOLD_RVM, encode_climate_hold(True)
+        )
+
+    def cancel_climate_hold_resend(self) -> None:
+        """Keep a climate hold waiting to be sent again from being sent."""
+        self._climate_hold_request += 1
+
+    async def stop_climate_hold(self) -> None:
+        """Stop a climate hold, and any still waiting to be sent again."""
+        self.cancel_climate_hold_resend()
+        await self.send_parallax_command(
+            SET_CLIMATE_HOLD_RVM, encode_climate_hold(False)
         )
 
     async def set_climate_hold_duration(self, minutes: int) -> None:

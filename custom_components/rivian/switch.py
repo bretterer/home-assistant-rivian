@@ -6,12 +6,7 @@ import logging
 from typing import Any, Final
 
 from rivian import VehicleCommand
-from rivian.parallax import (
-    SET_CLIMATE_HOLD_RVM,
-    SET_PET_MODE_RVM,
-    encode_climate_hold,
-    encode_pet_mode,
-)
+from rivian.parallax import SET_PET_MODE_RVM, encode_pet_mode
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
@@ -59,9 +54,7 @@ SWITCHES: Final[tuple[RivianSwitchEntityDescription, ...]] = (
         translation_key="climate_hold",
         supported_feature="CLM_HOLD",
         is_on=lambda coor: coor.get("climateHoldStatus") == "on",
-        turn_off=lambda coor: coor.send_parallax_command(
-            SET_CLIMATE_HOLD_RVM, encode_climate_hold(False)
-        ),
+        turn_off=lambda coor: coor.stop_climate_hold(),
         turn_on=lambda coor: coor.start_climate_hold(),
     ),
     RivianSwitchEntityDescription(

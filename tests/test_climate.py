@@ -55,7 +55,9 @@ def commanded(values: dict[str, object]) -> climate.RivianClimateEntity:
     """A climate entity whose commands are recorded."""
     cabin = entity({"defrostDefogStatus": "off"} | values)
     cabin.coordinator = MagicMock(
-        send_parallax_command=AsyncMock(), send_vehicle_command=AsyncMock()
+        send_parallax_command=AsyncMock(),
+        send_vehicle_command=AsyncMock(),
+        stop_climate_hold=AsyncMock(),
     )
     return cabin
 
@@ -65,7 +67,6 @@ def encoders() -> Any:
     """Readable stand-ins for the Parallax encoders and translated errors."""
     with (
         patch.object(climate, "VehicleCommand"),
-        patch.object(climate, "encode_climate_hold", lambda on: ("hold", on)),
         patch.object(climate, "ServiceValidationError", TranslatedError),
         # Home Assistant's value, which conftest mocks
         patch.object(climate, "ATTR_TEMPERATURE", "temperature"),
@@ -87,10 +88,16 @@ async def test_off_ends_climate_hold() -> None:
     """Turning off ends a climate hold, which preconditioning doesn't."""
     cabin = commanded({"climateHoldStatus": "on"})
     await cabin.async_set_hvac_mode(climate.HVACMode.OFF)
-    assert cabin.coordinator.send_parallax_command.await_args_list == [
-        call(climate.SET_CLIMATE_HOLD_RVM, ("hold", False))
-    ]
+    cabin.coordinator.stop_climate_hold.assert_awaited_once()
     cabin.coordinator.send_vehicle_command.assert_awaited_once()
+
+
+async def test_off_without_a_hold_cancels_a_waiting_one() -> None:
+    """Turning off with no hold on stops one still waiting to be sent again."""
+    cabin = commanded({"climateHoldStatus": "off"})
+    await cabin.async_set_hvac_mode(climate.HVACMode.OFF)
+    cabin.coordinator.cancel_climate_hold_resend.assert_called_once()
+    cabin.coordinator.stop_climate_hold.assert_not_awaited()
 
 
 def test_preset_order() -> None:
@@ -192,9 +199,7 @@ async def test_other_presets_end_climate_hold() -> None:
     hold = {"climateHoldStatus": "on", "cabinPreconditioningType": "none"}
     cabin = commanded(hold)
     await cabin.async_set_preset_mode("HI")
-    assert cabin.coordinator.send_parallax_command.await_args_list == [
-        call(climate.SET_CLIMATE_HOLD_RVM, ("hold", False))
-    ]
+    cabin.coordinator.stop_climate_hold.assert_awaited_once()
     command = climate.VehicleCommand
     assert cabin.coordinator.send_vehicle_command.await_args_list == [
         call(command=command.VEHICLE_CABIN_PRECONDITION_ENABLE),
@@ -214,9 +219,7 @@ async def test_heat_is_the_defrost_preset() -> None:
 
     cabin = commanded({"climateHoldStatus": "on"})
     await cabin.async_set_hvac_mode(climate.HVACMode.HEAT)
-    assert cabin.coordinator.send_parallax_command.await_args_list == [
-        call(climate.SET_CLIMATE_HOLD_RVM, ("hold", False))
-    ]
+    cabin.coordinator.stop_climate_hold.assert_awaited_once()
     assert cabin.coordinator.send_vehicle_command.await_args_list == [
         call(
             command=climate.VehicleCommand.CABIN_HVAC_DEFROST_DEFOG,

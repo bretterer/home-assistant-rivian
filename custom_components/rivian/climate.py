@@ -6,7 +6,6 @@ import logging
 from typing import Any, Final
 
 from rivian import VehicleCommand
-from rivian.parallax import SET_CLIMATE_HOLD_RVM, encode_climate_hold
 
 from homeassistant.components.climate import (
     ClimateEntity,
@@ -153,10 +152,10 @@ class RivianClimateEntity(RivianVehicleControlEntity, ClimateEntity):
         Return whether one was running.
         """
         if self._get_value("climateHoldStatus") != "on":
+            # One may still be waiting to be sent again
+            self.coordinator.cancel_climate_hold_resend()
             return False
-        await self.coordinator.send_parallax_command(
-            SET_CLIMATE_HOLD_RVM, encode_climate_hold(False)
-        )
+        await self.coordinator.stop_climate_hold()
         return True
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:

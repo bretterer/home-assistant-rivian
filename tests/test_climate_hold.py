@@ -116,6 +116,7 @@ def holding(
     After the first send, the vehicle reports `updates` to the hold status.
     """
     coor = object.__new__(coordinator.VehicleCoordinator)
+    coor._climate_hold_request = 0
     values = {
         "powerState": power_state,
         "climateHoldStatus": "off",
@@ -380,3 +381,36 @@ async def test_hold_that_comes_on_returns_at_once() -> None:
     with patch.object(coordinator, "CLIMATE_HOLD_START_WAIT", 10):
         await asyncio.wait_for(coor.start_climate_hold(), 1)
     assert coor.send_parallax_command.await_count == 1
+
+
+async def test_hold_turned_off_while_waiting_is_not_resent() -> None:
+    """A hold turned off while it waits to be sent again isn't sent again."""
+    coor = holding([None, None], [*WAKES, *RESTARTS])
+    with patch.object(coordinator, "CLIMATE_HOLD_START_WAIT", 0.2):
+        task = asyncio.get_running_loop().create_task(coor.start_climate_hold())
+        await asyncio.sleep(0.05)
+        await coor.stop_climate_hold()
+        await task
+    assert coor.send_parallax_command.await_args_list == [
+        call(coordinator.SET_CLIMATE_HOLD_RVM, True),
+        call(coordinator.SET_CLIMATE_HOLD_RVM, False),
+    ]
+
+
+async def test_newer_hold_replaces_a_waiting_one() -> None:
+    """A hold started again while an older one waits is the only one sent."""
+    coor = holding([None, None], [*WAKES, *RESTARTS])
+    with patch.object(coordinator, "CLIMATE_HOLD_START_WAIT", 0.2):
+        first = asyncio.get_running_loop().create_task(coor.start_climate_hold())
+        await asyncio.sleep(0.05)
+        await coor.start_climate_hold()
+        await first
+    # The older one's resend is dropped; the newer one, to an awake vehicle, is sent
+    assert coor.send_parallax_command.await_count == 2
+
+
+async def test_switch_off_stops_a_waiting_hold() -> None:
+    """The switch turns a hold off through the coordinator, which drops a resend."""
+    coor = MagicMock(stop_climate_hold=AsyncMock())
+    await SWITCH.turn_off(coor)
+    coor.stop_climate_hold.assert_awaited_once()
