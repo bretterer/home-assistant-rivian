@@ -119,6 +119,7 @@ class RivianSwitchEntityDescription(
     is_on: Callable[[VehicleCoordinator], bool]
     turn_off: Callable[[VehicleCoordinator], Awaitable[None]]
     turn_on: Callable[[VehicleCoordinator], Awaitable[None]]
+    supported_feature: str | None = None
 
 
 @dataclass(kw_only=True)
