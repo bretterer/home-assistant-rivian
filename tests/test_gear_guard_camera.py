@@ -5,13 +5,13 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from webrtc_models import RTCIceCandidateInit
 
 from custom_components.rivian import camera, coordinator
-from homeassistant.exceptions import HomeAssistantError
 
 
 def test_signal() -> None:
@@ -111,16 +111,79 @@ async def test_relay_passes_answer_and_candidates() -> None:
     socket.close.assert_awaited_once()
 
 
-async def test_refused_stream_fails_at_once() -> None:
-    """A stream the vehicle refuses fails without waiting or retrying."""
+class TranslatedError(Exception):
+    """Stands in for Home Assistant's errors, keeping their translation."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__()
+        self.translation_key = kwargs.get("translation_key")
+
+
+def entity_starting(start: Any) -> camera.RivianGearGuardCamera:
+    """A front camera whose stream start runs `start`."""
     entity = object.__new__(camera.RivianGearGuardCamera)
     entity._camera, entity._sessions, entity._pending = "front", {}, {}
-    entity.coordinator = MagicMock(
-        start_gear_guard_live_stream=AsyncMock(
-            side_effect=camera.RivianApiException("refused")
-        )
+    entity.entity_id = "camera.gear_guard_front"
+    entity.hass = MagicMock()
+    entity.hass.async_create_background_task.side_effect = lambda coro, _: coro.close()
+    entity.coordinator = MagicMock(start_gear_guard_live_stream=start)
+    return entity
+
+
+async def test_refused_stream_fails_at_once() -> None:
+    """A stream the vehicle refuses fails without waiting or retrying."""
+    entity = entity_starting(
+        AsyncMock(side_effect=camera.RivianApiException("refused"))
     )
-    with pytest.raises(HomeAssistantError):
+    with (
+        patch.object(camera, "HomeAssistantError", TranslatedError),
+        pytest.raises(TranslatedError) as err,
+    ):
         await entity.async_handle_async_webrtc_offer("v=0", "session", MagicMock())
+    assert err.value.translation_key == "live_stream_failed"
     assert entity.coordinator.start_gear_guard_live_stream.await_count == 1
     assert not entity._pending
+
+
+async def test_viewer_closed_while_starting() -> None:
+    """A viewer closed while the stream starts gets no connection or session."""
+    started = asyncio.Event()
+
+    async def start(_camera: str) -> dict[str, str]:
+        await started.wait()
+        return {"endpoint": "wss://kinesis"}
+
+    entity = entity_starting(start)
+    session = MagicMock(ws_connect=AsyncMock())
+    with patch.object(camera, "async_get_clientsession", return_value=session):
+        offer = asyncio.create_task(
+            entity.async_handle_async_webrtc_offer("v=0", "session", MagicMock())
+        )
+        await asyncio.sleep(0)
+        entity.close_webrtc_session("session")
+        started.set()
+        await offer
+    session.ws_connect.assert_not_awaited()
+    assert not entity._sessions and not entity._pending
+    entity.hass.async_create_background_task.assert_not_called()
+
+
+async def test_failed_offer_closes_the_socket() -> None:
+    """A socket that fails before the relay starts is closed, freeing the stream."""
+    entity = entity_starting(AsyncMock(return_value={"endpoint": "wss://kinesis"}))
+    socket = MagicMock(
+        send_str=AsyncMock(side_effect=camera.ClientError("reset")), close=AsyncMock()
+    )
+    with (
+        patch.object(
+            camera,
+            "async_get_clientsession",
+            return_value=MagicMock(ws_connect=AsyncMock(return_value=socket)),
+        ),
+        patch.object(camera, "HomeAssistantError", TranslatedError),
+        pytest.raises(TranslatedError) as err,
+    ):
+        await entity.async_handle_async_webrtc_offer("v=0", "session", MagicMock())
+    assert err.value.translation_key == "live_stream_unreachable"
+    socket.close.assert_awaited_once()
+    assert not entity._sessions and not entity._pending

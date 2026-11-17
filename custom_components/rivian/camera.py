@@ -117,36 +117,57 @@ class RivianGearGuardCamera(RivianVehicleControlEntity, Camera):
     ) -> None:
         """Start a live stream and pass the browser's offer to the vehicle."""
         if self._sessions or self._pending:
-            raise HomeAssistantError("A live stream is already open")
+            raise HomeAssistantError(
+                translation_domain=DOMAIN, translation_key="live_stream_open"
+            )
         self._pending[session_id] = []
+        socket: ClientWebSocketResponse | None = None
         try:
             try:
                 config = await self.coordinator.start_gear_guard_live_stream(
                     self._camera
                 )
             except RivianApiException as err:
-                raise HomeAssistantError(str(err)) from err
+                raise HomeAssistantError(
+                    translation_domain=DOMAIN,
+                    translation_key="live_stream_failed",
+                    translation_placeholders={"error": str(err)},
+                ) from err
             if not config:
                 raise HomeAssistantError(
-                    "The vehicle didn't start the stream; it streams one session at "
-                    "a time, up to an hour a day"
+                    translation_domain=DOMAIN, translation_key="live_stream_refused"
                 )
+            # The viewer may have closed while the stream was starting
+            if session_id not in self._pending:
+                return
             # The stream's own TURN servers (config["iceServers"]) go unused: HA
             # asks for the browser's ICE servers before there is an offer
             try:
                 socket = await async_get_clientsession(self.hass).ws_connect(
                     config["endpoint"]
                 )
+                await socket.send_str(
+                    _signal("SDP_OFFER", {"type": "offer", "sdp": offer_sdp})
+                )
+                for candidate in self._pending.get(session_id, []):
+                    await socket.send_str(_signal("ICE_CANDIDATE", candidate.to_dict()))
             except ClientError as err:
-                raise HomeAssistantError(f"Couldn't reach the stream: {err}") from err
-            self._sessions[session_id] = (socket, "")
-            await socket.send_str(
-                _signal("SDP_OFFER", {"type": "offer", "sdp": offer_sdp})
-            )
-            for candidate in self._pending.get(session_id, []):
-                await socket.send_str(_signal("ICE_CANDIDATE", candidate.to_dict()))
+                raise HomeAssistantError(
+                    translation_domain=DOMAIN,
+                    translation_key="live_stream_unreachable",
+                    translation_placeholders={"error": str(err)},
+                ) from err
+            if session_id not in self._pending:
+                await socket.close()
+                return
+        except BaseException:
+            # Nothing relays or closes the socket until the relay starts
+            if socket:
+                await socket.close()
+            raise
         finally:
             self._pending.pop(session_id, None)
+        self._sessions[session_id] = (socket, "")
         self.hass.async_create_background_task(
             self._relay(session_id, socket, send_message),
             f"{self.entity_id} Gear Guard signaling",

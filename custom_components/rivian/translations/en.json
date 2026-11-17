@@ -1136,6 +1136,18 @@
     "command_failed": {
       "message": "The vehicle didn't carry out {rvm}: {reason}"
     },
+    "live_stream_open": {
+      "message": "A live stream is already open"
+    },
+    "live_stream_failed": {
+      "message": "Couldn't start the live stream: {error}"
+    },
+    "live_stream_refused": {
+      "message": "The vehicle didn't start the stream; it streams one session at a time, up to an hour a day"
+    },
+    "live_stream_unreachable": {
+      "message": "Couldn't reach the live stream: {error}"
+    },
     "climate_hold_duration_failed": {
       "message": "Couldn't set the climate hold duration: {error}"
     },
