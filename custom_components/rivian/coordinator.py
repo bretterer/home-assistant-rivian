@@ -526,6 +526,11 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
                     f"{INITIAL_UPDATE_TIMEOUT}s"
                 ) from err
             await self._subscribe_location()
+        elif self._unsub_handler and not self._unsub_location:
+            # Subscribing to the position fixes can fail on its own, e.g. if the web
+            # socket dropped in between, and the client only resubscribes what it
+            # has, so try again on the regular refresh
+            await self._subscribe_location()
 
         return self.data
 

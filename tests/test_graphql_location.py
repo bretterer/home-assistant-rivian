@@ -338,3 +338,46 @@ async def test_unexpected_error_message_still_warns(
 
     assert any(r.levelname == "WARNING" for r in caplog.records)
     assert coor._location_failed
+
+
+async def test_regular_refresh_retries_the_position_subscription() -> None:
+    """A position subscribe that didn't start is tried again on the next refresh."""
+    coor = subscribing_vehicle(None)
+    await coor._async_update_data()
+    location_unsubscribe = AsyncMock()
+
+    async def subscribe(
+        vehicle_id: str, properties: set[str], callback: Any, on_error: Any = None
+    ) -> AsyncMock:
+        assert properties == coordinator.GRAPHQL_LOCATION_FIELDS
+        return location_unsubscribe
+
+    coor.api.subscribe_for_vehicle_updates = AsyncMock(side_effect=subscribe)
+
+    await coor._async_update_data()
+
+    coor.api.subscribe_for_vehicle_updates.assert_awaited_once()
+    assert coor._unsub_location is location_unsubscribe
+    coor.api.subscribe_for_parallax_messages.assert_awaited_once()  # only the first
+
+
+async def test_regular_refresh_keeps_a_working_position_subscription() -> None:
+    coor = subscribing_vehicle(AsyncMock())
+    await coor._async_update_data()
+    coor.api.subscribe_for_vehicle_updates.reset_mock()
+
+    await coor._async_update_data()
+
+    coor.api.subscribe_for_vehicle_updates.assert_not_awaited()
+
+
+async def test_regular_refresh_does_not_retry_a_failed_position_subscription() -> None:
+    coor = subscribing_vehicle(AsyncMock())
+    await coor._async_update_data()
+    coor.location_on_error(VALIDATION_ERROR)
+    await asyncio.sleep(0)
+    coor.api.subscribe_for_vehicle_updates.reset_mock()
+
+    await coor._async_update_data()
+
+    coor.api.subscribe_for_vehicle_updates.assert_not_awaited()
