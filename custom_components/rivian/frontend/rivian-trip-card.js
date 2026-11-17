@@ -88,8 +88,15 @@ export function thinRoute(points, maxPoints = MAX_ROUTE_POINTS) {
     along.push(along[i - 1] + distanceKm(points[i - 1], points[i]));
   }
   const total = along[along.length - 1];
-  if (points.length <= maxPoints || total === 0) {
+  if (points.length <= maxPoints) {
     return points.map((point, i) => ({ point, along: along[i], total }));
+  }
+  if (total === 0) {
+    // Every point is the same: just the endpoints
+    return [
+      { point: points[0], along: 0, total },
+      { point: points[points.length - 1], along: 0, total },
+    ];
   }
   const spacing = total / (maxPoints - 1);
   const kept = [{ point: points[0], along: 0, total }];
@@ -142,27 +149,31 @@ const sameLocation = (a, b) =>
 
 /**
  * The stops' markers, numbered in trip order, each with its name and arrival
- * time. The next stop (flagged by the Destination sensor) stands out; the stop
- * at `destination` is left out, as it's shown as the destination entity.
+ * time. The next stop (flagged by the Destination sensor) stands out. The final
+ * stop is left out when it's at `destination`, as it's shown as the destination
+ * entity; an earlier visit to the same place keeps its marker and number.
  */
 export function stopMarkers(stops, { destination, formatTime }) {
-  return (stops ?? [])
+  const all = stops ?? [];
+  const last = all.length - 1;
+  return all
+    .map((stop, index) => ({ stop, number: index + 1 }))
     .filter(
-      (stop) =>
+      ({ stop, number }) =>
         typeof stop.latitude === "number" &&
         typeof stop.longitude === "number" &&
-        !sameLocation(stop, destination)
+        !(number - 1 === last && sameLocation(stop, destination))
     )
-    .map((stop, index) => {
+    .map(({ stop, number }) => {
       const name = stop.name || (stop.charging ? "Charging stop" : "Stop");
       const arrival = toDate(stop.arrival);
       const time = arrival ? formatTime(arrival) : null;
       return {
-        number: index + 1,
+        number,
         location: [stop.latitude, stop.longitude],
         name,
         time,
-        title: `${index + 1}. ${name}${time ? ` · ${time}` : ""}`,
+        title: `${number}. ${name}${time ? ` · ${time}` : ""}`,
         charging: Boolean(stop.charging),
         next: Boolean(stop.next),
       };
@@ -375,6 +386,14 @@ if (typeof customElements !== "undefined" && !customElements.get(CARD_TYPE)) {
       loadMap().then((loaded) => {
         this._mapLoaded = loaded;
         this._update();
+        // Another card (or a later try) may still load the map
+        if (!loaded) {
+          customElements.whenDefined("ha-map").then(() => {
+            if (!this.isConnected) return;
+            this._mapLoaded = true;
+            this._update();
+          });
+        }
       });
     }
 
