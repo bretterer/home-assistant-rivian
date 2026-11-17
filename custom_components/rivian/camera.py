@@ -43,6 +43,24 @@ CAMERAS: Final[dict[str, tuple[str, ...]]] = {
     "interior": ("R2",),  # the R1's cabin camera is only for driver monitoring
     "bed": ("R1T",),
 }
+# Live view also needs V_GGVS (the app's GEAR_GUARD_STREAMING, Connect+'s Gear
+# Guard Live Cam): a LIVE_CAM vehicle without it refuses the stream
+# (VEHICLE_COMMAND_FORBIDDEN). The interior camera needs its own feature too.
+STREAM_FEATURES: Final[set[str]] = {"LIVE_CAM", "V_GGVS"}
+CAMERA_FEATURES: Final[dict[str, str]] = {"interior": "INTERIOR_CAMERA"}
+
+
+def vehicle_cameras(vehicle: dict[str, Any]) -> list[str]:
+    """Return the cameras a vehicle can stream."""
+    features = set(vehicle.get("supported_features", []))
+    if not vehicle.get("phone_identity_id") or not STREAM_FEATURES <= features:
+        return []
+    return [
+        camera
+        for camera, models in CAMERAS.items()
+        if any(model in vehicle["model"] for model in models)
+        and (camera not in CAMERA_FEATURES or CAMERA_FEATURES[camera] in features)
+    ]
 
 
 async def async_setup_entry(
@@ -65,10 +83,7 @@ async def async_setup_entry(
             camera,
         )
         for vehicle_id, vehicle in vehicles.items()
-        if vehicle.get("phone_identity_id")
-        and "LIVE_CAM" in vehicle.get("supported_features", [])
-        for camera, models in CAMERAS.items()
-        if any(model in vehicle["model"] for model in models)
+        for camera in vehicle_cameras(vehicle)
     )
 
 

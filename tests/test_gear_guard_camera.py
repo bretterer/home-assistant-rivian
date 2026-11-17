@@ -24,18 +24,28 @@ def test_signal() -> None:
 
 
 def test_cameras_by_model() -> None:
-    """Every model has the four sides; the R1T adds the bed, the R2 the cabin."""
+    """Every model has the four sides; the R1T adds the bed, an R2 with INTERIOR_CAMERA the cabin."""
 
-    def cameras(model: str) -> set[str]:
-        return {
-            name
-            for name, models in camera.CAMERAS.items()
-            if any(key in model for key in models)
-        }
+    def cameras(model: str, *extra: str) -> set[str]:
+        features = ["LIVE_CAM", "V_GGVS", *extra]
+        vehicle = {"model": model, "phone_identity_id": "id"}
+        return set(camera.vehicle_cameras({**vehicle, "supported_features": features}))
 
     assert cameras("R1S") == {"front", "rear", "left", "right"}
     assert cameras("R1T") == cameras("R1S") | {"bed"}
-    assert cameras("R2") == cameras("R1S") | {"interior"}
+    assert cameras("R2") == cameras("R1S")
+    assert cameras("R2", "INTERIOR_CAMERA") == cameras("R1S") | {"interior"}
+
+
+def test_cameras_need_live_view_streaming_and_a_key() -> None:
+    """No cameras without LIVE_CAM, V_GGVS or a paired phone."""
+    key = {"model": "R1S", "phone_identity_id": "id"}
+    no_key = {"model": "R1S"}
+    both = ["LIVE_CAM", "V_GGVS"]
+    assert camera.vehicle_cameras({**key, "supported_features": both})
+    assert not camera.vehicle_cameras({**no_key, "supported_features": both})
+    assert not camera.vehicle_cameras({**key, "supported_features": ["LIVE_CAM"]})
+    assert not camera.vehicle_cameras({**key, "supported_features": ["V_GGVS"]})
 
 
 async def test_early_candidates_follow_the_offer() -> None:
