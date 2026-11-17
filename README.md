@@ -5,7 +5,7 @@
 ![GitHub release (latest by SemVer)][download-latest]
 [![GitHub Activity][commits-shield]][commits]
 
-An unofficial Rivian integration for Home Assistant, installed through [HACS](https://hacs.xyz/docs/setup/download).
+An unofficial Rivian integration for Home Assistant, installed through the Marketplace (HACS, built into Home Assistant since 2026.11).
 
 To use this extension, you'll need the following information
 
@@ -29,14 +29,15 @@ This integration will not share user or vehicle data outside Home Assistant, a s
 
 ## Installation
 
-1. Use [HACS](https://hacs.xyz/docs/setup/download). In HACS add a custom repository by going to `HACS > Integrations > 3 dots > custom repositories` and adding this github repo `https://github.com/bretterer/home-assistant-rivian`. Now skip to 7.
-2. If no HACS, use the tool of choice to open the directory (folder) for your Home Assistant configuration (where you find `configuration.yaml`).
+1. Use the Marketplace. In the Marketplace's menu, choose **Custom repositories** and add `https://github.com/bretterer/home-assistant-rivian` as an **Integration** (adding a repository asks you to connect GitHub first). Then open **Rivian (Unofficial)** and install it. Now skip to 7.
+   - To try a beta, choose **Install another version** from the repository's menu and pick it. To get betas as updates, choose **Include pre-releases** from the same menu.
+2. Without the Marketplace, use the tool of choice to open the directory (folder) for your Home Assistant configuration (where you find `configuration.yaml`).
 3. If you do not have a `custom_components` directory (folder) there, you need to create it.
 4. In the `custom_components` directory (folder) create a new folder called `rivian`.
 5. Download _all_ the files from the `custom_components/rivian/` directory (folder) in this repository.
 6. Place the files you downloaded in the new directory (folder) you created.
 7. Restart Home Assistant.
-8. [![Add Integration][add-integration-badge]][add-integration] or in the Home Assistant UI go to "Configuration" -> "Integrations" click "+" and search for "Rivian (Unofficial)".
+8. [![Add Integration][add-integration-badge]][add-integration] or in the Home Assistant UI go to **Settings** > **Devices & services**, select **Add integration** and search for "Rivian (Unofficial)".
 
 ## Configuration
 
