@@ -839,7 +839,8 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
                 )
             )
             if not self._unsub_departure_handler:
-                _LOGGER.warning(
+                # the client has already logged why
+                _LOGGER.debug(
                     "Unable to subscribe to departure schedules for %s",
                     self.vehicle_id,
                 )
@@ -1116,16 +1117,18 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         if self._shutting_down or self.hass.is_stopping:
             return
         now = time.time()
-        if self._precondition_cleanup_failed:
-            delay = PRECONDITION_RETRY_SECONDS
-        elif departures := [
-            departure.timestamp()
-            for schedule in self._precondition_schedules()
+        schedules = self._precondition_schedules()
+        delays = [
+            departure.timestamp() + PRECONDITION_CLEANUP_GRACE_SECONDS - now
+            for schedule in schedules
             if (departure := precondition_current_departure(schedule, now))
-        ]:
-            delay = min(departures) + PRECONDITION_CLEANUP_GRACE_SECONDS - now
-        else:
+        ]
+        if self._precondition_cleanup_failed or len(delays) < len(schedules):
+            # a deletion failed, or a departed one arrived while the pass ran
+            delays.append(PRECONDITION_RETRY_SECONDS)
+        if not delays:
             return
+        delay = min(delays)
         self._precondition_timer = async_call_later(
             self.hass, max(delay, 1), self._precondition_timer_fired
         )

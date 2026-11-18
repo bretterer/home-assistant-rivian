@@ -345,6 +345,15 @@ async def test_cleanup_deletes_departed_schedules(
         ]
     )
 
+    async def delete(schedule_id: str, **kwargs: Any) -> bool:
+        # the refreshed list no longer has it
+        coordinator._departure_schedules = [
+            s for s in coordinator._departure_schedules if s["id"] != schedule_id
+        ]
+        return True
+
+    coordinator.delete_departure_schedule.side_effect = delete
+
     await coordinator._reconcile_and_cleanup()
 
     coordinator.delete_departure_schedule.assert_awaited_once()
@@ -465,3 +474,20 @@ def test_out_of_range_time_doesnt_break_cleanup(clock: SimpleNamespace) -> None:
     assert precondition_current_departure(schedule, NOW.timestamp()) == (
         NOW + timedelta(minutes=10)
     )
+
+
+async def test_departed_schedule_left_after_a_pass_is_retried(
+    clock: SimpleNamespace, timers: _Timers
+) -> None:
+    """One that arrived while the pass ran isn't left without a timer."""
+    coordinator, _ = _coordinator([])
+    departed = _schedule("S2", NOW - timedelta(hours=1))
+
+    async def pass_while_list_changes() -> None:
+        coordinator._departure_schedules = [departed]  # arrived mid-pass
+
+    coordinator._cleanup_precondition_schedules = pass_while_list_changes
+
+    await coordinator._reconcile_and_cleanup()
+
+    assert timers.calls[-1][0] == PRECONDITION_RETRY_SECONDS
