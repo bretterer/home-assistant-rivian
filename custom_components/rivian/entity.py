@@ -10,6 +10,7 @@ from homeassistant.components.zone import in_zone
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_ZONE
 from homeassistant.core import callback
+from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC, format_mac
 from homeassistant.helpers.entity import DeviceInfo, EntityDescription
 from homeassistant.helpers.event import async_call_later, async_track_time_interval
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -63,6 +64,10 @@ class RivianVehicleEntity(RivianEntity[VehicleCoordinator]):
             serial_number=vin,
             sw_version=self._get_value("otaCurrentVersion"),
         )
+        if mac := self._get_value("wifiMacAddress"):
+            self._attr_device_info["connections"] = {
+                (CONNECTION_NETWORK_MAC, format_mac(mac))
+            }
 
     @property
     def available(self) -> bool:
