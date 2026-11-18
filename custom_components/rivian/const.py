@@ -1418,7 +1418,9 @@ BINARY_SENSORS: Final[
             translation_key="closure_tonneau_closed",
             device_class=BinarySensorDeviceClass.DOOR,
             on_value="open",
-            supported_feature="TONNEAU_CMD",
+            # No supported feature shows a tonneau (Gen 1 power tonneau covers lack
+            # TONNEAU_CMD); gate on one instead if found
+            add_when_reported=True,
         ),
         RivianBinarySensorEntityDescription(
             key="closure_tonneau_locked",
@@ -1426,7 +1428,9 @@ BINARY_SENSORS: Final[
             translation_key="closure_tonneau_locked",
             device_class=BinarySensorDeviceClass.LOCK,
             on_value="unlocked",
-            supported_feature="TONNEAU_CMD",
+            # No supported feature shows a tonneau (Gen 1 power tonneau covers lack
+            # TONNEAU_CMD); gate on one instead if found
+            add_when_reported=True,
         ),
     ),
     ("R1S", "R2"): (
