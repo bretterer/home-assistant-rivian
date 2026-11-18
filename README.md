@@ -5,7 +5,7 @@
 ![GitHub release (latest by SemVer)][download-latest]
 [![GitHub Activity][commits-shield]][commits]
 
-An unofficial Rivian integration for Home Assistant, installed through [HACS](https://hacs.xyz/docs/setup/download).
+An unofficial Rivian integration for Home Assistant, installed through the Marketplace (HACS, built into Home Assistant since 2026.11).
 
 To use this extension, you'll need the following information
 
@@ -29,14 +29,15 @@ This integration will not share user or vehicle data outside Home Assistant, a s
 
 ## Installation
 
-1. Use [HACS](https://hacs.xyz/docs/setup/download). In HACS add a custom repository by going to `HACS > Integrations > 3 dots > custom repositories` and adding this github repo `https://github.com/bretterer/home-assistant-rivian`. Now skip to 7.
-2. If no HACS, use the tool of choice to open the directory (folder) for your Home Assistant configuration (where you find `configuration.yaml`).
+1. Use the Marketplace. In the Marketplace's menu, choose **Custom repositories** and add `https://github.com/bretterer/home-assistant-rivian` as an **Integration** (adding a repository asks you to connect GitHub first). Then open **Rivian (Unofficial)** and install it. Now skip to 7.
+   - To try a beta, choose **Install another version** from the repository's menu and pick it. To get betas as updates, choose **Include pre-releases** from the same menu.
+2. Without the Marketplace, use the tool of choice to open the directory (folder) for your Home Assistant configuration (where you find `configuration.yaml`).
 3. If you do not have a `custom_components` directory (folder) there, you need to create it.
 4. In the `custom_components` directory (folder) create a new folder called `rivian`.
 5. Download _all_ the files from the `custom_components/rivian/` directory (folder) in this repository.
 6. Place the files you downloaded in the new directory (folder) you created.
 7. Restart Home Assistant.
-8. [![Add Integration][add-integration-badge]][add-integration] or in the Home Assistant UI go to "Configuration" -> "Integrations" click "+" and search for "Rivian (Unofficial)".
+8. [![Add Integration][add-integration-badge]][add-integration] or in the Home Assistant UI go to **Settings** > **Devices & services**, select **Add integration** and search for "Rivian (Unofficial)".
 
 ## Configuration
 
@@ -182,8 +183,8 @@ Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
 | Next stop ETA                                       | Sensor         | Estimated arrival at the next stop                                                                                             |
 | No updates since                                    | Sensor         | When the vehicle last reported data; empty unless that was over 10 minutes ago                                                 |
 | Odometer                                            | Sensor         |                                                                                                                                |
-| Pet mode                                            | Binary sensor  | Running/not running status                                                                                                     |
-| Pet mode temperature status                         | Sensor         |                                                                                                                                |
+| Pet comfort                                         | Binary sensor  | Running/not running status                                                                                                     |
+| Pet comfort temperature status                      | Sensor         |                                                                                                                                |
 | Power                                               | Sensor         | Wallbox power                                                                                                                  |
 | Power maximum                                       | Sensor         | Wallbox maximum power                                                                                                          |
 | Power state                                         | Sensor         |                                                                                                                                |
@@ -261,14 +262,18 @@ These controls need a phone key paired over Bluetooth (see [Remote Vehicle Contr
 | Charging schedule enabled  | Switch  | Enable/disable charging schedule                                                                                                                         |
 | Charging schedule end      | Time    | Set charging schedule end time                                                                                                                           |
 | Charging schedule start    | Time    | Set charging schedule start time                                                                                                                         |
+| Climate hold               | Switch  | Start/end a climate hold, vehicles with climate hold only                                                                                                |
+| Climate hold duration      | Number  | Set how long a climate hold lasts, 2 to 8 hours; doesn't need a phone key                                                                                |
 | Closures                   | Lock    | Lock/unlock all closures                                                                                                                                 |
 | Drop tailgate              | Button  | Drop tailgate, R1T only                                                                                                                                  |
 | Front trunk                | Cover   | Open/close front trunk                                                                                                                                   |
+| Gear Guard cameras         | Camera  | Live view of each Gear Guard camera, vehicles with Connect+ Gear Guard live cam only; one viewer at a time, about an hour a day                          |
 | Gear Guard video           | Switch  | Enable/disable gear guard video                                                                                                                          |
 | Liftgate                   | Cover   | Open/close liftgate, R1S and R2 only                                                                                                                     |
 | Open gear tunnel left      | Button  | Open left gear tunnel, R1T only                                                                                                                          |
 | Open gear tunnel right     | Button  | Open right gear tunnel, R1T only                                                                                                                         |
 | Pair                       | Button  | Initiate Bluetooth pairing from Home Assistant. When pairing is identified as completed, this entity will no longer be created and can safely be deleted |
+| Pet comfort                | Switch  | Turn pet comfort on/off, vehicles with pet comfort only                                                                                                  |
 | Seat front left heat       | Select  | Set front left seat heat level                                                                                                                           |
 | Seat front left vent       | Select  | Set front left seat vent level                                                                                                                           |
 | Seat front right heat      | Select  | Set front right seat heat level                                                                                                                          |
@@ -317,6 +322,21 @@ Set the **Precondition lead time** and **Precondition temperature** numbers firs
 There is no keyless way to stop a session early — deleting the schedule does not stop preconditioning that has already started, so it runs until the departure time. Stop it from the Rivian app if needed.
 
 The departure time is computed in Home Assistant's timezone and interpreted by Rivian in the vehicle's local timezone, which the API does not expose. This assumes the two match (the vehicle is near home); if they differ, the button may precondition at the wrong time. The temporary schedule is tracked by its id and only ever cleaned up by Home Assistant — a departure schedule you create yourself is never removed by this feature, even if it shares the name.
+
+## Trip Route Card
+
+The integration includes a dashboard card that shows a vehicle on a map. While it's navigating, the card shows the trip's route, the vehicle and the destination, with the stops along the way numbered in trip order. The next stop is larger, charging stops are in a different color, and hovering over or tapping a stop, or selecting it with the keyboard, shows its name and arrival time. Otherwise, it follows the vehicle's location.
+
+The card is loaded automatically. Add it from the card picker ("Rivian trip") and pick the vehicle's Destination sensor in the visual editor, or use YAML:
+
+```yaml
+type: custom:rivian-trip-card
+entity: sensor.<vehicle>_destination # the vehicle's Destination sensor
+title: Trip # optional
+vehicle: device_tracker.<vehicle>_location # optional, a different location to show
+```
+
+The vehicle's location and next stop are found automatically from the Destination sensor's vehicle. Set `vehicle` to show a different location instead.
 
 ## Special Thanks
 

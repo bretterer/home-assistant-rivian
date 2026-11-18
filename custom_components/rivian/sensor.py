@@ -369,6 +369,33 @@ def _waypoint_attributes(waypoint: dict[str, Any] | None) -> dict[str, Any] | No
     return attributes
 
 
+def _destination_attributes(coordinator: VehicleCoordinator) -> dict[str, Any] | None:
+    """Return the destination's details, plus the trip's route for the trip card."""
+    if (
+        attributes := _waypoint_attributes(destination := _destination(coordinator))
+    ) is None:
+        return None
+    next_stop = _next_stop(coordinator)
+    return attributes | {
+        # Google-encoded polyline of the whole trip, and every stop (both
+        # excluded from the recorder)
+        "route": coordinator.get("overviewPolyline"),
+        "stops": [
+            {
+                "name": _waypoint_name(waypoint),
+                "latitude": waypoint.get("latitude"),
+                "longitude": waypoint.get("longitude"),
+                "charging": waypoint.get("type") == "chargingStop",
+                "arrival": waypoint.get("arrivalTime"),
+                "next": waypoint is next_stop,
+            }
+            for waypoint in _waypoints(coordinator)
+        ],
+        "trip_start": coordinator.get("originTime"),
+        "arrival": _arrival(destination, coordinator, "finalDestinationArrivalTime"),
+    }
+
+
 NAVIGATION_SENSORS: Final[tuple[RivianNavigationSensorEntityDescription, ...]] = (
     RivianNavigationSensorEntityDescription(
         key="next_stop",
@@ -404,7 +431,7 @@ NAVIGATION_SENSORS: Final[tuple[RivianNavigationSensorEntityDescription, ...]] =
         key="destination",
         translation_key="destination",
         value_fn=lambda coor: _waypoint_name(_destination(coor)),
-        attributes_fn=lambda coor: _waypoint_attributes(_destination(coor)),
+        attributes_fn=_destination_attributes,
     ),
     RivianNavigationSensorEntityDescription(
         key="destination_eta",
@@ -436,6 +463,11 @@ class RivianNoUpdatesSinceEntity(RivianVehicleFreshnessEntity, SensorEntity):
 
 class RivianNavigationSensorEntity(RivianVehicleEntity, SensorEntity):
     """Rivian navigation sensor entity, unknown while not navigating."""
+
+    # The destination's route for the trip card can exceed the recorder's
+    # attribute size limit, the stops' arrival times change throughout a trip,
+    # and the live arrival time is recorded by the Destination ETA sensor
+    _unrecorded_attributes = frozenset({"route", "stops", "arrival"})
 
     entity_description: RivianNavigationSensorEntityDescription
 

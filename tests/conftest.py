@@ -46,6 +46,17 @@ class DynamicEnum(metaclass=DynamicEnumMeta):
     """Base dynamic class for device and state classes."""
 
 
+class VehicleCommandMeta(type):
+    """Metaclass that provides attributes as their own names, like a StrEnum."""
+
+    def __getattr__(cls, name: str) -> str:
+        return name
+
+
+class VehicleCommandMock(metaclass=VehicleCommandMeta):
+    """Stands in for the VehicleCommand StrEnum, whose members equal their names."""
+
+
 class DynamicModule(types.ModuleType):
     """Module type that returns MagicMock or classes for undefined attributes."""
 
@@ -209,6 +220,7 @@ def _setup_mock_environment() -> None:
         class Platform(StrEnum):
             BINARY_SENSOR = "binary_sensor"
             BUTTON = "button"
+            CAMERA = "camera"
             CLIMATE = "climate"
             COVER = "cover"
             DEVICE_TRACKER = "device_tracker"
@@ -384,6 +396,22 @@ def _setup_mock_environment() -> None:
             "homeassistant.helpers.device_registry", is_package=False
         )
         helpers_mod.device_registry.DeviceEntry = SubscriptableMock  # type: ignore[attr-defined]
+        helpers_mod.device_registry.CONNECTION_NETWORK_MAC = "mac"  # type: ignore[attr-defined]
+
+        def format_mac(mac: str) -> str:
+            """Format a MAC address like Home Assistant's format_mac."""
+            if len(mac) == 17 and mac.count(":") == 5:
+                return mac.lower()
+            to_test = mac
+            if len(to_test) == 17 and to_test.count("-") == 5:
+                to_test = to_test.replace("-", "")
+            elif len(to_test) == 14 and to_test.count(".") == 2:
+                to_test = to_test.replace(".", "")
+            if len(to_test) == 12:
+                return ":".join(to_test.lower()[i : i + 2] for i in range(0, 12, 2))
+            return mac
+
+        helpers_mod.device_registry.format_mac = format_mac  # type: ignore[attr-defined]
         helpers_mod.issue_registry = DynamicModule(
             "homeassistant.helpers.issue_registry", is_package=False
         )
@@ -715,6 +743,7 @@ def _setup_mock_environment() -> None:
         descs: dict[str, type] = {
             "binary_sensor": BinarySensorEntityDescription,
             "button": ButtonEntityDescription,
+            "camera": EntityDescription,
             "climate": EntityDescription,
             "cover": CoverEntityDescription,
             "device_tracker": EntityDescription,
@@ -745,6 +774,7 @@ def _setup_mock_environment() -> None:
             submod.SensorStateClass = DynamicEnum  # type: ignore[attr-defined]
             sys.modules[f"homeassistant.components.{comp_name}"] = submod
             setattr(comp_mod, comp_name, submod)
+        sys.modules["homeassistant.components.camera"].CameraEntityFeature = DynamicEnum  # type: ignore[attr-defined]
 
         # number: the precondition entities set their display mode at import
         sys.modules["homeassistant.components.number"].NumberMode = DynamicEnum  # type: ignore[attr-defined]
@@ -822,6 +852,13 @@ def _setup_mock_environment() -> None:
         )
         sys.modules["homeassistant.components.bluetooth"] = bluetooth_mod
         comp_mod.bluetooth = bluetooth_mod  # type: ignore[attr-defined]
+        # frontend/http: the integration serves its dashboard cards
+        for comp_name in ("frontend", "http"):
+            comp_submod = DynamicModule(
+                f"homeassistant.components.{comp_name}", is_package=False
+            )
+            sys.modules[f"homeassistant.components.{comp_name}"] = comp_submod
+            setattr(comp_mod, comp_name, comp_submod)
 
         # homeassistant.util.dt: backs statistics.py (imported transitively via
         # __init__.py -> history_backfill.py -> statistics.py). No test in this
@@ -913,7 +950,7 @@ def _setup_mock_environment() -> None:
     if "rivian" not in sys.modules:
         rivian_mod = DynamicModule("rivian", is_package=True)
         rivian_mod.Rivian = SubscriptableMock  # type: ignore[attr-defined]
-        rivian_mod.VehicleCommand = SubscriptableMock  # type: ignore[attr-defined]
+        rivian_mod.VehicleCommand = VehicleCommandMock  # type: ignore[attr-defined]
         exc_submod = DynamicExceptionModule("rivian.exceptions", is_package=False)
         rivian_mod.exceptions = exc_submod  # type: ignore[attr-defined]
         sys.modules["rivian"] = rivian_mod

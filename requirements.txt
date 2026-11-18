@@ -2,7 +2,7 @@
 homeassistant>=2026.11.0
 
 # Integration
-rivian-python-client[ble]==2.5.0
+rivian-python-client[ble]==2.6.0
 
 # Development
 colorlog

@@ -21,6 +21,7 @@ from homeassistant.const import (
     EntityCategory,
     UnitOfElectricCurrent,
     UnitOfTemperature,
+    UnitOfTime,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -66,6 +67,21 @@ NUMBERS: Final[tuple[RivianNumberEntityDescription, ...]] = (
     ),
 )
 
+# Set with an unsigned vehicle operation, so unlike NUMBERS it doesn't need a
+# paired phone
+CLIMATE_HOLD_DURATION_NUMBER = RivianNumberEntityDescription(
+    key="climate_hold_duration",
+    translation_key="climate_hold_duration",
+    entity_category=EntityCategory.CONFIG,
+    device_class=NumberDeviceClass.DURATION,
+    native_min_value=120,
+    native_max_value=480,
+    native_step=15,
+    native_unit_of_measurement=UnitOfTime.MINUTES,
+    field="climateHoldDuration",
+    set_fn=lambda coordinator, value: coordinator.set_climate_hold_duration(int(value)),
+)
+
 CHARGING_SCHEDULE_AMPERAGE_NUMBER = RivianNumberEntityDescription(
     key="charging_schedule_amperage",
     translation_key="charging_schedule_amperage",
@@ -104,6 +120,12 @@ async def async_setup_entry(
         if not coord.has_paired_phone(vehicle.get("phone_identity_id")):
             entities.append(RivianPreconditionLeadTimeEntity(coord, entry, vehicle))
             entities.append(RivianPreconditionTemperatureEntity(coord, entry, vehicle))
+        if "CLM_HOLD" in vehicle.get("supported_features", []):
+            entities.append(
+                RivianClimateHoldDurationEntity(
+                    coord, entry, CLIMATE_HOLD_DURATION_NUMBER, vehicle
+                )
+            )
     # the keyless precondition settings are only for vehicles without a paired phone;
     # remove them from a vehicle that has since been paired
     async_remove_stale_entities(
@@ -135,6 +157,23 @@ class RivianChargingScheduleAmperageEntity(RivianVehicleEntity, NumberEntity):
         sched = self.coordinator.charging_schedule
         val = sched.get("amperage", DEFAULT_CHARGING_SCHEDULE_AMPERAGE)
         return int(val) if val is not None else None
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Set new value."""
+        await self.entity_description.set_fn(self.coordinator, value)
+
+
+class RivianClimateHoldDurationEntity(RivianVehicleEntity, NumberEntity):
+    """Climate hold duration, which needs no paired phone, gear or zone check."""
+
+    entity_description: RivianNumberEntityDescription
+
+    @property
+    def native_value(self) -> int | None:
+        """Return the duration in minutes."""
+        # Seconds, 0 when no hold is set
+        seconds = self._get_value(self.entity_description.field)
+        return seconds // 60 if seconds else None
 
     async def async_set_native_value(self, value: float) -> None:
         """Set new value."""

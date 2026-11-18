@@ -1,7 +1,7 @@
 {
   "domain": "rivian",
   "name": "Rivian (Unofficial)",
-  "after_dependencies": ["bluetooth_adapters"],
+  "after_dependencies": ["bluetooth_adapters", "frontend", "http"],
   "codeowners": ["@bretterer"],
   "config_flow": true,
   "documentation": "https://github.com/bretterer/home-assistant-rivian",
@@ -9,6 +9,6 @@
   "iot_class": "cloud_push",
   "issue_tracker": "https://github.com/bretterer/home-assistant-rivian/issues",
   "loggers": ["custom_components.rivian", "rivian"],
-  "requirements": ["rivian-python-client[ble]==2.5.0"],
+  "requirements": ["rivian-python-client[ble]==2.6.0"],
   "version": "0.0.0"
 }

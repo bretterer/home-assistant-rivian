@@ -11,6 +11,7 @@ import logging
 import secrets
 import time
 from typing import Any, Generic, TypeVar
+import uuid
 
 from aiohttp import ClientResponse
 from rivian import Rivian, VehicleCommand
@@ -20,7 +21,14 @@ from rivian.exceptions import (
     RivianExpiredTokenError,
     RivianUnauthenticated,
 )
-from rivian.parallax import decode_parallax_message
+from rivian.parallax import (
+    SET_CLIMATE_HOLD_RVM,
+    decode_command_state_message,
+    decode_parallax_message,
+    encode_climate_hold,
+    encode_vehicle_command,
+    vehicle_command_feature,
+)
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
@@ -86,6 +94,19 @@ RATE_LIMIT_ISSUE_PLACEHOLDERS = {
     "issue_after": f"{RATE_LIMIT_ISSUE_AFTER / timedelta(minutes=1):g}",
     "reauth_after": f"{RATE_LIMIT_REAUTH_AFTER / timedelta(hours=1):g}",
 }
+# How long to wait for the vehicle's result for a Parallax command, which can
+# include waking it up
+PARALLAX_COMMAND_TIMEOUT = 90
+# How long to wait for a sleeping vehicle to wake after a climate hold, then at
+# least for its climate hold to start up (1-5.6 s seen after waking) before
+# sending it again, and then for a hold still starting up
+CLIMATE_HOLD_WAKE_WAIT = 30
+CLIMATE_HOLD_START_WAIT = 8
+CLIMATE_HOLD_START_UP_WAIT = 10
+SIDE_BIN_COMMANDS = {
+    VehicleCommand.RELEASE_LEFT_SIDE_BIN,
+    VehicleCommand.RELEASE_RIGHT_SIDE_BIN,
+}
 CHARGING_SCHEDULE_COOL_OFF = 10
 CHARGING_SCHEDULE_REFRESH_INTERVAL = 900
 # How long to wait for the subscription to deliver the refreshed schedule list
@@ -106,12 +127,22 @@ PRECONDITION_STORE_VERSION = 1
 NAVIGATION_FIX_MAX_AGE = timedelta(minutes=5)
 # Fields set from the newest position fix (GNSS or navigation)
 GNSS_FIX_FIELDS = ("gnssLocation", "gnssSpeed", "gnssBearing")
+# GraphQL sends a position fix every few seconds while driving, where Parallax's
+# dynamics.vehicle.gnss sends one about once a minute. It's a subscription of its
+# own: if Rivian stops accepting the field, only that subscription fails (with an
+# error message, and no data) and everything else carries on
+GRAPHQL_LOCATION_FIELDS = {"gnssLocation"}
 # Updates are stale after this long without either any message (the client
 # resubscribes after a minute without one, and the subscriptions resend their
 # snapshot, so a working connection never goes this long), or, while awake,
 # newly reported data (the vehicle sends a location fix about once a minute;
 # resent snapshots keep their original timestamps)
 UPDATES_STALE_AFTER = timedelta(minutes=10)
+
+# Seconds to wait for video monitoring to turn on before a live stream
+GEAR_GUARD_VIDEO_WAIT = 30
+# Live stream starts to try; each waits up to 40 s for the vehicle
+GEAR_GUARD_LIVE_ATTEMPTS = 3
 
 
 class RivianDataUpdateCoordinator(DataUpdateCoordinator[T], ABC, Generic[T]):
@@ -400,6 +431,13 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         self._initial = asyncio.Event()
         self._unsub_handler: Callable[[], Awaitable[None]] | None = None
         self._unsub_parallax: Callable[[], Awaitable[None]] | None = None
+        self._unsub_location: Callable[[], Awaitable[None]] | None = None
+        # Whether GraphQL's position fix subscription failed, e.g. the field
+        # failing validation; it isn't subscribed again until the entry reloads
+        self._location_failed = False
+        # Time of the fix gnssSpeed and gnssBearing last came from, which can be
+        # older than gnssLocation's when GraphQL's fix is the newer position
+        self._motion_fix_time: datetime | None = None
         self._awake = asyncio.Event()
         # When any message last arrived, and the newest time the vehicle reported
         self._last_message: datetime | None = None
@@ -408,6 +446,8 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         # failed without a backoff, since it last worked
         self._rate_limited_since: datetime | None = None
         self._subscribe_failures = 0
+        # Bumped by each climate hold request, so an older one isn't sent again
+        self._climate_hold_request = 0
         # All of the vehicle's charging schedules (entities manage the first);
         # None until fetched successfully
         self._charging_schedules: list[dict[str, Any]] | None = None
@@ -991,11 +1031,17 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
                     "Timed out waiting for initial vehicle data after "
                     f"{INITIAL_UPDATE_TIMEOUT}s"
                 ) from err
+            await self._subscribe_location()
 
             await self._ensure_precondition_loaded()
             # the websocket was just (re)established; refresh the departure feed too
             await self._subscribe_departure_schedules(force=True)
         else:
+            if self._unsub_handler and not self._unsub_location:
+                # Subscribing to the position fixes can fail on its own, e.g. if the
+                # web socket dropped in between, and the client only resubscribes
+                # what it has, so try again on the regular refresh
+                await self._subscribe_location()
             # retry a previously failed departure subscription on this refresh without
             # disturbing a healthy one (the vehicle-state subscription may be fine)
             await self._subscribe_departure_schedules()
@@ -1006,6 +1052,74 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             self._schedule_reconcile()
 
         return self.data
+
+    async def _subscribe_location(self) -> None:
+        """Subscribe to GraphQL's position fixes, which are optional.
+
+        Not subscribing (the client has already logged why) or the field failing
+        GraphQL validation leaves the position to Parallax, as before. After a
+        subscription error it isn't subscribed again until the entry reloads.
+        """
+        if self._location_failed:
+            return
+        try:
+            self._unsub_location = await self.api.subscribe_for_vehicle_updates(
+                vehicle_id=self.vehicle_id,
+                properties=GRAPHQL_LOCATION_FIELDS,
+                callback=self._process_graphql_location,
+                on_error=self._location_subscription_failed,
+            )
+        except Exception:  # optional, so it never fails the update
+            _LOGGER.debug(
+                "Couldn't subscribe to vehicle %s GraphQL position fixes",
+                self.vehicle_id,
+                exc_info=True,
+            )
+        if not self._unsub_location:
+            _LOGGER.debug(
+                "Not subscribed to vehicle %s GraphQL position fixes; using Parallax's",
+                self.vehicle_id,
+            )
+        elif self._location_failed:
+            # The error arrived before the unsubscribe handle did
+            await self._end_location_subscription()
+
+    @callback
+    def _location_subscription_failed(self, message: dict[str, Any]) -> None:
+        """Fall back to Parallax's position fixes once GraphQL's subscription fails.
+
+        Such as Rivian no longer accepting the field. The subscription has ended,
+        and the client would subscribe it again after every reconnect, so it's
+        ended here and not subscribed again until the entry reloads.
+        """
+        if self._location_failed:
+            return
+        self._location_failed = True
+        errors = message.get("payload")
+        reason = (
+            "; ".join(
+                str(error.get("message") or error)
+                for error in errors
+                if isinstance(error, dict)
+            )
+            if isinstance(errors, list)
+            else None
+        ) or redact(message)
+        _LOGGER.warning(
+            "Rivian stopped sending vehicle %s position fixes over GraphQL (%s). "
+            "Using Parallax's instead, which update about once a minute",
+            self.vehicle_id,
+            reason,
+        )
+        self.config_entry.async_create_task(
+            self.hass, self._end_location_subscription(), eager_start=True
+        )
+
+    async def _end_location_subscription(self) -> None:
+        """Unsubscribe from GraphQL's position fixes."""
+        unsub_location, self._unsub_location = self._unsub_location, None
+        if unsub_location:
+            await unsub_location()
 
     def _subscribe_retry_delay(self, message: str) -> float:
         """Return how long to wait before subscribing again after it failed.
@@ -1166,6 +1280,55 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         self._initial.set()
 
     @callback
+    def _process_graphql_location(self, data: dict[str, Any]) -> None:
+        """Use a GraphQL position fix if it's newer than the current one.
+
+        Anything unexpected is ignored rather than counted as a subscription
+        error: the position also comes from Parallax, so this feed is optional.
+        """
+        payload = data.get("payload")
+        pdata = payload.get("data") if isinstance(payload, dict) else None
+        state = pdata.get(self.key) if isinstance(pdata, dict) else None
+        location = state.get("gnssLocation") if isinstance(state, dict) else None
+        if not isinstance(location, dict):
+            _LOGGER.debug("Ignoring a GraphQL position update: %s", redact(data))
+            return
+        self._last_message = dt_util.utcnow()
+        lat, lon = location.get("latitude"), location.get("longitude")
+        fix_time = (
+            dt_util.parse_datetime(ts)
+            if isinstance(ts := location.get("timeStamp"), str)
+            else None
+        )
+        if (
+            not isinstance(lat, int | float)
+            or not isinstance(lon, int | float)
+            or fix_time is None
+            or fix_time.tzinfo is None
+            or location.get("isAuthorized") is False
+        ):
+            return
+        self._note_report(fix_time)
+        current = self._current_data()
+        current_time = (current.get("gnssLocation") or {}).get("timeStamp")
+        if (
+            isinstance(current_time, datetime)
+            and current_time.tzinfo
+            and fix_time <= current_time
+        ):
+            return
+        self.async_set_updated_data(
+            current
+            | {
+                "gnssLocation": {
+                    "latitude": round(lat, 6),
+                    "longitude": round(lon, 6),
+                    "timeStamp": fix_time,
+                }
+            }
+        )
+
+    @callback
     def _handle_subscription_error(self, source: str, data: dict[str, Any]) -> None:
         """Count a subscription error, unsubscribing both if they persist."""
         _LOGGER.error("Received an unknown %s subscription update: %s", source, data)
@@ -1187,6 +1350,10 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         trip_progress's location fix comes every ~5 seconds. trip_progress keeps
         resending its last fix after navigation ends, so it's only used while
         recent, and only a newer fix wins.
+
+        GraphQL's position fixes (_process_graphql_location) are often newer,
+        but carry no speed or bearing, so those are compared with the fix they
+        last came from rather than with the position's.
         """
         fix = {k: clean.pop(k) for k in GNSS_FIX_FIELDS if k in clean}
         lat, lon = clean.get("latitude"), clean.get("longitude")
@@ -1207,13 +1374,19 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             }
         if not (location := fix.get("gnssLocation")):
             return
+        new_time = location.get("timeStamp")
+        if new_time and self._motion_fix_time and new_time <= self._motion_fix_time:
+            fix.pop("gnssSpeed", None)
+            fix.pop("gnssBearing", None)
+        elif new_time:
+            self._motion_fix_time = new_time
         current = self._current_data().get("gnssLocation") or {}
         if (
             (current_time := current.get("timeStamp"))
-            and (new_time := location.get("timeStamp"))
-            and new_time <= current_time
+            and new_time
+            and (new_time <= current_time)
         ):
-            return
+            del fix["gnssLocation"]
         clean.update(fix)
 
     def _current_data(self) -> dict[str, Any]:
@@ -1262,12 +1435,15 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         # and don't clear handles set by a newer subscription
         unsub_parallax, self._unsub_parallax = self._unsub_parallax, None
         unsub_handler, self._unsub_handler = self._unsub_handler, None
+        unsub_location, self._unsub_location = self._unsub_location, None
         unsub_departure, self._unsub_departure_handler = (
             self._unsub_departure_handler,
             None,
         )
         if unsub_handler:
             self._initial.clear()
+        if unsub_location:
+            await unsub_location()
         if unsub_parallax:
             await unsub_parallax()
         if unsub_handler:
@@ -1319,10 +1495,256 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             return entity.get("value")
         return None
 
+    def _phone_key(self) -> dict[str, str]:
+        """Return the paired phone's key, as `send_parallax_command` takes it."""
+        vehicle = self.hass.data[DOMAIN][self.config_entry.entry_id][ATTR_VEHICLE][
+            self.vehicle_id
+        ]
+        return {
+            "identity_id": vehicle["phone_identity_id"],
+            "vehicle_key": vehicle["public_key"],
+            "private_key": self.config_entry.options.get("private_key"),
+        }
+
+    async def send_parallax_command(
+        self,
+        rvm: str,
+        payload: bytes = b"",
+        *,
+        command: VehicleCommand | None = None,
+    ) -> None:
+        """Send a signed Parallax command and wait for the vehicle's result.
+
+        A released side bin that doesn't clear its latch reports a timeout though
+        it opened, so for those `command`s that's logged instead of raised.
+        """
+        vehicle = self.hass.data[DOMAIN][self.config_entry.entry_id][ATTR_VEHICLE][
+            self.vehicle_id
+        ]
+        command_id = str(uuid.uuid4())
+        result: asyncio.Future[dict[str, Any]] = (
+            asyncio.get_running_loop().create_future()
+        )
+
+        def on_state(message: dict[str, Any]) -> None:
+            state = decode_command_state_message(message)
+            done = state and (state["error"] or state["progress"] == "complete")
+            if done and not result.done():
+                result.set_result(state)
+
+        # Subscribe first: states from before the subscription aren't replayed
+        unsubscribe = await self.api.subscribe_for_parallax_command_state(
+            self.vehicle_id, command_id, on_state
+        )
+        _LOGGER.debug("Sending %s over Parallax, command %s", rvm, command_id)
+        try:
+            if not await self.api.send_parallax_command(
+                self.vehicle_id,
+                rvm,
+                payload,
+                command_id=command_id,
+                **self._phone_key(),
+            ):
+                raise HomeAssistantError(
+                    translation_domain=DOMAIN,
+                    translation_key="command_rejected",
+                    translation_placeholders={"rvm": rvm},
+                )
+            if not unsubscribe:
+                # Couldn't follow it (already logged): sent, but unconfirmed
+                return
+            try:
+                state = await asyncio.wait_for(result, PARALLAX_COMMAND_TIMEOUT)
+            except TimeoutError as err:
+                # Not retried: the vehicle may still carry it out
+                raise HomeAssistantError(
+                    translation_domain=DOMAIN,
+                    translation_key="command_unconfirmed",
+                    translation_placeholders={"rvm": rvm},
+                ) from err
+            _LOGGER.debug("%s command %s finished: %s", rvm, command_id, state)
+            if command in SIDE_BIN_COMMANDS and state["status"] == "timeout":
+                _LOGGER.warning(
+                    "%s sent to %s, but the side bin may not have fully opened",
+                    command,
+                    vehicle["name"],
+                )
+                return
+            if state["error"] or state["status"] != "success":
+                raise HomeAssistantError(
+                    translation_domain=DOMAIN,
+                    translation_key="command_failed",
+                    translation_placeholders={
+                        "rvm": rvm,
+                        "reason": (state["error"] or {}).get("message")
+                        or state["status"],
+                    },
+                )
+        finally:
+            if unsubscribe:
+                await unsubscribe()
+
+    async def start_climate_hold(self) -> None:
+        """Start a climate hold, sending it again if a waking vehicle lost it.
+
+        A sleeping vehicle seems to get the command while its climate hold is
+        still starting up, and loses it: the command fails, or succeeds and the
+        hold then restarts (reads unavailable, for no given reason). Sending it
+        again once the vehicle is awake and the hold has started up starts it.
+        Without a known power state, the vehicle is taken as awake. It isn't
+        sent again once the hold is turned off or started again.
+        """
+        self._climate_hold_request += 1
+        request = self._climate_hold_request
+        if self.get("powerState") != "sleep":
+            await self.send_parallax_command(
+                SET_CLIMATE_HOLD_RVM, encode_climate_hold(True)
+            )
+            return
+        awake = asyncio.Event()
+        held = asyncio.Event()
+        restarted = asyncio.Event()
+        started_up = asyncio.Event()
+        # A restart before the result is the command's own, which may still work
+        result_in = False
+        seen_restart = False
+
+        def restarting() -> bool:
+            return self.get("climateHoldStatus") == "unavailable" and self.get(
+                "climateHoldUnavailabilityReason"
+            ) in (None, "unknown")
+
+        @callback
+        def watch() -> None:
+            nonlocal seen_restart
+            if self.get("powerState") not in (None, "sleep"):
+                awake.set()
+            if self.get("climateHoldStatus") == "on":
+                held.set()
+            if restarting():
+                seen_restart = True
+                # A restart starts with the whole hold unavailable; one already
+                # past that began before the result
+                if result_in and self.get("climateHoldAvailability") == "unavailable":
+                    restarted.set()
+                started_up.clear()
+            elif seen_restart and self.get("climateHoldStatus") == "off":
+                # Not e.g. the stale "unspecified" the vehicle replays
+                started_up.set()
+
+        unsubscribe = self.async_add_listener(watch)
+        try:
+            error: HomeAssistantError | None = None
+            try:
+                await self.send_parallax_command(
+                    SET_CLIMATE_HOLD_RVM, encode_climate_hold(True)
+                )
+            except HomeAssistantError as err:
+                # Only a sent command reaches, and wakes, the vehicle
+                if err.translation_key not in ("command_failed", "command_unconfirmed"):
+                    raise
+                error = err
+            result_in = True
+            watch()
+            try:
+                await asyncio.wait_for(awake.wait(), CLIMATE_HOLD_WAKE_WAIT)
+                # A hold that comes on needs no more waiting
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(held.wait(), CLIMATE_HOLD_START_WAIT)
+                if restarted.is_set() and restarting():
+                    await asyncio.wait_for(
+                        started_up.wait(), CLIMATE_HOLD_START_UP_WAIT
+                    )
+            except TimeoutError:
+                if error:
+                    raise error from None
+                return
+        finally:
+            unsubscribe()
+        if self.get("climateHoldStatus") == "on":
+            return
+        if not (error or restarted.is_set()) or self.get(
+            "climateHoldUnavailabilityReason"
+        ) not in (None, "unknown"):
+            # Not lost (it may still be starting), or unavailable for a reason
+            # like low_soc that won't clear
+            if error:
+                raise error
+            return
+        if request != self._climate_hold_request:
+            # Turned off or started again meanwhile
+            return
+        _LOGGER.debug("Sending the climate hold again, now that the vehicle is awake")
+        await self.send_parallax_command(
+            SET_CLIMATE_HOLD_RVM, encode_climate_hold(True)
+        )
+
+    def cancel_climate_hold_resend(self) -> None:
+        """Keep a climate hold waiting to be sent again from being sent."""
+        self._climate_hold_request += 1
+
+    async def stop_climate_hold(self) -> None:
+        """Stop a climate hold, and any still waiting to be sent again."""
+        self.cancel_climate_hold_resend()
+        await self.send_parallax_command(
+            SET_CLIMATE_HOLD_RVM, encode_climate_hold(False)
+        )
+
+    async def set_climate_hold_duration(self, minutes: int) -> None:
+        """Set how long a climate hold lasts."""
+        try:
+            accepted = await self.api.set_climate_hold_duration(
+                self.vehicle_id, minutes
+            )
+        except RivianApiException as err:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="climate_hold_duration_failed",
+                translation_placeholders={"error": str(err)},
+            ) from err
+        if not accepted:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="climate_hold_duration_rejected",
+            )
+
+    async def start_gear_guard_live_stream(self, camera: str) -> dict[str, Any] | None:
+        """Start a Gear Guard live stream, turning video monitoring on first."""
+        if self.get("gearGuardVideoStatus") == "disabled":
+            await self.send_vehicle_command(VehicleCommand.ENABLE_GEAR_GUARD_VIDEO)
+            for _ in range(GEAR_GUARD_VIDEO_WAIT):
+                await asyncio.sleep(1)
+                if self.get("gearGuardVideoStatus") != "disabled":
+                    break
+        # A sleeping vehicle can wake too late for the first start, and a start
+        # can't be reused, so retry with a fresh one
+        for _ in range(GEAR_GUARD_LIVE_ATTEMPTS):
+            if config := await self.api.start_gear_guard_live_stream(
+                self.vehicle_id,
+                camera=camera,
+                device_id="home-assistant",
+                **self._phone_key(),
+            ):
+                return config
+        return None
+
     async def send_vehicle_command(
         self, command: VehicleCommand, params: dict[str, Any] | None = None
     ) -> None:
-        """Send a command to the vehicle."""
+        """Send a command to the vehicle, over Parallax if it takes it that way."""
+        entry_data = self.hass.data[DOMAIN][self.config_entry.entry_id]
+        vehicle = entry_data[ATTR_VEHICLE][self.vehicle_id]
+        if (feature := vehicle_command_feature(command)) and feature in vehicle[
+            "supported_features"
+        ]:
+            # The model picks an R1T's tailgate or another model's liftgate
+            rvm, payload = encode_vehicle_command(
+                command, params, model=vehicle["model"]
+            )
+            # The cloud wakes the vehicle for Parallax commands
+            await self.send_parallax_command(rvm, payload, command=command)
+            return
+
         if self.get("powerState") == "sleep" and command != VehicleCommand.WAKE_VEHICLE:
             await self.send_vehicle_command(VehicleCommand.WAKE_VEHICLE)
             try:
@@ -1330,8 +1752,6 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             except TimeoutError:
                 pass  # didn't wake-up in time, but we'll try command anyway
 
-        entry_data = self.hass.data[DOMAIN][self.config_entry.entry_id]
-        vehicle = entry_data[ATTR_VEHICLE][self.vehicle_id]
         user: UserCoordinator = entry_data[ATTR_COORDINATOR][ATTR_USER]
         phone_info = user.get_enrolled_phone_data(
             self.config_entry.options.get("public_key")

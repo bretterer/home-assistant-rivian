@@ -6,6 +6,7 @@ import logging
 from typing import Any, Final
 
 from rivian import VehicleCommand
+from rivian.parallax import SET_PET_MODE_RVM, encode_pet_mode
 
 from homeassistant.components.switch import SwitchEntity, SwitchEntityDescription
 from homeassistant.config_entries import ConfigEntry
@@ -50,6 +51,14 @@ SWITCHES: Final[tuple[RivianSwitchEntityDescription, ...]] = (
         ),
     ),
     RivianSwitchEntityDescription(
+        key="climate_hold",
+        translation_key="climate_hold",
+        supported_feature="CLM_HOLD",
+        is_on=lambda coor: coor.get("climateHoldStatus") == "on",
+        turn_off=lambda coor: coor.stop_climate_hold(),
+        turn_on=lambda coor: coor.start_climate_hold(),
+    ),
+    RivianSwitchEntityDescription(
         key="gear_guard_video",
         translation_key="gear_guard_video",
         entity_category=EntityCategory.CONFIG,
@@ -59,6 +68,18 @@ SWITCHES: Final[tuple[RivianSwitchEntityDescription, ...]] = (
         ),
         turn_on=lambda coor: coor.send_vehicle_command(
             command=VehicleCommand.ENABLE_GEAR_GUARD_VIDEO
+        ),
+    ),
+    RivianSwitchEntityDescription(
+        key="pet_mode",
+        translation_key="pet_mode",
+        supported_feature="PET_COMFORT_CONTROL",
+        is_on=lambda coor: coor.get("petModeStatus") == "on",
+        turn_off=lambda coor: coor.send_parallax_command(
+            SET_PET_MODE_RVM, encode_pet_mode(False)
+        ),
+        turn_on=lambda coor: coor.send_parallax_command(
+            SET_PET_MODE_RVM, encode_pet_mode(True)
         ),
     ),
     RivianSwitchEntityDescription(
@@ -99,6 +120,8 @@ async def async_setup_entry(
         for vehicle_id, vehicle in vehicles.items()
         if vehicle.get("phone_identity_id")
         for description in SWITCHES
+        if description.supported_feature is None
+        or description.supported_feature in vehicle.get("supported_features", [])
     ]
     for vehicle_id, vehicle in vehicles.items():
         coord = coordinators[vehicle_id]

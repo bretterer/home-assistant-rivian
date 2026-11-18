@@ -28,6 +28,7 @@ from .const import (
     VERSION,
 )
 from .coordinator import UserCoordinator, VehicleCoordinator, WallboxCoordinator
+from .frontend import async_register_cards
 from .helpers import get_rivian_api_from_entry
 from .services import async_setup_services
 
@@ -35,6 +36,7 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
     Platform.BUTTON,
+    Platform.CAMERA,
     Platform.CLIMATE,
     Platform.COVER,
     Platform.DEVICE_TRACKER,
@@ -53,6 +55,10 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the Rivian integration."""
     async_setup_services(hass)
+    try:
+        await async_register_cards(hass)
+    except Exception:  # the vehicles still set up without the dashboard cards
+        _LOGGER.exception("Couldn't load the Rivian dashboard cards")
     return True
 
 
