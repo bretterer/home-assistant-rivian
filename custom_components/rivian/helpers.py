@@ -199,6 +199,7 @@ def track_departure_schedule_entities(
     unique_id_prefix = f"{vin}-{key}_"
     known_ids: set[str] = set()
     cancel_removal: CALLBACK_TYPE | None = None
+    last_schedules: list[dict[str, Any]] | None = None
 
     def _missing_entity_ids(schedule_ids: set[str]) -> list[str]:
         registry = er.async_get(hass)
@@ -232,9 +233,14 @@ def track_departure_schedule_entities(
 
     @callback
     def _update() -> None:
-        nonlocal cancel_removal
-        if (schedules := coordinator.departure_schedules) is None:
+        nonlocal cancel_removal, last_schedules
+        # The coordinator updates its listeners for every vehicle message, but only
+        # replaces the list when it changes, so skip scanning the registry otherwise
+        if (schedules := coordinator.departure_schedules) is None or (
+            schedules is last_schedules
+        ):
             return
+        last_schedules = schedules
         schedule_ids = {schedule["id"] for schedule in schedules}
         if new_ids := schedule_ids - known_ids:
             async_add_entities(entity_factory(schedule_id) for schedule_id in new_ids)

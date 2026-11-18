@@ -7,11 +7,7 @@ from typing import Any, Final
 
 from rivian import VehicleCommand
 
-from homeassistant.components.number import (
-    DOMAIN as NUMBER_DOMAIN,
-    NumberDeviceClass,
-    NumberEntity,
-)
+from homeassistant.components.number import NumberDeviceClass, NumberEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     PERCENTAGE,
@@ -34,12 +30,8 @@ from .const import (
 from .coordinator import VehicleCoordinator
 from .data_classes import RivianNumberEntityDescription
 from .entity import RivianVehicleControlEntity, RivianVehicleEntity
-from .helpers import async_remove_stale_entities
 
 _LOGGER = logging.getLogger(__name__)
-
-PRECONDITION_LEAD_TIME_KEY: Final = "precondition_lead_time"
-PRECONDITION_TEMPERATURE_KEY: Final = "precondition_temperature"
 
 
 NUMBERS: Final[tuple[RivianNumberEntityDescription, ...]] = (
@@ -112,18 +104,6 @@ async def async_setup_entry(
                     coord, entry, CLIMATE_HOLD_DURATION_NUMBER, vehicle
                 )
             )
-    # Remove the precondition lead time and temperature numbers, which the
-    # Precondition cabin button and action replaced
-    async_remove_stale_entities(
-        hass,
-        NUMBER_DOMAIN,
-        (
-            f"{vehicle['vin']}-{key}"
-            for vehicle in vehicles.values()
-            for key in (PRECONDITION_LEAD_TIME_KEY, PRECONDITION_TEMPERATURE_KEY)
-        ),
-        (entity.unique_id for entity in entities),
-    )
     async_add_entities(entities)
 
 

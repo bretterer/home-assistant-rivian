@@ -56,10 +56,7 @@ async def test_duration_without_a_paired_phone() -> None:
         }
     }
     added: list[Any] = []
-    with (
-        patch.object(number, "RivianChargingScheduleAmperageEntity", MagicMock()),
-        patch.object(number, "async_remove_stale_entities"),
-    ):
+    with patch.object(number, "RivianChargingScheduleAmperageEntity", MagicMock()):
         await number.async_setup_entry(hass, MagicMock(entry_id="entry"), added.extend)
     durations = [e for e in added if e.entity_description is DURATION]
     assert {e.coordinator.vehicle_id for e in durations} == {"keyless", "paired"}

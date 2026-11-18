@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from custom_components.rivian import button, number
+from custom_components.rivian import button
 from custom_components.rivian.const import ATTR_COORDINATOR, ATTR_VEHICLE, DOMAIN
 
 VEHICLES = {
@@ -71,16 +71,3 @@ async def test_keyless_button_removed_after_pairing(
     (possible, created) = calls[-1]
     assert "PAIRED-precondition_cabin" in possible - created
     assert "KEYLESS-precondition_cabin" in created
-
-
-async def test_precondition_numbers_removed(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The lead time and temperature numbers are removed from every vehicle."""
-    calls = _stale(number, monkeypatch)
-    hass, entry = _hass()
-
-    await number.async_setup_entry(hass, entry, MagicMock())
-
-    (possible, created) = calls[-1]
-    for vin in ("PAIRED", "KEYLESS"):
-        for key in ("precondition_lead_time", "precondition_temperature"):
-            assert f"{vin}-{key}" in possible - created

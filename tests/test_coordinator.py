@@ -24,6 +24,7 @@ from custom_components.rivian.const import (
 )
 from custom_components.rivian.coordinator import (
     PRECONDITION_CLEANUP_GRACE_SECONDS,
+    PRECONDITION_PENDING_MAX_AGE_SECONDS,
     PRECONDITION_RETRY_SECONDS,
     VehicleCoordinator,
     precondition_departure,
@@ -152,6 +153,7 @@ def _precondition_coordinator(
     coordinator._precondition_ids = dict(owned or {})
     coordinator._precondition_pending = list(pending or [])
     coordinator._precondition_cleanup_lock = asyncio.Lock()
+    coordinator._precondition_lock = asyncio.Lock()
     coordinator._departure_schedules = [{"id": sid} for sid in owned or {}]
     coordinator._arm_precondition_timer = MagicMock()
     coordinator.update_departure_schedule = AsyncMock()
@@ -274,6 +276,71 @@ async def test_cleanup_follows_a_departure_moved_in_the_app(
         moved.timestamp() + PRECONDITION_CLEANUP_GRACE_SECONDS
     )
     coordinator._save_precondition_state.assert_awaited()
+
+
+async def test_precondition_needs_the_schedule_list() -> None:
+    """Without the list, HA's upcoming schedule can't be found, so it's refused."""
+    coordinator, created = _precondition_coordinator()
+    coordinator._departure_schedules = None
+
+    with pytest.raises(HomeAssistantError):
+        await coordinator.precondition_now()
+
+    assert not created
+
+
+async def test_rejected_precondition_does_not_block_the_next(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A creation Rivian rejected leaves no record that would refuse a retry."""
+    now = datetime(2026, 11, 14, 12, 51, 24, tzinfo=UTC)
+    monkeypatch.setattr(coordinator_module.dt_util, "now", lambda: now)
+    coordinator, _ = _precondition_coordinator()
+    rejected = HomeAssistantError("rejected")
+    rejected.translation_key = "schedule_rejected"
+    coordinator.create_departure_schedule = AsyncMock(side_effect=rejected)
+
+    with pytest.raises(HomeAssistantError):
+        await coordinator.precondition_now()
+
+    assert coordinator._precondition_pending == []
+
+
+async def test_concurrent_preconditions_create_one_schedule(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A second call waits for the first, then moves its schedule."""
+    now = datetime(2026, 11, 14, 12, 51, 24, tzinfo=UTC)
+    monkeypatch.setattr(coordinator_module.dt_util, "now", lambda: now)
+    monkeypatch.setattr(coordinator_module.time, "time", now.timestamp)
+    coordinator, created = _precondition_coordinator()
+
+    async def create(schedule: dict[str, Any]) -> None:
+        await asyncio.sleep(0)
+        created.append(schedule)
+        # Rivian's list then has it, and the reconcile adopts its id
+        coordinator._departure_schedules = [{"id": "S1", "name": schedule["name"]}]
+        record = coordinator._precondition_pending.pop()
+        coordinator._precondition_ids["S1"] = record["expiry"]
+
+    coordinator.create_departure_schedule = AsyncMock(side_effect=create)
+
+    await asyncio.gather(coordinator.precondition_now(), coordinator.precondition_now())
+
+    assert len(created) == 1
+    coordinator.update_departure_schedule.assert_awaited_once()
+
+
+def test_precondition_departure_across_a_dst_change() -> None:
+    """The lead is real time: 01:50 plus 20 minutes on spring-forward is 03:10."""
+    zone = ZoneInfo("America/Denver")
+    now = datetime(2026, 3, 8, 1, 50, tzinfo=zone)
+
+    depart = precondition_departure(now, 20)
+
+    assert (depart.hour, depart.minute) == (3, 10)
+    # same-zone subtraction is wall-clock, so compare in UTC
+    assert depart.astimezone(UTC) - now.astimezone(UTC) == timedelta(minutes=20)
 
 
 async def test_precondition_after_departure_creates_a_new_schedule(
@@ -440,7 +507,9 @@ async def test_missing_schedule_kept_until_expiry(timers: _Timers) -> None:
 
 async def test_schedule_gone_at_expiry_is_forgotten(timers: _Timers) -> None:
     """A schedule deleted elsewhere is dropped once expired, without deleting."""
-    coordinator = _cleanup_coordinator(owned={"temp": time.time() - 1}, schedules=[])
+    coordinator = _cleanup_coordinator(
+        owned={"temp": time.time() - 1}, schedules=[{"id": "other"}]
+    )
 
     await coordinator._reconcile_and_cleanup()
 
@@ -448,6 +517,33 @@ async def test_schedule_gone_at_expiry_is_forgotten(timers: _Timers) -> None:
     assert coordinator._precondition_ids == {}
     coordinator._save_precondition_state.assert_awaited_once()
     assert timers.calls == []
+
+
+async def test_expired_schedule_kept_through_a_brief_empty_list(
+    timers: _Timers,
+) -> None:
+    """An empty list may come just before the full one, so the id is kept."""
+    coordinator = _cleanup_coordinator(owned={"temp": time.time() - 1}, schedules=[])
+
+    await coordinator._reconcile_and_cleanup()
+
+    assert coordinator._precondition_ids.keys() == {"temp"}
+    # the full list arrives with the schedule, which is then deleted
+    coordinator._departure_schedules = [{"id": "temp"}]
+    await coordinator._reconcile_and_cleanup()
+    coordinator.delete_departure_schedule.assert_awaited_once_with("temp")
+
+
+async def test_long_expired_schedule_forgotten_with_an_empty_list(
+    timers: _Timers,
+) -> None:
+    """With no schedules left at all, an id is dropped once well past its expiry."""
+    expiry = time.time() - PRECONDITION_PENDING_MAX_AGE_SECONDS - 1
+    coordinator = _cleanup_coordinator(owned={"temp": expiry}, schedules=[])
+
+    await coordinator._reconcile_and_cleanup()
+
+    assert coordinator._precondition_ids == {}
 
 
 async def test_failed_cleanup_deletion_is_retried(timers: _Timers) -> None:
@@ -533,3 +629,25 @@ async def test_unload_during_cleanup_does_not_rearm_timer(
     assert timers.calls == []
     coordinator._schedule_reconcile()
     coordinator.config_entry.async_create_task.assert_not_called()
+
+
+async def test_overlapping_departure_subscribes_open_one() -> None:
+    """A refresh during a mutation's resubscribe doesn't open a second one."""
+    coordinator = _coordinator({})
+    coordinator._unsub_departure_handler = None
+    coordinator._departure_subscribe_lock = asyncio.Lock()
+
+    async def subscribe(vehicle_id: str, callback: Any) -> AsyncMock:
+        await asyncio.sleep(0)
+        return AsyncMock()
+
+    coordinator.api = MagicMock(
+        subscribe_for_departure_schedules=AsyncMock(side_effect=subscribe)
+    )
+
+    await asyncio.gather(
+        coordinator._subscribe_departure_schedules(),
+        coordinator._subscribe_departure_schedules(),
+    )
+
+    coordinator.api.subscribe_for_departure_schedules.assert_awaited_once()
