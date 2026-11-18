@@ -29,7 +29,6 @@ class _Registry:
 class _Harness:
     def __init__(self, monkeypatch: pytest.MonkeyPatch, registered: set[str]) -> None:
         self.registry = _Registry({f"switch.{sid}": PREFIX + sid for sid in registered})
-        self.timers: list[tuple[float, Callable[[Any], None], MagicMock]] = []
         self.added: list[str] = []
         self.unloads: list[Callable[[], None]] = []
         self.listener: Callable[[], None] | None = None
@@ -48,18 +47,10 @@ class _Harness:
                 ],
             ),
         )
-        monkeypatch.setattr(helpers, "async_call_later", self._call_later)
 
     def _add_listener(self, listener: Callable[[], None]) -> Callable[[], None]:
         self.listener = listener
         return MagicMock()
-
-    def _call_later(
-        self, hass: Any, delay: float, action: Callable[[Any], None]
-    ) -> MagicMock:
-        cancel = MagicMock()
-        self.timers.append((delay, action, cancel))
-        return cancel
 
     def _add_entities(self, entities: Any) -> None:
         for schedule_id in entities:
@@ -87,55 +78,17 @@ class _Harness:
             assert self.listener
             self.listener()
 
-    def fire_removal(self) -> None:
-        self.timers[-1][1](None)
 
-
-def test_brief_empty_list_keeps_entities(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Rivian has sent an empty list for about a second before the full list.
-
-    Removing the registry entry then loses the user's changes to the entity, such
-    as its name and area, and adds it back as a new entity.
-    """
-    harness = _Harness(monkeypatch, registered=set())
-    harness.start(["a"])
-    assert harness.added == ["a"]
-
-    harness.set([])
-    assert harness.registry.unique_ids() == {PREFIX + "a"}
-    assert len(harness.timers) == 1
-
-    harness.set(["a"])
-    harness.timers[0][2].assert_called_once()  # removal cancelled
-    assert harness.registry.unique_ids() == {PREFIX + "a"}
-    assert harness.added == ["a"]  # not added again
-
-
-def test_deleted_schedule_removed_after_delay(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_deleted_schedule_removed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The coordinator only passes on confirmed lists, so one missing is gone."""
     harness = _Harness(monkeypatch, registered=set())
     harness.start(["a", "b"])
 
     harness.set(["b"])
-    assert harness.timers[-1][0] == helpers.DEPARTURE_SCHEDULE_REMOVE_DELAY
-    harness.fire_removal()
-
     assert harness.registry.unique_ids() == {PREFIX + "b"}
 
     harness.set(["a", "b"])  # a schedule with the same id comes back
     assert harness.added.count("a") == 2
-
-
-def test_removal_uses_the_list_when_it_fires(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Only schedules still missing when the delay ends are removed."""
-    harness = _Harness(monkeypatch, registered=set())
-    harness.start(["a", "b"])
-
-    harness.set([])
-    harness.coordinator.departure_schedules = [{"id": "a"}]  # no listener call yet
-    for _, action, _ in list(harness.timers):
-        action(None)
-
-    assert harness.registry.unique_ids() == {PREFIX + "a"}
 
 
 def test_schedule_deleted_while_stopped_is_removed(
@@ -145,8 +98,6 @@ def test_schedule_deleted_while_stopped_is_removed(
     harness.start(["a"])
 
     assert harness.added == ["a"]
-    assert harness.registry.unique_ids() == {PREFIX + "a", PREFIX + "gone"}
-    harness.fire_removal()
     assert harness.registry.unique_ids() == {PREFIX + "a"}
 
 
@@ -154,19 +105,19 @@ def test_no_removal_before_schedules_arrive(monkeypatch: pytest.MonkeyPatch) -> 
     harness = _Harness(monkeypatch, registered={"a"})
     harness.start(None)
 
-    assert harness.timers == []
     assert harness.registry.unique_ids() == {PREFIX + "a"}
 
 
-def test_unload_cancels_pending_removal(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_unchanged_list_is_not_rescanned(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Vehicle messages update listeners too; the same list isn't processed again."""
     harness = _Harness(monkeypatch, registered=set())
     harness.start(["a"])
-    harness.set([])
+    harness.registry.entries["switch.stray"] = PREFIX + "stray"
 
-    for unload in harness.unloads:
-        unload()
+    assert harness.listener
+    harness.listener()  # the same list object
 
-    harness.timers[-1][2].assert_called_once()
+    assert PREFIX + "stray" in harness.registry.unique_ids()
 
 
 @pytest.mark.parametrize(
@@ -188,55 +139,3 @@ def test_summary_departure_time() -> None:
     summary = helpers.departure_schedule_summary(schedule, "°C")
     assert summary["departure_time"] == "12:12"
     assert "time" not in summary
-
-
-def test_empty_list_when_removal_fires_keeps_the_others(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Only the entity whose own delay ended is removed.
-
-    A brief empty list just as it fires would otherwise remove every schedule's
-    entity, and the full list would add them back as new entities.
-    """
-    harness = _Harness(monkeypatch, registered=set())
-    harness.start(["a", "b"])
-
-    harness.set(["b"])  # a deleted
-    assert len(harness.timers) == 1
-    harness.coordinator.departure_schedules = []  # brief empty list, no call yet
-    harness.fire_removal()
-
-    assert harness.registry.unique_ids() == {PREFIX + "b"}
-
-
-def test_each_missing_schedule_has_its_own_delay(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """One coming back cancels only its own removal; one gone again starts anew."""
-    harness = _Harness(monkeypatch, registered=set())
-    harness.start(["a", "b"])
-
-    harness.set([])  # both missing
-    (_, _, cancel_first), (_, _, cancel_second) = harness.timers
-    harness.set(["a"])  # a is back, b still missing
-    assert [cancel_first.called, cancel_second.called].count(True) == 1
-    assert len(harness.timers) == 2  # b keeps its original delay
-
-    harness.set([])  # a missing again: a new, full delay
-    assert len(harness.timers) == 3
-
-
-def test_removal_forgets_only_its_own_schedule(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A schedule still waiting on its own delay isn't added again when it returns."""
-    harness = _Harness(monkeypatch, registered=set())
-    harness.start(["a", "b"])
-
-    harness.set(["b"])  # a missing
-    harness.set([])  # b missing too, later
-    harness.timers[0][1](None)  # a's delay ends: a removed
-    harness.set(["b"])  # b comes back before its delay ends
-
-    assert harness.added.count("b") == 1
-    assert harness.registry.unique_ids() == {PREFIX + "b"}

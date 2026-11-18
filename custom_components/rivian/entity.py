@@ -177,7 +177,8 @@ class RivianVehicleControlEntity(RivianVehicleEntity):
         device = self.coordinator.drivers_coordinator.get_device_details(
             phone_info[1].get(self.coordinator.vehicle_id)
         )
-        self._available = device["isPaired"]
+        # a disabled key can't sign commands either
+        self._available = device["isPaired"] and device.get("isEnabled") is not False
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""

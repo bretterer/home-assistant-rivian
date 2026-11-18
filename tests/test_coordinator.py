@@ -53,11 +53,69 @@ def _received(coordinator: VehicleCoordinator, schedules: list[Any]) -> None:
     )
 
 
+async def test_failed_refresh_after_an_accepted_write_isnt_an_error() -> None:
+    """Rivian applied it, so reporting a failure would invite a duplicate retry."""
+    coordinator = _schedule_coordinator()
+    coordinator._departure_refreshed = asyncio.Event()
+    coordinator._subscribe_departure_schedules = AsyncMock(
+        side_effect=ConnectionError("web socket closed")
+    )
+    response = MagicMock()
+    response.json = AsyncMock(
+        return_value={"data": {"createDepartureSchedule": {"success": True}}}
+    )
+
+    async def request() -> MagicMock:
+        return response
+
+    await coordinator._departure_schedule_mutation("createDepartureSchedule", request())
+
+    assert coordinator._departure_stale  # the next read refreshes it
+
+
+async def test_unreadable_response_is_an_unknown_outcome(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An error page instead of JSON may follow a write Rivian applied."""
+    monkeypatch.setattr(coordinator_module, "HomeAssistantError", _TranslatedError)
+    coordinator = _schedule_coordinator()
+    response = MagicMock()
+    response.json = AsyncMock(side_effect=ValueError("not JSON"))
+
+    async def request() -> MagicMock:
+        return response
+
+    with pytest.raises(_TranslatedError) as err:
+        await coordinator._departure_schedule_mutation(
+            "createDepartureSchedule", request()
+        )
+    assert err.value.translation_key == "schedule_unconfirmed"
+
+
+@pytest.mark.parametrize("action", ["update", "delete"])
+async def test_schedule_changes_need_the_list(
+    monkeypatch: pytest.MonkeyPatch, action: str
+) -> None:
+    """Before the list arrives, a schedule isn't 'not found': it's out of sync."""
+    monkeypatch.setattr(coordinator_module, "HomeAssistantError", _TranslatedError)
+    coordinator = _schedule_coordinator()
+    coordinator._departure_lock = asyncio.Lock()
+    coordinator._departure_schedules = None
+    coordinator._ensure_fresh_departure_schedules = AsyncMock()
+
+    with pytest.raises(_TranslatedError) as err:
+        if action == "update":
+            await coordinator.update_departure_schedule("S1", {"isEnabled": True})
+        else:
+            await coordinator.delete_departure_schedule("S1")
+    assert err.value.translation_key == "schedules_out_of_sync"
+
+
 @pytest.mark.parametrize(
     ("previous", "expect_empty", "held"),
     [
         ([{"id": "a"}], False, True),
-        ([], False, False),
+        ([], False, True),
         (None, False, True),
         ([{"id": "a"}], True, False),
     ],
@@ -69,9 +127,9 @@ def test_empty_schedule_list_held_back_after_schedules(
     expect_empty: bool,
     held: bool,
 ) -> None:
-    """An empty list may be brief, so it's held back, the first one included.
+    """An empty list may be brief, so it's held back, whatever came before.
 
-    One after another empty list, or after deleting the last schedule, is used.
+    Only one expected after deleting the last schedule is used straight away.
     """
     timers = _Timers()
     monkeypatch.setattr(coordinator_module, "async_call_later", timers)
@@ -237,7 +295,7 @@ async def test_schedule_refresh_during_resubscribe_is_not_lost(
 
     async def subscribe(force: bool = False) -> None:
         coordinator._process_departure_schedules(
-            {"payload": {"data": {"vehicleDepartureSchedules": []}}}
+            {"payload": {"data": {"vehicleDepartureSchedules": [{"id": "a"}]}}}
         )
 
     coordinator._subscribe_departure_schedules = subscribe

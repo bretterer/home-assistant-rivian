@@ -37,7 +37,11 @@ from .coordinator import (
     precondition_store,
 )
 from .frontend import async_register_cards
-from .helpers import get_rivian_api_from_entry
+from .helpers import (
+    departure_mutation_succeeded,
+    departure_schedules_from_message,
+    get_rivian_api_from_entry,
+)
 from .services import async_setup_services
 
 _LOGGER = logging.getLogger(__name__)
@@ -228,42 +232,42 @@ async def _async_remove_preconditions(hass: HomeAssistant, entry: ConfigEntry) -
     try:
         await client.create_csrf_token()
         for vehicle_id, (store, data) in stores.items():
-            schedule_ids = set(data.get("owned") or {})
-            deleted_all = True
-            if pending := {
+            schedules = await _async_departure_schedules(client, vehicle_id)
+            if schedules is None:
+                # can't tell which still exist, so keep the store
+                _LOGGER.warning(
+                    "Unable to get vehicle %s departure schedules; delete any "
+                    "named %s in the Rivian app",
+                    vehicle_id,
+                    PRECONDITION_SCHEDULE_NAME,
+                )
+                continue
+            owned = set(data.get("owned") or {})
+            # created without its id being recorded; found by their unique name
+            pending = {
                 record.get("name")
                 for record in data.get("pending") or []
                 if isinstance(record, dict)
-            }:
-                # created without its id being recorded; found by their unique name
-                schedules = await _async_departure_schedules(client, vehicle_id)
-                if schedules is None:
-                    # can't tell whether they were created, so keep the store
-                    deleted_all = False
-                    _LOGGER.warning(
-                        "Unable to get vehicle %s departure schedules; delete any "
-                        "named %s in the Rivian app",
-                        vehicle_id,
-                        PRECONDITION_SCHEDULE_NAME,
-                    )
-                schedule_ids |= {
-                    schedule["id"]
-                    for schedule in schedules or []
-                    if schedule.get("name") in pending
-                }
-            for schedule_id in schedule_ids:
+            }
+            deleted_all = True
+            # ones no longer in the list were already deleted, such as in the app
+            for schedule in schedules:
+                if schedule["id"] not in owned and schedule.get("name") not in pending:
+                    continue
                 try:
                     response = await client.delete_departure_schedule(
-                        vehicle_id, schedule_id
+                        vehicle_id, schedule["id"]
                     )
-                    result = (await response.json()).get("data") or {}
-                    if not (result.get("deleteDepartureSchedule") or {}).get("success"):
-                        raise ValueError(result)
+                    if not departure_mutation_succeeded(
+                        await response.json(), "deleteDepartureSchedule"
+                    ):
+                        raise ValueError("not deleted")
                 except Exception as err:  # noqa: BLE001
                     deleted_all = False
                     _LOGGER.warning(
-                        "Unable to delete a precondition schedule from vehicle %s; "
+                        "Unable to delete precondition schedule %s from vehicle %s; "
                         "delete it in the Rivian app: %s",
+                        schedule.get("name"),
                         vehicle_id,
                         type(err).__name__,
                     )
@@ -296,10 +300,7 @@ async def _async_departure_schedules(
 
     def on_schedules(data: dict[str, Any]) -> None:
         nonlocal empty
-        schedules = ((data.get("payload") or {}).get("data") or {}).get(
-            "vehicleDepartureSchedules"
-        )
-        if not isinstance(schedules, list):
+        if (schedules := departure_schedules_from_message(data)) is None:
             return
         if not schedules:
             empty = True

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from copy import deepcopy
-from functools import partial
 import logging
 from typing import Any
 
@@ -19,12 +18,11 @@ from homeassistant.const import (
     Platform,
     UnitOfTemperature,
 )
-from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.event import async_call_later
 from homeassistant.util.unit_conversion import TemperatureConverter
 
 from .const import (
@@ -40,10 +38,6 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
-
-# How long a departure schedule must stay missing before its entity is removed.
-# Rivian has sent an empty schedule list for about a second before the full list.
-DEPARTURE_SCHEDULE_REMOVE_DELAY = 60
 
 TO_REDACT = {
     CONF_EMAIL,
@@ -147,6 +141,21 @@ def schedule_cabin_temperature(celsius: float) -> float:
     return int(celsius) if float(celsius).is_integer() else celsius
 
 
+def departure_schedules_from_message(
+    data: dict[str, Any],
+) -> list[dict[str, Any]] | None:
+    """Return the schedules a departure schedule subscription message holds."""
+    schedules = ((data.get("payload") or {}).get("data") or {}).get(
+        "vehicleDepartureSchedules"
+    )
+    return schedules if isinstance(schedules, list) else None
+
+
+def departure_mutation_succeeded(data: dict[str, Any], key: str) -> bool:
+    """Return whether a departure schedule mutation's response reports success."""
+    return bool(((data.get("data") or {}).get(key) or {}).get("success"))
+
+
 def departure_schedule_to_input(schedule: dict[str, Any]) -> dict[str, Any]:
     """Convert a departure schedule as received into the format used to set one."""
     data = deepcopy({k: v for k, v in schedule.items() if k != "id"})
@@ -208,45 +217,13 @@ def track_departure_schedule_entities(
 
     ``key`` is the unique-id segment the entities use (``{vin}-{key}_{schedule_id}``).
     Removing the registry entry removes the entity, which also clears schedules that
-    were deleted while Home Assistant was not running. Removal waits until a schedule
-    has been missing for DEPARTURE_SCHEDULE_REMOVE_DELAY, so a list that briefly
-    leaves it out doesn't lose the user's changes to the entity.
+    were deleted while Home Assistant was not running. The coordinator only passes
+    on confirmed lists, holding back the brief empty one Rivian can send, so a
+    schedule missing from the list is gone.
     """
     unique_id_prefix = f"{vin}-{key}_"
     known_ids: set[str] = set()
-    # A removal timer for each missing schedule, so each waits its own full delay
-    # from when it went missing, and one coming back cancels only its own
-    removals: dict[str, CALLBACK_TYPE] = {}
     last_schedules: list[dict[str, Any]] | None = None
-
-    def _missing_entities(schedule_ids: set[str]) -> dict[str, str]:
-        """Return the entity ids of schedules not in the list, by schedule id."""
-        registry = er.async_get(hass)
-        return {
-            schedule_id: reg_entry.entity_id
-            for reg_entry in er.async_entries_for_config_entry(registry, entry.entry_id)
-            if reg_entry.domain == platform
-            and reg_entry.unique_id.startswith(unique_id_prefix)
-            and (schedule_id := reg_entry.unique_id.removeprefix(unique_id_prefix))
-            not in schedule_ids
-        }
-
-    @callback
-    def _cancel_removals() -> None:
-        for cancel in removals.values():
-            cancel()
-        removals.clear()
-
-    @callback
-    def _remove(schedule_id: str, _now: Any) -> None:
-        removals.pop(schedule_id, None)
-        if (schedules := coordinator.departure_schedules) is None:
-            return
-        schedule_ids = {schedule["id"] for schedule in schedules}
-        if entity_id := _missing_entities(schedule_ids).get(schedule_id):
-            er.async_get(hass).async_remove(entity_id)
-            # added again if its schedule comes back; others missing keep theirs
-            known_ids.discard(schedule_id)
 
     @callback
     def _update() -> None:
@@ -262,14 +239,17 @@ def track_departure_schedule_entities(
         if new_ids := schedule_ids - known_ids:
             async_add_entities(entity_factory(schedule_id) for schedule_id in new_ids)
             known_ids.update(new_ids)
-        missing = _missing_entities(schedule_ids).keys()
-        for schedule_id in removals.keys() - missing:
-            removals.pop(schedule_id)()
-        for schedule_id in missing - removals.keys():
-            removals[schedule_id] = async_call_later(
-                hass, DEPARTURE_SCHEDULE_REMOVE_DELAY, partial(_remove, schedule_id)
-            )
+        registry = er.async_get(hass)
+        for reg_entry in er.async_entries_for_config_entry(registry, entry.entry_id):
+            if (
+                reg_entry.domain == platform
+                and reg_entry.unique_id.startswith(unique_id_prefix)
+                and (schedule_id := reg_entry.unique_id.removeprefix(unique_id_prefix))
+                not in schedule_ids
+            ):
+                registry.async_remove(reg_entry.entity_id)
+                # added again if its schedule comes back
+                known_ids.discard(schedule_id)
 
     entry.async_on_unload(coordinator.async_add_listener(_update))
-    entry.async_on_unload(_cancel_removals)
     _update()

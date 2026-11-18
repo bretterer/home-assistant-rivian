@@ -133,6 +133,7 @@ async def test_removal_deletes_owned_precondition_schedules(
     )
     client = _Client(
         schedules=[
+            {"id": "S1", "name": "HA Precondition 12ab34"},
             {"id": "S2", "name": "HA Precondition ab12cd"},
             {"id": "S3", "name": "Weekdays"},
         ],
@@ -153,7 +154,7 @@ async def test_store_kept_if_a_schedule_cant_be_deleted(
 ) -> None:
     """Setting the integration up again then picks the cleanup back up."""
     store = _Store({"owned": {"S1": 100.0}, "pending": []})
-    client = _Client(schedules=[], fail={"S1"})
+    client = _Client(schedules=[{"id": "S1", "name": "HA Precondition"}], fail={"S1"})
     hass, entry, _ = _removal(monkeypatch, {"V1": store}, client)
 
     await rivian.async_remove_entry(hass, entry)
@@ -197,3 +198,17 @@ async def test_pending_schedule_needs_a_list_to_remove_the_store(
 
     assert client.deleted == []
     assert store.removed is removed
+
+
+async def test_schedule_already_deleted_in_the_app_is_skipped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One no longer in the list isn't deleted, and doesn't keep the store."""
+    store = _Store({"owned": {"S1": 100.0}, "pending": []})
+    client = _Client(schedules=[{"id": "S3", "name": "Weekdays"}], fail=set())
+    hass, entry, _ = _removal(monkeypatch, {"V1": store}, client)
+
+    await rivian.async_remove_entry(hass, entry)
+
+    assert client.deleted == []
+    assert store.removed

@@ -14,7 +14,7 @@ import time
 from typing import Any, Generic, TypeVar
 import uuid
 
-from aiohttp import ClientResponse
+from aiohttp import ClientError, ClientResponse
 from rivian import Rivian, VehicleCommand
 from rivian.exceptions import (
     RivianApiException,
@@ -75,7 +75,9 @@ from .const import (
 )
 from .helpers import (
     deep_merge,
+    departure_mutation_succeeded,
     departure_schedule_to_input,
+    departure_schedules_from_message,
     redact,
     schedule_cabin_temperature,
 )
@@ -670,6 +672,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         # merge its own changes against a now-stale cached schedule
         async with self._departure_lock:
             await self._ensure_fresh_departure_schedules()
+            self._require_departure_schedules()
             if not (current := self.get_departure_schedule(schedule_id)):
                 raise ServiceValidationError(
                     translation_domain=DOMAIN,
@@ -696,6 +699,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         """
         async with self._departure_lock:
             await self._ensure_fresh_departure_schedules()
+            self._require_departure_schedules()
             if not (schedule := self.get_departure_schedule(schedule_id)):
                 raise ServiceValidationError(
                     translation_domain=DOMAIN,
@@ -722,6 +726,14 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         try:
             response = await request
             data = await response.json()
+        except (ClientError, TimeoutError, ValueError) as err:
+            # Such as an error page instead of JSON, after which Rivian may still
+            # have applied it
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="schedule_unconfirmed",
+                translation_placeholders={"action": key, "reason": type(err).__name__},
+            ) from None
         except RivianApiException as err:
             # the exception holds the request with its session tokens, keep those out
             errors = next(
@@ -755,7 +767,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             # merging stale data. Only an authoritative payload (in
             # _process_departure_schedules) clears the flag.
             self._departure_stale = True
-        if not ((data.get("data") or {}).get(key) or {}).get("success"):
+        if not departure_mutation_succeeded(data, key):
             raise HomeAssistantError(
                 translation_domain=DOMAIN,
                 translation_key="schedule_rejected",
@@ -764,13 +776,25 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         # clear before resubscribing: the refreshed list often arrives during the
         # resubscribe itself, and clearing afterwards would discard that signal
         self._departure_refreshed.clear()
-        await self._subscribe_departure_schedules(force=True)
+        # Rivian accepted the write, so a failed refresh isn't reported as it
+        # failing, which a retry would then repeat. The cache stays unconfirmed, so
+        # the next read refreshes it
         try:
+            await self._subscribe_departure_schedules(force=True)
             await asyncio.wait_for(
                 self._departure_refreshed.wait(), DEPARTURE_REFRESH_TIMEOUT
             )
         except TimeoutError:
             _LOGGER.debug("Timed out waiting for refreshed schedules after %s", key)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("Unable to refresh schedules after %s: %s", key, err)
+
+    def _require_departure_schedules(self) -> None:
+        """Raise if the schedules haven't arrived, as none can be found then."""
+        if self._departure_schedules is None:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN, translation_key="schedules_out_of_sync"
+            )
 
     async def _ensure_fresh_departure_schedules(self) -> None:
         """Refresh the cached schedules before a read if a prior write went unconfirmed.
@@ -863,29 +887,21 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
     def _process_departure_schedules(self, data: dict[str, Any]) -> None:
         """Process departure schedules.
 
-        Rivian can send an empty list just before the full one, including the
-        first list after subscribing. So an empty list is held back for
-        DEPARTURE_EMPTY_LIST_HOLD, unless the last one was empty too or it's
-        expected after deleting the last schedule, and only used if no other list
-        arrives in the meantime. Until then the cache isn't confirmed.
+        Rivian can send an empty list just before the full one, such as after
+        subscribing or creating the first schedule. So an empty list is held back
+        for DEPARTURE_EMPTY_LIST_HOLD, unless it's expected after deleting the
+        last schedule, and only used if no other list arrives in the meantime.
+        Until then the cache isn't confirmed. This is the one place the quirk is
+        handled; everything else sees only confirmed lists.
         """
-        schedules = ((data.get("payload") or {}).get("data") or {}).get(
-            "vehicleDepartureSchedules"
-        )
-        if not isinstance(schedules, list):
+        if (schedules := departure_schedules_from_message(data)) is None:
             _LOGGER.debug("Received an unknown departure schedule update: %s", data)
             return
         _LOGGER.debug(
             "Vehicle %s departure schedules: %s", self.vehicle_id, redact(schedules)
         )
         self._departure_failure_logged = False
-        # Held after schedules, and after none yet: a fresh subscription, at
-        # startup too, can send it first. One after another empty list is used
-        if (
-            not schedules
-            and self._departure_schedules != []
-            and not self._expect_empty_schedules
-        ):
+        if not schedules and not self._expect_empty_schedules:
             self._departure_stale = True
             self._departure_refreshed.clear()
             if self._empty_list_hold is None:
@@ -967,12 +983,9 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
     ) -> None:
         """Start or move a precondition; called under the precondition lock."""
         await self._ensure_precondition_loaded()
-        if self._departure_schedules is None:
-            # without the list, HA's own upcoming schedule can't be found to move,
-            # so another would be created
-            raise HomeAssistantError(
-                translation_domain=DOMAIN, translation_key="schedules_out_of_sync"
-            )
+        # without the list, HA's own upcoming schedule can't be found to move, so
+        # another would be created
+        self._require_departure_schedules()
         expiry, repeats_weekly, comfort = self._precondition_request(
             lead_minutes, temperature
         )
