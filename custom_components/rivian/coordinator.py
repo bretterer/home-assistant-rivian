@@ -863,9 +863,10 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
     def _process_departure_schedules(self, data: dict[str, Any]) -> None:
         """Process departure schedules.
 
-        Rivian can send an empty list just before the full one. So an empty list
-        after schedules is held back for DEPARTURE_EMPTY_LIST_HOLD, unless it's
-        expected after deleting the last one, and only used if no other list
+        Rivian can send an empty list just before the full one, including the
+        first list after subscribing. So an empty list is held back for
+        DEPARTURE_EMPTY_LIST_HOLD, unless the last one was empty too or it's
+        expected after deleting the last schedule, and only used if no other list
         arrives in the meantime. Until then the cache isn't confirmed.
         """
         schedules = ((data.get("payload") or {}).get("data") or {}).get(
@@ -878,10 +879,12 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             "Vehicle %s departure schedules: %s", self.vehicle_id, redact(schedules)
         )
         self._departure_failure_logged = False
+        # Held after schedules, and after none yet: a fresh subscription, at
+        # startup too, can send it first. One after another empty list is used
         if (
             not schedules
-            and self._departure_schedules
-            and not (self._expect_empty_schedules)
+            and self._departure_schedules != []
+            and not self._expect_empty_schedules
         ):
             self._departure_stale = True
             self._departure_refreshed.clear()

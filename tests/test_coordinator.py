@@ -58,7 +58,7 @@ def _received(coordinator: VehicleCoordinator, schedules: list[Any]) -> None:
     [
         ([{"id": "a"}], False, True),
         ([], False, False),
-        (None, False, False),
+        (None, False, True),
         ([{"id": "a"}], True, False),
     ],
     ids=["after-schedules", "again", "first", "deleting-the-last"],
@@ -69,9 +69,9 @@ def test_empty_schedule_list_held_back_after_schedules(
     expect_empty: bool,
     held: bool,
 ) -> None:
-    """An empty list right after schedules may be brief, so it's held back.
+    """An empty list may be brief, so it's held back, the first one included.
 
-    Another empty list, the first list, or deleting the last schedule is used.
+    One after another empty list, or after deleting the last schedule, is used.
     """
     timers = _Timers()
     monkeypatch.setattr(coordinator_module, "async_call_later", timers)

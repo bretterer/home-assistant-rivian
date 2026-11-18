@@ -229,18 +229,28 @@ async def _async_remove_preconditions(hass: HomeAssistant, entry: ConfigEntry) -
         await client.create_csrf_token()
         for vehicle_id, (store, data) in stores.items():
             schedule_ids = set(data.get("owned") or {})
+            deleted_all = True
             if pending := {
                 record.get("name")
                 for record in data.get("pending") or []
                 if isinstance(record, dict)
             }:
                 # created without its id being recorded; found by their unique name
+                schedules = await _async_departure_schedules(client, vehicle_id)
+                if schedules is None:
+                    # can't tell whether they were created, so keep the store
+                    deleted_all = False
+                    _LOGGER.warning(
+                        "Unable to get vehicle %s departure schedules; delete any "
+                        "named %s in the Rivian app",
+                        vehicle_id,
+                        PRECONDITION_SCHEDULE_NAME,
+                    )
                 schedule_ids |= {
                     schedule["id"]
-                    for schedule in await _async_departure_schedules(client, vehicle_id)
+                    for schedule in schedules or []
                     if schedule.get("name") in pending
                 }
-            deleted_all = True
             for schedule_id in schedule_ids:
                 try:
                     response = await client.delete_departure_schedule(
@@ -272,29 +282,39 @@ async def _async_remove_preconditions(hass: HomeAssistant, entry: ConfigEntry) -
 
 async def _async_departure_schedules(
     client: Rivian, vehicle_id: str
-) -> list[dict[str, Any]]:
-    """Return a vehicle's departure schedules, which are only sent by subscription."""
+) -> list[dict[str, Any]] | None:
+    """Return a vehicle's departure schedules, which are only sent by subscription.
+
+    Rivian can send an empty list just before the full one, so an empty list only
+    counts if no other list follows within DEPARTURE_SCHEDULES_WAIT. Returns None
+    if no list arrived, or subscribing failed.
+    """
     received: asyncio.Future[list[dict[str, Any]]] = (
         asyncio.get_running_loop().create_future()
     )
+    empty = False
 
     def on_schedules(data: dict[str, Any]) -> None:
+        nonlocal empty
         schedules = ((data.get("payload") or {}).get("data") or {}).get(
             "vehicleDepartureSchedules"
         )
-        # the first non-empty list, as Rivian can send an empty one just before it
-        if schedules and not received.done():
+        if not isinstance(schedules, list):
+            return
+        if not schedules:
+            empty = True
+        elif not received.done():
             received.set_result(schedules)
 
     unsubscribe = await client.subscribe_for_departure_schedules(
         vehicle_id, on_schedules
     )
     if not unsubscribe:
-        return []
+        return None
     try:
         return await asyncio.wait_for(received, DEPARTURE_SCHEDULES_WAIT)
     except TimeoutError:
-        return []
+        return [] if empty else None
     finally:
         await unsubscribe()
 

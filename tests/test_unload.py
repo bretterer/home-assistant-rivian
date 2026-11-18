@@ -62,7 +62,8 @@ class _Store:
 class _Client:
     """The Rivian client, deleting schedules and sending the list on subscribe."""
 
-    def __init__(self, schedules: list[dict[str, Any]], fail: set[str]) -> None:
+    def __init__(self, schedules: list[dict[str, Any]] | None, fail: set[str]) -> None:
+        # None sends no list at all
         self.schedules = schedules
         self.fail = fail
         self.deleted: list[str] = []
@@ -80,8 +81,12 @@ class _Client:
     async def subscribe_for_departure_schedules(
         self, vehicle_id: str, callback: Any
     ) -> AsyncMock:
-        callback({"payload": {"data": {"vehicleDepartureSchedules": []}}})
-        callback({"payload": {"data": {"vehicleDepartureSchedules": self.schedules}}})
+        if self.schedules is not None:
+            callback({"payload": {"data": {"vehicleDepartureSchedules": []}}})
+            if self.schedules:
+                callback(
+                    {"payload": {"data": {"vehicleDepartureSchedules": self.schedules}}}
+                )
         return AsyncMock()
 
     async def close(self) -> None:
@@ -165,3 +170,30 @@ async def test_removal_without_precondition_stores_needs_no_client(
     await rivian.async_remove_entry(hass, entry)
 
     get_client.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("schedules", "removed"),
+    [(None, False), ([], True)],
+    ids=["no-list", "really-none"],
+)
+async def test_pending_schedule_needs_a_list_to_remove_the_store(
+    monkeypatch: pytest.MonkeyPatch,
+    schedules: list[dict[str, Any]] | None,
+    removed: bool,
+) -> None:
+    """Without a list, a pending schedule may exist, so its store is kept.
+
+    An empty list that nothing follows means it was never created.
+    """
+    monkeypatch.setattr(rivian, "DEPARTURE_SCHEDULES_WAIT", 0.01)
+    store = _Store(
+        {"owned": {}, "pending": [{"name": "HA Precondition ab12cd", "expiry": 1.0}]}
+    )
+    client = _Client(schedules=schedules, fail=set())
+    hass, entry, _ = _removal(monkeypatch, {"V1": store}, client)
+
+    await rivian.async_remove_entry(hass, entry)
+
+    assert client.deleted == []
+    assert store.removed is removed
