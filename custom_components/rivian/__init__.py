@@ -12,10 +12,9 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
-from homeassistant.helpers import config_validation as cv, device_registry as dr
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.device_registry import DeviceEntry
 from homeassistant.helpers.issue_registry import IssueSeverity, async_create_issue
-from homeassistant.helpers.storage import Store
 from homeassistant.helpers.typing import ConfigType
 
 from .const import (
@@ -35,7 +34,7 @@ from .coordinator import (
     UserCoordinator,
     VehicleCoordinator,
     WallboxCoordinator,
-    precondition_store,
+    is_precondition_schedule,
 )
 from .frontend import async_register_cards
 from .helpers import (
@@ -187,107 +186,57 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Handle removal of an entry."""
-    try:
-        await _async_remove_preconditions(hass, entry)
-    except Exception:
-        # the phone is still disenrolled
-        _LOGGER.exception("Error deleting precondition schedules")
-    if public_key := entry.options.get("public_key"):
-        client = get_rivian_api_from_entry(hass, entry)
-        coordinator = UserCoordinator(
-            hass=hass, config_entry=entry, client=client, include_phones=True
-        )
-        try:
-            # The entry is no longer in setup, so first_refresh isn't allowed here
-            await coordinator.async_refresh()
-            if not coordinator.last_update_success:
-                _LOGGER.warning("Unable to disenroll phone: could not fetch user data")
-                return
-            if enrolled_data := coordinator.get_enrolled_phone_data(public_key):
-                for identity_id in enrolled_data[1].values():
-                    await client.disenroll_phone(identity_id=identity_id)
-        except Exception as err:  # noqa: BLE001
-            _LOGGER.warning("Unable to disenroll phone: %s", err)
-        finally:
-            await client.close()
+    """Handle removal of an entry.
 
-
-async def _async_remove_preconditions(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Delete the temporary precondition schedules Home Assistant still owns.
-
-    Nothing would delete them once the integration is gone, so each would
-    precondition again every week. A vehicle's store is removed once its schedules
-    are; if one can't be deleted, the store is kept, so setting the integration up
-    again picks the cleanup back up.
+    Deletes HA's temporary precondition schedules, which nothing would delete once
+    the integration is gone, so they'd precondition again every week, then
+    disenrolls the phone.
     """
-    # The entry's devices are still registered here; their identifiers include
-    # the vehicle ids, and only vehicles have a precondition store
-    stores = {}
-    for device in dr.async_entries_for_config_entry(dr.async_get(hass), entry.entry_id):
-        for domain, identifier in device.identifiers:
-            if domain != DOMAIN:
-                continue
-            store = precondition_store(hass, entry, identifier)
-            try:
-                data = await store.async_load()
-            except Exception:
-                _LOGGER.exception(
-                    "Unable to read vehicle %s's precondition store", identifier
-                )
-                continue
-            if isinstance(data, dict):
-                stores[identifier] = (store, data)
-    if not stores:
-        return
-
     client = get_rivian_api_from_entry(hass, entry)
+    coordinator = UserCoordinator(
+        hass=hass, config_entry=entry, client=client, include_phones=True
+    )
     try:
         await client.create_csrf_token()
-        for vehicle_id, (store, data) in stores.items():
-            await _async_remove_vehicle_preconditions(client, vehicle_id, store, data)
+        # The entry is no longer in setup, so first_refresh isn't allowed here
+        await coordinator.async_refresh()
+        if not coordinator.last_update_success:
+            _LOGGER.warning(
+                "Unable to fetch user data to clean up; delete any departure "
+                "schedules named %s in the Rivian app",
+                PRECONDITION_SCHEDULE_NAME,
+            )
+            return
+        for vehicle_id in coordinator.get_vehicles():
+            try:
+                await _async_remove_preconditions(client, vehicle_id)
+            except Exception:
+                _LOGGER.exception(
+                    "Unable to delete vehicle %s's precondition schedules", vehicle_id
+                )
+        if (public_key := entry.options.get("public_key")) and (
+            enrolled_data := coordinator.get_enrolled_phone_data(public_key)
+        ):
+            for identity_id in enrolled_data[1].values():
+                await client.disenroll_phone(identity_id=identity_id)
     except Exception as err:  # noqa: BLE001
-        _LOGGER.warning(
-            "Unable to delete precondition schedules; delete any named %s in the "
-            "Rivian app: %s",
-            PRECONDITION_SCHEDULE_NAME,
-            type(err).__name__,
-        )
+        _LOGGER.warning("Unable to clean up after removal: %s", err)
     finally:
         await client.close()
 
 
-async def _async_remove_vehicle_preconditions(
-    client: Rivian, vehicle_id: str, store: Store[dict[str, Any]], data: dict[str, Any]
-) -> None:
-    """Delete a vehicle's temporary precondition schedules, then its store."""
-    if data.get("owned") or data.get("pending"):
-        schedules = await _async_departure_schedules(client, vehicle_id)
-    else:
-        schedules = []  # nothing to delete
-    if schedules is None:
-        # can't tell which still exist, so keep the store
+async def _async_remove_preconditions(client: Rivian, vehicle_id: str) -> None:
+    """Delete a vehicle's temporary precondition schedules."""
+    if (schedules := await _async_departure_schedules(client, vehicle_id)) is None:
         _LOGGER.warning(
-            "Unable to confirm vehicle %s's departure schedules; if any named %s "
-            "remain, delete them in the Rivian app",
+            "Unable to get vehicle %s's departure schedules; delete any named %s "
+            "in the Rivian app",
             vehicle_id,
             PRECONDITION_SCHEDULE_NAME,
         )
         return
-    owned = set(data.get("owned") or {})
-    # created without its id being recorded; found by their unique name
-    pending = {
-        name
-        for record in data.get("pending") or []
-        if isinstance(record, dict) and isinstance(name := record.get("name"), str)
-    }
-    deleted_all = True
-    # ones no longer in the list were already deleted, such as in the app
     for schedule in schedules:
-        name = schedule.get("name")
-        if schedule.get("id") not in owned and not (
-            isinstance(name, str) and name in pending
-        ):
+        if not is_precondition_schedule(schedule):
             continue
         try:
             response = await client.delete_departure_schedule(
@@ -298,20 +247,11 @@ async def _async_remove_vehicle_preconditions(
             ):
                 raise ValueError("not deleted")
         except Exception as err:  # noqa: BLE001
-            deleted_all = False
             _LOGGER.warning(
-                "Unable to delete precondition schedule %s from vehicle %s; "
-                "delete it in the Rivian app: %s",
-                name,
+                "Unable to delete vehicle %s's precondition schedule; delete it in "
+                "the Rivian app: %s",
                 vehicle_id,
                 type(err).__name__,
-            )
-    if deleted_all:
-        try:
-            await store.async_remove()
-        except Exception:
-            _LOGGER.exception(
-                "Unable to remove vehicle %s's precondition store", vehicle_id
             )
 
 
@@ -320,19 +260,22 @@ async def _async_departure_schedules(
 ) -> list[dict[str, Any]] | None:
     """Return a vehicle's departure schedules, which are only sent by subscription.
 
-    Rivian can send an empty list just before the full one, and a timeout or
-    disconnect can follow that empty list too, so an empty list never counts:
-    removing the integration only removes a store once the list is confirmed.
-    Returns None if no schedules arrived, or subscribing failed.
+    Rivian can send an empty list just before the full one, so an empty list only
+    counts if no other list follows within DEPARTURE_SCHEDULES_WAIT. Returns None
+    if no list arrived, or subscribing failed.
     """
     received: asyncio.Future[list[dict[str, Any]]] = (
         asyncio.get_running_loop().create_future()
     )
+    empty = False
 
     def on_schedules(data: dict[str, Any]) -> None:
-        if (
-            schedules := departure_schedules_from_message(data)
-        ) and not received.done():
+        nonlocal empty
+        if (schedules := departure_schedules_from_message(data)) is None:
+            return
+        if not schedules:
+            empty = True
+        elif not received.done():
             received.set_result(schedules)
 
     unsubscribe = await client.subscribe_for_departure_schedules(
@@ -343,7 +286,7 @@ async def _async_departure_schedules(
     try:
         return await asyncio.wait_for(received, DEPARTURE_SCHEDULES_WAIT)
     except TimeoutError:
-        return None
+        return [] if empty else None
     finally:
         await unsubscribe()
 

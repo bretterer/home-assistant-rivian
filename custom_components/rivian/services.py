@@ -58,10 +58,10 @@ SERVICE_PRECONDITION_CABIN: Final = "precondition_cabin"
 
 
 def _not_reserved_name(value: str) -> str:
-    """Reject names the Precondition Cabin button uses for its own schedules.
+    """Reject names Home Assistant uses for its temporary precondition schedules.
 
-    The button names its temporary schedules ``"HA Precondition <marker>"``, so the
-    whole prefix is reserved, not just the exact base name.
+    They're recognized by this name and deleted once departed, so the whole prefix
+    is reserved, not just the exact name.
     """
     if value.strip().casefold().startswith(PRECONDITION_SCHEDULE_NAME.casefold()):
         raise vol.Invalid(

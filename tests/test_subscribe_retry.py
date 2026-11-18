@@ -47,8 +47,7 @@ def vehicle(
     coor._initial = asyncio.Event()
     coor._rate_limited_since = None
     coor._subscribe_failures = 0
-    coor._precondition_pending = []
-    coor._precondition_ids = {}
+    coor._departure_schedules = None
     coor.get_charging_schedule_data = AsyncMock()
     coor._ensure_precondition_loaded = AsyncMock()
     coor._subscribe_departure_schedules = AsyncMock()

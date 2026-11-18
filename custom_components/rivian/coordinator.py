@@ -8,9 +8,7 @@ from collections.abc import Awaitable, Callable, Coroutine
 import contextlib
 from datetime import UTC, datetime, time as dt_time, timedelta
 from functools import partial
-import hashlib
 import logging
-import secrets
 import time
 from typing import Any, Generic, TypeVar
 import uuid
@@ -33,7 +31,6 @@ from rivian.parallax import (
 )
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_USERNAME
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.exceptions import (
     ConfigEntryAuthFailed,
@@ -46,7 +43,6 @@ from homeassistant.helpers.issue_registry import (
     async_create_issue,
     async_delete_issue,
 )
-from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
@@ -124,16 +120,11 @@ DEPARTURE_REFRESH_TIMEOUT = 10
 # How long an empty schedule list after schedules is held back, as Rivian can send
 # one just before the full list; it's used if no other list arrives by then
 DEPARTURE_EMPTY_LIST_HOLD = 5
-# Grace period after a temporary precondition schedule's departure before it is
-# deleted, so a following week's occurrence never fires.
+# How long after its departure a temporary precondition schedule counts as current,
+# before it's deleted so its next weekly occurrence never fires
 PRECONDITION_CLEANUP_GRACE_SECONDS = 2 * 60
-# A pending creation whose id never appears this long after its expiry is abandoned,
-# so a create that silently produced no schedule does not linger forever.
-PRECONDITION_PENDING_MAX_AGE_SECONDS = 24 * 60 * 60
-# How soon cleanup runs again while a deletion has failed or a creation is still
-# waiting for its schedule id to appear.
+# How soon cleanup runs again after a deletion failed
 PRECONDITION_RETRY_SECONDS = 5 * 60
-PRECONDITION_STORE_VERSION = 1
 # Max age of a navigation location fix to use (trip_progress resends its last
 # fix long after navigation ends)
 NAVIGATION_FIX_MAX_AGE = timedelta(minutes=5)
@@ -421,77 +412,51 @@ def precondition_departure(now: datetime, lead_minutes: int) -> datetime:
     return depart.astimezone(zone) if zone else depart
 
 
-def precondition_schedule_departure(
-    schedule: dict[str, Any], departure: float, now: float
-) -> datetime | None:
-    """Return a schedule's departure from its days and time as they stand.
+def is_precondition_schedule(schedule: dict[str, Any]) -> bool:
+    """Return whether a schedule is one of HA's temporary precondition schedules.
 
-    ``departure`` is the departure Home Assistant last knew. If the schedule still
-    departs then, that's returned, so an unchanged schedule that has departed is
-    still cleaned up. If it was edited, such as in the Rivian app, its first
-    occurrence from then, or from ``now`` if that's earlier, is returned. Like ``precondition_departure``, it's in
-    Home Assistant's timezone. Returns None if there's no such occurrence.
+    Identified by the reserved name, which the actions don't let users take.
+    """
+    name = schedule.get("name")
+    return isinstance(name, str) and name.strip().casefold().startswith(
+        PRECONDITION_SCHEDULE_NAME.casefold()
+    )
+
+
+def precondition_current_departure(
+    schedule: dict[str, Any], now: float
+) -> datetime | None:
+    """Return a temporary precondition schedule's departure, if it's current.
+
+    Current means departing within the longest lead time, or having departed less
+    than PRECONDITION_CLEANUP_GRACE_SECONDS ago. A temporary schedule is created
+    to depart within the longest lead, and repeats weekly like any schedule, so one
+    that isn't current has departed, or was moved further out in the Rivian app,
+    and is deleted. In Home Assistant's timezone, like ``precondition_departure``.
     """
     occurrence = schedule.get("occurrence") or {}
     days = occurrence.get("days") or []
     minutes = occurrence.get("startsAtMin")
     if not days or minutes is None:
         return None
-
-    def occurrences(start: datetime, days_after: range) -> list[datetime]:
-        """Return the schedule's times on the days around start's date."""
-        times: list[datetime] = []
-        for offset in days_after:
-            day = start.date() + timedelta(days=offset)
-            if WEEK_DAYS_ORDERED[day.weekday()] not in days:
-                continue
-            wall = datetime.combine(
-                day,
-                dt_time(minutes // MINUTES_PER_HOUR, minutes % MINUTES_PER_HOUR),
-                start.tzinfo,
-            )
-            # A wall time repeated as the clocks go back is two instants
-            times.extend((wall, wall.replace(fold=1)))
-        return times
-
-    # Unchanged: it still departs at the recorded instant
-    recorded = dt_util.as_local(dt_util.utc_from_timestamp(departure))
-    for candidate in occurrences(recorded, range(-1, 2)):
-        if abs(candidate.timestamp() - departure) < 1:
-            return candidate
-    # Edited: its first occurrence from the recorded departure, or from now if
-    # that's earlier. One that has passed since, such as while Home Assistant
-    # was down, has departed and is cleaned up, rather than kept another week
-    start = min(departure, now)
-    upcoming = [
-        c
-        for c in occurrences(
-            dt_util.as_local(dt_util.utc_from_timestamp(start)), range(9)
+    earliest = now - PRECONDITION_CLEANUP_GRACE_SECONDS
+    # the departure minute is rounded up, so allow a minute more than the lead
+    latest = now + (PRECONDITION_LEAD_MINUTES_MAXIMUM + 1) * 60
+    today = dt_util.as_local(dt_util.utc_from_timestamp(now))
+    for offset in (-1, 0, 1):
+        day = today.date() + timedelta(days=offset)
+        if WEEK_DAYS_ORDERED[day.weekday()] not in days:
+            continue
+        wall = datetime.combine(
+            day,
+            dt_time(minutes // MINUTES_PER_HOUR, minutes % MINUTES_PER_HOUR),
+            today.tzinfo,
         )
-        if c.timestamp() >= start
-    ]
-    return min(upcoming, key=lambda c: c.timestamp()) if upcoming else None
-
-
-def precondition_store(
-    hass: HomeAssistant, entry: ConfigEntry, vehicle_id: str
-) -> Store[dict[str, Any]]:
-    """Return the store of a vehicle's temporary precondition schedules.
-
-    Per account, so two accounts with the same vehicle each track, and on
-    removal delete, only the schedules they created. By account rather than
-    entry, so adding the account again picks up a cleanup that failed when it
-    was removed. Keyed by a hash of the username, keeping it out of file names.
-    """
-    if isinstance(username := entry.data.get(CONF_USERNAME), str) and username:
-        account = hashlib.sha256(username.strip().casefold().encode()).hexdigest()[:16]
-    else:
-        account = entry.entry_id
-    return Store(
-        hass,
-        PRECONDITION_STORE_VERSION,
-        f"{DOMAIN}.{account}.{vehicle_id}.precondition",
-    )
+        # A wall time repeated as the clocks go back is two instants
+        for departure in (wall, wall.replace(fold=1)):
+            if earliest <= departure.timestamp() <= latest:
+                return departure
+    return None
 
 
 class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
@@ -548,18 +513,11 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         self._departure_lock = asyncio.Lock()
         self._departure_refreshed = asyncio.Event()
         self._departure_stale = False
-        # temporary schedules this integration's precondition button created: confirmed
-        # ids mapped to the epoch after which they may be deleted, plus pending creations
-        # whose id has not been seen yet (each keeps the pre-existing same-named ids so a
-        # user's/app's schedule is never adopted). Persisted so cleanup survives a
-        # restart and only ever removes our own schedules.
-        self._precondition_store = precondition_store(hass, config_entry, vehicle_id)
-        self._precondition_ids: dict[str, float] = {}
-        self._precondition_pending: list[dict[str, Any]] = []
-        self._precondition_loaded = False
         self._precondition_cleanup_lock = asyncio.Lock()
+        # set when a deletion failed, so cleanup retries soon
+        self._precondition_cleanup_failed = False
         # Serializes precondition_now, so two calls can't each create a schedule.
-        # Taken before the cleanup lock, which is taken before _departure_lock
+        # Taken before _departure_lock, as is the cleanup lock
         self._precondition_lock = asyncio.Lock()
         # Serializes (re)subscribing to the departure schedules, so overlapping
         # calls don't each open a subscription and lose one's handle
@@ -570,7 +528,6 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         self._empty_list_hold: CALLBACK_TYPE | None = None
         self._departure_subscription = 0
         self._departure_failure_logged = False
-        self._precondition_load_lock = asyncio.Lock()
         # the in-flight reconcile task, tracked so overlapping schedules collapse into one
         # and a pending pass can be cancelled cleanly on shutdown
         self._reconcile_task: asyncio.Task[None] | None = None
@@ -975,9 +932,8 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         # the stale marker so reads no longer need to force a refresh
         self._departure_refreshed.set()
         self._departure_stale = False
-        # adopt any late-arriving creation and remove our own expired schedules; only
-        # schedule the async work when there is something for it to do
-        if self._precondition_pending or self._precondition_ids:
+        # delete HA's departed temporary schedules, or wait for the current one
+        if self._precondition_schedules():
             self._schedule_reconcile()
 
     def has_paired_phone(self, identity_id: str | None) -> bool:
@@ -999,84 +955,66 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
     ) -> None:
         """Start cabin preconditioning without a paired phone.
 
-        Creates a temporary departure schedule ``lead_minutes`` out (20 by default),
-        which the vehicle preconditions for right away, at ``temperature`` in °C (by
-        default the driver's set temperature). The vehicle may not precondition
-        for a departure about 15 minutes or less away, so the lead is at least
-        ``PRECONDITION_LEAD_MINUTES_MINIMUM`` and the departure minute is rounded up,
-        never down. There is no keyless way to stop it early: deleting the schedule
-        does not stop a session that has started, so it runs until the departure time.
-        The schedule is deleted shortly after so it does not repeat weekly. Called
-        again before it departs, it moves that schedule instead of adding another.
+        Creates a temporary departure schedule named PRECONDITION_SCHEDULE_NAME,
+        departing ``lead_minutes`` from now (20 by default), which the vehicle
+        preconditions for right away, at ``temperature`` in °C (by default the
+        driver's set temperature). The vehicle may not precondition for a departure
+        about 15 minutes or less away, so the lead is at least
+        ``PRECONDITION_LEAD_MINUTES_MINIMUM`` and the departure minute is rounded
+        up, never down. If HA's temporary schedule is still current, it's moved
+        instead of adding another. There is no keyless way to stop it early:
+        deleting a schedule doesn't stop a session that has started. It's deleted
+        once it has departed, so it doesn't repeat weekly.
 
-        The departure minute and day are computed in Home Assistant's timezone. Rivian
-        interprets them in the vehicle's local timezone, which the API does not expose
-        here, so this assumes the two match. They usually do (the vehicle is near home);
-        if they differ, the schedule fires at the wrong wall-clock time and may not
-        precondition. Setting a longer lead time or using a full departure schedule
-        avoids the mismatch.
+        The departure minute and day are computed in Home Assistant's timezone.
+        Rivian interprets them in the vehicle's local timezone, which the API does
+        not expose here, so this assumes the two match. They usually do (the
+        vehicle is near home); if they differ, the schedule fires at the wrong
+        wall-clock time and may not precondition.
         """
         async with self._precondition_lock:
-            await self._precondition_now(lead_minutes, temperature)
-
-    async def _precondition_now(
-        self, lead_minutes: int | None, temperature: float | None
-    ) -> None:
-        """Start or move a precondition; called under the precondition lock."""
-        await self._ensure_precondition_loaded()
-        # without the list, HA's own upcoming schedule can't be found to move, so
-        # another would be created
-        self._require_departure_schedules()
-        expiry, repeats_weekly, comfort = self._precondition_request(
-            lead_minutes, temperature
-        )
-        if await self._update_upcoming_precondition(expiry, repeats_weekly, comfort):
-            return
-        # give the schedule a unique name so its id can be identified unambiguously and
-        # no unrelated schedule that merely shares the base name is ever claimed as ours
-        name = f"{PRECONDITION_SCHEDULE_NAME} {secrets.token_hex(3)}"
-        schedule = deep_merge(
-            DEFAULT_DEPARTURE_SCHEDULE,
-            {
-                "name": name,
+            # without the list, HA's current schedule can't be found to move, so
+            # another would be created
+            self._require_departure_schedules()
+            if self._departure_stale:
+                # one predating HA's own change could also create a second
+                async with self._departure_lock:
+                    await self._ensure_fresh_departure_schedules()
+            repeats_weekly, comfort = self._precondition_request(
+                lead_minutes, temperature
+            )
+            changes = {
                 "isEnabled": True,
                 "repeatsWeekly": repeats_weekly,
                 "departureSettings": {"comfortSettings": comfort},
-            },
-        )
-        # persist the intent *before* the remote create so an interruption after Rivian
-        # accepts it but before we record the id can still reconcile the schedule by its
-        # unique name; reconciliation runs below (fast path) and on later payloads
-        record = {"name": name, "expiry": expiry}
-        self._precondition_pending.append(record)
-        await self._save_precondition_state()
-        try:
-            await self.create_departure_schedule(schedule)
-        except BaseException as err:
-            # Rivian rejected it, so there's no schedule to adopt, and the record
-            # would refuse the next try. Keep it when the outcome is unknown, such
-            # as after a timeout, as the schedule may still have been created
-            if getattr(err, "translation_key", None) == "schedule_rejected":
-                self._precondition_pending.remove(record)
-                await self._save_precondition_state()
-            # A kept record is adopted by a later cleanup pass. Vehicle updates keep
-            # putting off the regular refresh, and a schedule list may not arrive,
-            # so arm the cleanup timer, which retries well before it's abandoned
-            self._arm_precondition_timer()
-            raise
-        # adopts the new id and arms the cleanup timer for its expiry, so the schedule is
-        # deleted once it has departed and does not fire again next week; deleting does
-        # not stop preconditioning that has already started
-        await self._reconcile_and_cleanup()
+            }
+            now = time.time()
+            if current := next(
+                (
+                    schedule
+                    for schedule in self._precondition_schedules()
+                    if precondition_current_departure(schedule, now)
+                ),
+                None,
+            ):
+                await self.update_departure_schedule(current["id"], changes)
+            else:
+                await self.create_departure_schedule(
+                    deep_merge(
+                        DEFAULT_DEPARTURE_SCHEDULE,
+                        {"name": PRECONDITION_SCHEDULE_NAME, **changes},
+                    )
+                )
+        # the refreshed list arms the cleanup for its departure
 
     def _precondition_request(
         self, lead_minutes: int | None, temperature: float | None
-    ) -> tuple[float, dict[str, Any], dict[str, Any]]:
-        """Return a precondition schedule's expiry, occurrence and comfort settings.
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Return a precondition schedule's occurrence and comfort settings.
 
-        Departing ``lead_minutes`` from now, at ``temperature`` in °C, each clamped to
-        what a schedule allows. Without a temperature, the driver's set temperature is
-        used, like the Rivian app; LO and HI fall outside the limits, so it's clamped.
+        Departing ``lead_minutes`` from now, at ``temperature`` in °C, each clamped
+        to what a schedule allows. Without a temperature, the driver's set
+        temperature is used, like the Rivian app.
         """
         lead = max(
             PRECONDITION_LEAD_MINUTES_MINIMUM,
@@ -1092,195 +1030,30 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
                 if isinstance(target, (int, float))
                 else DEFAULT_PRECONDITION_TEMPERATURE
             )
-        temperature = schedule_cabin_temperature(temperature)
         depart = precondition_departure(dt_util.now(), lead)
-        expiry = depart.timestamp() + PRECONDITION_CLEANUP_GRACE_SECONDS
         repeats_weekly = {
             "days": [WEEK_DAYS_ORDERED[depart.weekday()]],
             "startsAtMin": depart.hour * MINUTES_PER_HOUR + depart.minute,
         }
-        return expiry, repeats_weekly, {"cabinTempCelsius": temperature}
+        return repeats_weekly, {
+            "cabinTempCelsius": schedule_cabin_temperature(temperature)
+        }
 
-    async def _update_upcoming_precondition(
-        self,
-        expiry: float,
-        repeats_weekly: dict[str, Any],
-        comfort: dict[str, Any],
-    ) -> bool:
-        """Move Home Assistant's own precondition schedule, if it hasn't departed.
-
-        Pressing the button again then changes that schedule's departure and
-        temperature, instead of adding a second one that conditions the cabin again
-        and can't be stopped. Returns False when there's no such schedule.
-
-        A creation whose outcome was unknown, such as after a timeout, leaves a
-        pending record. A fresh list then decides it: the schedule is adopted and
-        moved if Rivian created it. If not, the record is kept for a late
-        appearance but no longer stops a new one.
-        """
-        async with self._precondition_cleanup_lock:
-            changed = False
-            try:
-                now = time.time()
-                unchecked = [
-                    record
-                    for record in self._precondition_pending
-                    if record["expiry"] - PRECONDITION_CLEANUP_GRACE_SECONDS > now
-                    and not record.get("missing")
-                ]
-                if self._departure_stale or unchecked:
-                    # Decide from a fresh list: one predating HA's own change could
-                    # create a second schedule. Raises if there's none to be had
-                    async with self._departure_lock:
-                        self._departure_stale = True
-                        await self._ensure_fresh_departure_schedules()
-                changed = self._update_precondition_ownership()
-                upcoming = self._upcoming_precondition()
-                if upcoming is None:
-                    # Not in a fresh list, so it may never have been created. Kept,
-                    # so it's still adopted and cleaned up if it shows up later,
-                    # but it doesn't stop this one or prompt another refresh
-                    for record in unchecked:
-                        if record in self._precondition_pending:
-                            record["missing"] = True
-                            changed = True
-                if upcoming is None:
-                    return False
-                await self.update_departure_schedule(
-                    upcoming,
-                    {
-                        "isEnabled": True,
-                        "repeatsWeekly": repeats_weekly,
-                        "departureSettings": {"comfortSettings": comfort},
-                    },
-                )
-                # clean it up after its new departure instead
-                self._precondition_ids[upcoming] = expiry
-                changed = True
-                return True
-            finally:
-                if changed:
-                    await self._save_precondition_state()
-                self._arm_precondition_timer()
-
-    def _upcoming_precondition(self) -> str | None:
-        """Return our schedule that hasn't departed and is in the list, if any."""
-        now = time.time()
-        return next(
-            (
-                schedule_id
-                for schedule_id, expiry in self._precondition_ids.items()
-                if expiry - PRECONDITION_CLEANUP_GRACE_SECONDS > now
-                and self.get_departure_schedule(schedule_id)
-            ),
-            None,
-        )
-
-    def _precondition_moved(self, schedule_id: str) -> Callable[[dict[str, Any]], bool]:
-        """Return a check for whether our schedule was moved to depart later.
-
-        Run against the schedule as it stands just before it's deleted, so one
-        moved in the Rivian app since the cleanup pass started isn't deleted. If it
-        was, its new expiry is recorded.
-        """
-
-        def moved(schedule: dict[str, Any]) -> bool:
-            now = time.time()
-            new_expiry = self._schedule_expiry(schedule_id, schedule, now)
-            if new_expiry is None or new_expiry <= now:
-                return False
-            self._precondition_ids[schedule_id] = new_expiry
-            return True
-
-        return moved
-
-    def _update_precondition_ownership(self) -> bool:
-        """Adopt late creations and follow edits to our schedules' departure.
-
-        Returns True if the saved state changed.
-        """
-        adopted = self._reconcile_pending()
-        return self._sync_precondition_expiries() or adopted
-
-    def _sync_precondition_expiries(self) -> bool:
-        """Follow edits to our schedules' departure, e.g. made in the Rivian app.
-
-        Each owned schedule is cleaned up after its departure as it stands, not as
-        Home Assistant set it, so one moved later isn't deleted before it departs.
-        Returns True if an expiry changed.
-        """
-        if self._departure_stale:
-            # the list may predate HA's own change to a schedule, which it would undo
-            return False
-        changed = False
-        now = time.time()
-        for schedule_id, expiry in self._precondition_ids.items():
-            if not (schedule := self.get_departure_schedule(schedule_id)):
-                continue
-            new_expiry = self._schedule_expiry(schedule_id, schedule, now)
-            if new_expiry is not None and new_expiry != expiry:
-                self._precondition_ids[schedule_id] = new_expiry
-                changed = True
-        return changed
-
-    def _schedule_expiry(
-        self, schedule_id: str, schedule: dict[str, Any], now: float
-    ) -> float | None:
-        """Return when our schedule should be cleaned up, as it stands.
-
-        After its departure, which may have been edited since Home Assistant set
-        it, plus the grace period. None if it has no departure to go by.
-        """
-        recorded = self._precondition_ids.get(schedule_id, now)
-        departure = precondition_schedule_departure(
-            schedule, recorded - PRECONDITION_CLEANUP_GRACE_SECONDS, now
-        )
-        if departure is None:
-            return None
-        return departure.timestamp() + PRECONDITION_CLEANUP_GRACE_SECONDS
-
-    def _reconcile_pending(self) -> bool:
-        """Adopt the id of each pending creation by its unique name; drop stale records.
-
-        Matching is by exact name, which carries a random per-creation marker, so only
-        the schedule this integration created is ever claimed — never an unrelated app
-        schedule that shares the base name. A record whose name never appears is
-        abandoned once well past its expiry. Returns True if state changed.
-        """
-        if not self._precondition_pending:
-            return False
-        ids_by_name: dict[str, list[str]] = {}
-        for schedule in self._departure_schedules or []:
-            if schedule.get("id"):
-                ids_by_name.setdefault(schedule.get("name"), []).append(schedule["id"])
-        now = time.time()
-        changed = False
-        remaining: list[dict[str, Any]] = []
-        for record in self._precondition_pending:
-            new_ids = [
-                sid
-                for sid in ids_by_name.get(record["name"], [])
-                if sid not in self._precondition_ids
-            ]
-            if new_ids:
-                for schedule_id in new_ids:
-                    self._precondition_ids[schedule_id] = record["expiry"]
-                changed = True
-            elif now > record["expiry"] + PRECONDITION_PENDING_MAX_AGE_SECONDS:
-                changed = True  # the creation never produced a schedule; give up
-            else:
-                remaining.append(record)
-        self._precondition_pending = remaining
-        return changed
+    def _precondition_schedules(self) -> list[dict[str, Any]]:
+        """Return HA's temporary precondition schedules."""
+        return [
+            schedule
+            for schedule in self._departure_schedules or []
+            if is_precondition_schedule(schedule)
+        ]
 
     @callback
     def _schedule_reconcile(self) -> None:
-        """Queue a background reconcile/cleanup pass.
+        """Queue a background cleanup pass.
 
-        Skips scheduling while Home Assistant is stopping so the shutting-down event loop
-        never tears down a pending task, and collapses overlapping requests into the
-        single in-flight task (each pass re-reads current state under the cleanup lock, so
-        dropping a redundant one is safe — the next payload or refresh cycle covers it).
+        Skipped while Home Assistant is stopping, and collapsed into one already
+        in flight (each pass reads the current list, so dropping a redundant one
+        is safe).
         """
         if self._shutting_down or self.hass.is_stopping:
             return
@@ -1289,18 +1062,12 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         self._reconcile_task = self.config_entry.async_create_task(
             self.hass,
             self._reconcile_and_cleanup(),
-            name=f"rivian reconcile {self.vehicle_id}",
+            name=f"rivian precondition cleanup {self.vehicle_id}",
             eager_start=False,
         )
 
     async def _reconcile_and_cleanup(self) -> None:
-        """Adopt late creations and delete our own expired schedules.
-
-        Safe to call repeatedly (from the cleanup timer, a refresh, or when a payload
-        arrives): only schedules we own and whose grace period has passed are removed, a
-        failed deletion stays tracked for the next attempt, and a user's same-named
-        schedule is never touched. Every pass re-arms the cleanup timer.
-        """
+        """Delete HA's departed temporary schedules, then arm the next pass."""
         async with self._precondition_cleanup_lock:
             try:
                 await self._cleanup_precondition_schedules()
@@ -1308,74 +1075,49 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
                 self._arm_precondition_timer()
 
     async def _cleanup_precondition_schedules(self) -> None:
-        """Run one reconcile/cleanup pass; called under the cleanup lock."""
-        await self._ensure_precondition_loaded()
+        """Run one cleanup pass; called under the cleanup lock."""
         if self._departure_schedules is None:
-            # no authoritative list yet; the retry timer or a later payload covers it
-            return
-        changed = self._update_precondition_ownership()
-        now = time.time()
-        present_ids = {
-            schedule.get("id") for schedule in self._departure_schedules or []
-        }
-        # Forget expired ids that no longer exist (deleted in the app or already
-        # removed). An empty list Rivian sends just before the full one is held
-        # back (see _process_departure_schedules), so this list is the real one,
-        # unless it may predate HA's own change, when the next pass decides
-        for schedule_id in [
-            sid
-            for sid, expiry in self._precondition_ids.items()
-            if sid not in present_ids and expiry <= now and not self._departure_stale
-        ]:
-            del self._precondition_ids[schedule_id]
-            changed = True
-        expired = [
-            sid
-            for sid, expiry in self._precondition_ids.items()
-            if expiry <= now and sid in present_ids
-        ]
-        for schedule_id in expired:
+            return  # a later list or the retry timer covers it
+        self._precondition_cleanup_failed = False
+
+        def still_current(schedule: dict[str, Any]) -> bool:
+            # rechecked as it stands just before deleting, such as moved in the app
+            return precondition_current_departure(schedule, time.time()) is not None
+
+        for schedule in self._precondition_schedules():
+            if still_current(schedule):
+                continue
             try:
-                deleted = await self.delete_departure_schedule(
-                    schedule_id, keep=self._precondition_moved(schedule_id)
-                )
+                await self.delete_departure_schedule(schedule["id"], keep=still_current)
             except Exception as err:  # noqa: BLE001
-                # keep the id tracked so the next pass retries the deletion
+                # Retried soon; if it's gone, the next list won't have it
+                self._precondition_cleanup_failed = True
                 _LOGGER.debug("Could not delete precondition schedule: %s", err)
-            else:
-                if deleted:
-                    self._precondition_ids.pop(schedule_id, None)
-                changed = True
-        if changed:
-            await self._save_precondition_state()
 
     @callback
     def _arm_precondition_timer(self) -> None:
-        """Schedule the next cleanup pass while temporary schedules need attention.
+        """Schedule the next cleanup pass, if HA's temporary schedules need one.
 
-        Wakes at the earliest owned expiry, or retries soon if a deletion has failed or a
-        creation has not yet been matched to its id. With nothing left to clean up, no
-        timer is kept.
+        At the current one's departure plus the grace period, or soon if a
+        deletion failed. Independent of the refresh timer, which every vehicle
+        payload restarts.
         """
         if self._precondition_timer:
             self._precondition_timer()
             self._precondition_timer = None
-        if (
-            self._shutting_down
-            or self.hass.is_stopping
-            or not (self._precondition_ids or self._precondition_pending)
-        ):
+        if self._shutting_down or self.hass.is_stopping:
             return
         now = time.time()
-        waits = [
-            expiry - now for expiry in self._precondition_ids.values() if expiry > now
-        ]
-        if self._precondition_pending or len(waits) < len(self._precondition_ids):
-            # a creation is unmatched or an expired deletion failed: retry soon
-            delay = min([PRECONDITION_RETRY_SECONDS, *waits])
+        if self._precondition_cleanup_failed:
+            delay = PRECONDITION_RETRY_SECONDS
+        elif departures := [
+            departure.timestamp()
+            for schedule in self._precondition_schedules()
+            if (departure := precondition_current_departure(schedule, now))
+        ]:
+            delay = min(departures) + PRECONDITION_CLEANUP_GRACE_SECONDS - now
         else:
-            # every owned schedule is still waiting to expire; sleep until the first does
-            delay = min(waits)
+            return
         self._precondition_timer = async_call_later(
             self.hass, max(delay, 1), self._precondition_timer_fired
         )
@@ -1385,44 +1127,6 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         """Run the cleanup pass the timer was armed for."""
         self._precondition_timer = None
         self._schedule_reconcile()
-
-    async def _ensure_precondition_loaded(self) -> None:
-        """Load persisted precondition ownership state once per run.
-
-        Serialized, so a second caller doesn't load it again over state the first
-        has since changed. Entries that can't be read are skipped.
-        """
-        if self._precondition_loaded:
-            return
-        async with self._precondition_load_lock:
-            if self._precondition_loaded:
-                return
-            stored = await self._precondition_store.async_load() or {}
-            owned = stored.get("owned")
-            if isinstance(owned, dict):
-                for schedule_id, expiry in owned.items():
-                    if isinstance(expiry, (int, float)):
-                        self._precondition_ids[str(schedule_id)] = float(expiry)
-            pending = stored.get("pending")
-            if isinstance(pending, list):
-                self._precondition_pending.extend(
-                    {
-                        "name": record["name"],
-                        "expiry": float(record["expiry"]),
-                        "missing": bool(record.get("missing")),
-                    }
-                    for record in pending
-                    if isinstance(record, dict)
-                    and isinstance(record.get("name"), str)
-                    and isinstance(record.get("expiry"), (int, float))
-                )
-            self._precondition_loaded = True
-
-    async def _save_precondition_state(self) -> None:
-        """Persist owned precondition ids and pending creations."""
-        await self._precondition_store.async_save(
-            {"owned": self._precondition_ids, "pending": self._precondition_pending}
-        )
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Get the latest data from Rivian."""
@@ -1472,7 +1176,6 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
                 ) from err
             await self._subscribe_location()
 
-            await self._ensure_precondition_loaded()
             # the websocket was just (re)established; refresh the departure feed too
             await self._subscribe_departure_schedules(force=True)
         else:
@@ -1487,7 +1190,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
 
         # run on every cycle so a precondition schedule whose one-shot timer was lost to
         # a restart is still cleaned up after it expires, and failed deletions are retried
-        if self._precondition_pending or self._precondition_ids:
+        if self._precondition_schedules():
             self._schedule_reconcile()
 
         return self.data
