@@ -8,6 +8,7 @@ from collections.abc import Awaitable, Callable, Coroutine
 import contextlib
 from datetime import UTC, datetime, time as dt_time, timedelta
 from functools import partial
+import hashlib
 import logging
 import secrets
 import time
@@ -32,6 +33,7 @@ from rivian.parallax import (
 )
 
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import CONF_USERNAME
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.exceptions import (
     ConfigEntryAuthFailed,
@@ -472,17 +474,23 @@ def precondition_schedule_departure(
 
 
 def precondition_store(
-    hass: HomeAssistant, entry_id: str, vehicle_id: str
+    hass: HomeAssistant, entry: ConfigEntry, vehicle_id: str
 ) -> Store[dict[str, Any]]:
     """Return the store of a vehicle's temporary precondition schedules.
 
-    Per config entry, so two accounts with the same vehicle each track, and on
-    removal delete, only the schedules they created.
+    Per account, so two accounts with the same vehicle each track, and on
+    removal delete, only the schedules they created. By account rather than
+    entry, so adding the account again picks up a cleanup that failed when it
+    was removed. Keyed by a hash of the username, keeping it out of file names.
     """
+    if isinstance(username := entry.data.get(CONF_USERNAME), str) and username:
+        account = hashlib.sha256(username.strip().casefold().encode()).hexdigest()[:16]
+    else:
+        account = entry.entry_id
     return Store(
         hass,
         PRECONDITION_STORE_VERSION,
-        f"{DOMAIN}.{entry_id}.{vehicle_id}.precondition",
+        f"{DOMAIN}.{account}.{vehicle_id}.precondition",
     )
 
 
@@ -545,9 +553,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         # whose id has not been seen yet (each keeps the pre-existing same-named ids so a
         # user's/app's schedule is never adopted). Persisted so cleanup survives a
         # restart and only ever removes our own schedules.
-        self._precondition_store = precondition_store(
-            hass, config_entry.entry_id, vehicle_id
-        )
+        self._precondition_store = precondition_store(hass, config_entry, vehicle_id)
         self._precondition_ids: dict[str, float] = {}
         self._precondition_pending: list[dict[str, Any]] = []
         self._precondition_loaded = False

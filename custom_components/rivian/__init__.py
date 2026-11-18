@@ -228,7 +228,7 @@ async def _async_remove_preconditions(hass: HomeAssistant, entry: ConfigEntry) -
         for domain, identifier in device.identifiers:
             if domain != DOMAIN:
                 continue
-            store = precondition_store(hass, entry.entry_id, identifier)
+            store = precondition_store(hass, entry, identifier)
             try:
                 data = await store.async_load()
             except Exception:

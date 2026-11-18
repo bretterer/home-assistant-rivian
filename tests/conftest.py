@@ -242,6 +242,7 @@ def _setup_mock_environment() -> None:
         const_mod.ATTR_NAME = "name"  # type: ignore[attr-defined]
         const_mod.ATTR_TEMPERATURE = "temperature"  # type: ignore[attr-defined]
         const_mod.CONF_EMAIL = "email"  # type: ignore[attr-defined]
+        const_mod.CONF_USERNAME = "username"  # type: ignore[attr-defined]
         const_mod.CONF_LATITUDE = "latitude"  # type: ignore[attr-defined]
         const_mod.CONF_LONGITUDE = "longitude"  # type: ignore[attr-defined]
         const_mod.CONF_ZONE = "zone"  # type: ignore[attr-defined]

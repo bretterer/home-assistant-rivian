@@ -113,7 +113,7 @@ def _removal(
     monkeypatch.setattr(
         rivian,
         "precondition_store",
-        lambda hass, entry_id, identifier: stores.get(identifier, _Store(None)),
+        lambda hass, entry, identifier: stores.get(identifier, _Store(None)),
     )
     get_client = MagicMock(return_value=client)
     monkeypatch.setattr(rivian, "get_rivian_api_from_entry", get_client)
@@ -307,3 +307,19 @@ async def test_one_vehicle_failing_to_stop_still_closes_the_client() -> None:
     assert await rivian.async_unload_entry(hass, SimpleNamespace(entry_id="entry"))
 
     assert order == ["V2", "api"]
+
+
+def test_store_is_per_account_and_survives_adding_it_again() -> None:
+    """Same account, same store, even as a new entry; another account, another."""
+    from custom_components.rivian.coordinator import precondition_store
+
+    def entry(entry_id: str, username: str) -> SimpleNamespace:
+        return SimpleNamespace(entry_id=entry_id, data={"username": username})
+
+    first = precondition_store(SimpleNamespace(), entry("e1", "Me@x.com"), "V1")
+    again = precondition_store(SimpleNamespace(), entry("e2", "me@x.com "), "V1")
+    other = precondition_store(SimpleNamespace(), entry("e3", "you@x.com"), "V1")
+
+    assert first.key == again.key
+    assert first.key != other.key
+    assert "x.com" not in first.key
