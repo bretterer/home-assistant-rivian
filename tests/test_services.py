@@ -379,16 +379,16 @@ def devices(monkeypatch: pytest.MonkeyPatch) -> dict[str, SimpleNamespace]:
 
 
 def _loaded(hass: SimpleNamespace, coordinator: MagicMock) -> None:
-    hass.data = {
-        services.DOMAIN: {
-            "entry": {
-                services.ATTR_COORDINATOR: {
-                    services.ATTR_VEHICLE: {"vid": coordinator}
-                },
-                services.ATTR_VEHICLE: {"vid": {"vin": "VIN"}},
-            }
-        }
-    }
+    entry = SimpleNamespace(
+        entry_id="entry",
+        runtime_data=SimpleNamespace(
+            vehicles={"vid": {"vin": "VIN"}},
+            vehicle_coordinators={"vid": coordinator},
+        ),
+    )
+    hass.config_entries = SimpleNamespace(
+        async_loaded_entries=lambda domain: [entry] if domain == services.DOMAIN else []
+    )
 
 
 @pytest.mark.parametrize("identifier", ["vid", "VIN"])

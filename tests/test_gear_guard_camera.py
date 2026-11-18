@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -66,14 +67,10 @@ async def test_cameras_a_vehicle_no_longer_gets_are_removed() -> None:
         "supported_features": streams,
     }
     hass = MagicMock()
-    hass.data = {
-        camera.DOMAIN: {
-            "entry": {
-                camera.ATTR_VEHICLE: vehicles,
-                camera.ATTR_COORDINATOR: {camera.ATTR_VEHICLE: dict.fromkeys(vehicles)},
-            }
-        }
-    }
+    entry = MagicMock(entry_id="entry")
+    entry.runtime_data = SimpleNamespace(
+        vehicles=vehicles, vehicle_coordinators=dict.fromkeys(vehicles)
+    )
 
     def entity(_coor: Any, _entry: Any, _desc: Any, vehicle: Any, cam: str) -> Any:
         return MagicMock(unique_id=f"{vehicle['vin']}-gear_guard_{cam}")
@@ -82,7 +79,7 @@ async def test_cameras_a_vehicle_no_longer_gets_are_removed() -> None:
         patch.object(camera, "RivianGearGuardCamera", entity),
         patch.object(camera, "async_remove_stale_entities") as remove,
     ):
-        await camera.async_setup_entry(hass, MagicMock(entry_id="entry"), MagicMock())
+        await camera.async_setup_entry(hass, entry, MagicMock())
     _, domain, possible, created = remove.call_args.args
     stale = set(possible) - set(created)
     assert domain == camera.CAMERA_DOMAIN

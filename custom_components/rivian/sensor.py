@@ -15,7 +15,6 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     STATE_UNAVAILABLE,
     EntityCategory,
@@ -29,19 +28,11 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 
-from .const import (
-    ATTR_COORDINATOR,
-    ATTR_VEHICLE,
-    ATTR_WALLBOX,
-    DOMAIN,
-    REMOVED_SENSOR_KEYS,
-    SENSORS,
-    WEEK_DAYS_ORDERED,
-)
-from .coordinator import DriverKeyCoordinator, VehicleCoordinator, WallboxCoordinator
+from .const import DOMAIN, REMOVED_SENSOR_KEYS, SENSORS, WEEK_DAYS_ORDERED
+from .coordinator import DriverKeyCoordinator, RivianConfigEntry, VehicleCoordinator
 from .data_classes import (
     RivianNavigationSensorEntityDescription,
     RivianSensorEntityDescription,
@@ -74,15 +65,15 @@ def _parse_timestamp(val: datetime | str | None) -> datetime | None:
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: RivianConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the sensor entities."""
-    data: dict[str, Any] = hass.data[DOMAIN][entry.entry_id]
-    vehicles: dict[str, Any] = data[ATTR_VEHICLE]
-    coordinators: dict[str, Any] = data[ATTR_COORDINATOR]
+    vehicles = entry.runtime_data.vehicles
 
     # Add vehicle entities
-    vehicle_coordinators: dict[str, VehicleCoordinator] = coordinators[ATTR_VEHICLE]
+    vehicle_coordinators = entry.runtime_data.vehicle_coordinators
     entities = [
         RivianSensorEntity(
             vehicle_coordinators[vehicle_id], entry, description, vehicle
@@ -118,7 +109,7 @@ async def async_setup_entry(
     )
 
     # Add wallbox entities
-    wallbox_coordinator: WallboxCoordinator = coordinators[ATTR_WALLBOX]
+    wallbox_coordinator = entry.runtime_data.wallbox_coordinator
     entities.extend(
         RivianWallboxSensorEntity(wallbox_coordinator, description, wallbox)
         for wallbox in wallbox_coordinator.data
