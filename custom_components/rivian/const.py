@@ -848,6 +848,9 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
             device_class=SensorDeviceClass.FREQUENCY,
             native_unit_of_measurement=UnitOfFrequency.MEGAHERTZ,
             state_class=SensorStateClass.MEASUREMENT,
+            suggested_unit_of_measurement=UnitOfFrequency.GIGAHERTZ,
+            # 2.4 GHz channels are 5 MHz apart
+            suggested_display_precision=3,
             # In MHz (5200 seen live). Anything under 1000 isn't a Wi-Fi
             # frequency, e.g. 0 when unset or a 2/5 band number, and would be
             # recorded in statistics as MHz
