@@ -1175,24 +1175,24 @@
           "description": "Whether to defrost or defog the windshield."
         },
         "front_left_seat": {
-          "name": "Front left seat heat or vent",
-          "description": "The heat or vent level of the front left seat."
+          "name": "Front left seat",
+          "description": "Heats or ventilates the seat."
         },
         "front_right_seat": {
-          "name": "Front right seat heat or vent",
-          "description": "The heat or vent level of the front right seat."
+          "name": "Front right seat",
+          "description": "Heats or ventilates the seat."
         },
         "rear_left_seat": {
-          "name": "Rear left seat heat",
-          "description": "The heat level of the rear left seat."
+          "name": "Rear left seat",
+          "description": "Heats the seat."
         },
         "rear_right_seat": {
-          "name": "Rear right seat heat",
-          "description": "The heat level of the rear right seat."
+          "name": "Rear right seat",
+          "description": "Heats the seat."
         },
         "steering_wheel": {
-          "name": "Steering wheel heat",
-          "description": "The heat level of the steering wheel."
+          "name": "Steering wheel",
+          "description": "Heats the steering wheel."
         },
         "override_charge_schedule": {
           "name": "Override charging schedule",
@@ -1237,24 +1237,24 @@
           "description": "Whether to defrost or defog the windshield."
         },
         "front_left_seat": {
-          "name": "Front left seat heat or vent",
-          "description": "The heat or vent level of the front left seat."
+          "name": "Front left seat",
+          "description": "Heats or ventilates the seat."
         },
         "front_right_seat": {
-          "name": "Front right seat heat or vent",
-          "description": "The heat or vent level of the front right seat."
+          "name": "Front right seat",
+          "description": "Heats or ventilates the seat."
         },
         "rear_left_seat": {
-          "name": "Rear left seat heat",
-          "description": "The heat level of the rear left seat."
+          "name": "Rear left seat",
+          "description": "Heats the seat."
         },
         "rear_right_seat": {
-          "name": "Rear right seat heat",
-          "description": "The heat level of the rear right seat."
+          "name": "Rear right seat",
+          "description": "Heats the seat."
         },
         "steering_wheel": {
-          "name": "Steering wheel heat",
-          "description": "The heat level of the steering wheel."
+          "name": "Steering wheel",
+          "description": "Heats the steering wheel."
         },
         "override_charge_schedule": {
           "name": "Override charging schedule",
