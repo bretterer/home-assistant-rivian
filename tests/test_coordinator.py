@@ -154,6 +154,8 @@ def _precondition_coordinator(
     coordinator._precondition_pending = list(pending or [])
     coordinator._precondition_cleanup_lock = asyncio.Lock()
     coordinator._precondition_lock = asyncio.Lock()
+    coordinator._departure_stale = False
+    coordinator._departure_refreshed = asyncio.Event()
     coordinator._departure_schedules = [{"id": sid} for sid in owned or {}]
     coordinator._arm_precondition_timer = MagicMock()
     coordinator.update_departure_schedule = AsyncMock()
@@ -343,6 +345,107 @@ def test_precondition_departure_across_a_dst_change() -> None:
     assert depart.astimezone(UTC) - now.astimezone(UTC) == timedelta(minutes=20)
 
 
+async def test_precondition_waits_out_a_brief_empty_list(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """HA's upcoming schedule missing from an empty list is waited for, not doubled."""
+    now = datetime(2026, 11, 14, 12, 51, 24, tzinfo=UTC)
+    monkeypatch.setattr(coordinator_module.dt_util, "now", lambda: now)
+    monkeypatch.setattr(coordinator_module.time, "time", now.timestamp)
+    departs_soon = now.timestamp() + 10 * 60 + PRECONDITION_CLEANUP_GRACE_SECONDS
+    coordinator, created = _precondition_coordinator(owned={"S1": departs_soon})
+    coordinator._departure_schedules = []
+
+    async def full_list() -> None:
+        await asyncio.sleep(0)
+        coordinator._departure_schedules = [{"id": "S1"}]
+        coordinator._departure_refreshed.set()
+
+    await asyncio.gather(coordinator.precondition_now(), full_list())
+
+    assert not created
+    coordinator.update_departure_schedule.assert_awaited_once()
+
+
+async def test_precondition_after_hass_schedule_was_deleted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If no list with it follows, it was deleted (in the app), so one is created."""
+    now = datetime(2026, 11, 14, 12, 51, 24, tzinfo=UTC)
+    monkeypatch.setattr(coordinator_module.dt_util, "now", lambda: now)
+    monkeypatch.setattr(coordinator_module.time, "time", now.timestamp)
+    monkeypatch.setattr(coordinator_module, "DEPARTURE_EMPTY_LIST_WAIT", 0.01)
+    departs_soon = now.timestamp() + 10 * 60 + PRECONDITION_CLEANUP_GRACE_SECONDS
+    coordinator, created = _precondition_coordinator(owned={"S1": departs_soon})
+    coordinator._departure_schedules = []
+
+    await coordinator.precondition_now()
+
+    coordinator.update_departure_schedule.assert_not_awaited()
+    assert len(created) == 1
+
+
+def test_expiries_not_synced_from_an_unconfirmed_list() -> None:
+    """A list that may predate HA's own move of a schedule doesn't undo it."""
+    coordinator = _cleanup_coordinator(
+        owned={"S1": 2000.0},
+        schedules=[{"id": "S1", "occurrence": {"days": ["Monday"], "startsAtMin": 0}}],
+    )
+    coordinator._departure_stale = True
+
+    assert not coordinator._sync_precondition_expiries()
+    assert coordinator._precondition_ids == {"S1": 2000.0}
+
+
+async def test_unreadable_stored_entries_are_skipped() -> None:
+    """A malformed store doesn't fail the vehicle's setup."""
+    coordinator = _coordinator({})
+    coordinator._precondition_loaded = False
+    coordinator._precondition_load_lock = asyncio.Lock()
+    coordinator._precondition_ids = {}
+    coordinator._precondition_pending = []
+    coordinator._precondition_store = MagicMock(
+        async_load=AsyncMock(
+            return_value={
+                "owned": {"good": 100.0, "bad": "soon"},
+                "pending": [
+                    {"name": "HA Precondition ab12cd", "expiry": 200},
+                    {"name": "HA Precondition ef34ab", "expiry": None},
+                    "junk",
+                ],
+            }
+        )
+    )
+
+    await coordinator._ensure_precondition_loaded()
+
+    assert coordinator._precondition_ids == {"good": 100.0}
+    assert coordinator._precondition_pending == [
+        {"name": "HA Precondition ab12cd", "expiry": 200.0}
+    ]
+
+
+async def test_failed_departure_subscription_is_retried() -> None:
+    """A subscription Rivian ended is dropped, so the next refresh subscribes again."""
+    coordinator = _coordinator({})
+    coordinator._departure_subscribe_lock = asyncio.Lock()
+    unsubscribe = AsyncMock()
+    coordinator._unsub_departure_handler = unsubscribe
+    coordinator.hass = MagicMock()
+    tasks: list[Any] = []
+    coordinator.config_entry = MagicMock(
+        async_create_task=lambda hass, coro, eager_start=True: tasks.append(
+            asyncio.ensure_future(coro)
+        )
+    )
+
+    coordinator._departure_subscription_failed({"payload": [{"message": "nope"}]})
+    await asyncio.gather(*tasks)
+
+    unsubscribe.assert_awaited_once()
+    assert coordinator._unsub_departure_handler is None
+
+
 async def test_precondition_after_departure_creates_a_new_schedule(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -439,6 +542,7 @@ def _cleanup_coordinator(
     coordinator._precondition_pending = list(pending or [])
     coordinator._precondition_loaded = True
     coordinator._precondition_cleanup_lock = asyncio.Lock()
+    coordinator._departure_stale = False
     coordinator._precondition_timer = None
     coordinator._reconcile_task = None
     coordinator._shutting_down = False
@@ -636,8 +740,9 @@ async def test_overlapping_departure_subscribes_open_one() -> None:
     coordinator = _coordinator({})
     coordinator._unsub_departure_handler = None
     coordinator._departure_subscribe_lock = asyncio.Lock()
+    coordinator._shutting_down = False
 
-    async def subscribe(vehicle_id: str, callback: Any) -> AsyncMock:
+    async def subscribe(vehicle_id: str, callback: Any, **kwargs: Any) -> AsyncMock:
         await asyncio.sleep(0)
         return AsyncMock()
 

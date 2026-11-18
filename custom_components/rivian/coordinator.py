@@ -62,6 +62,7 @@ from .const import (
     DOMAIN,
     INVALID_SENSOR_STATES,
     ISSUE_RATE_LIMITED,
+    MINUTES_PER_HOUR,
     PARALLAX_IGNORED_RVMS,
     PARALLAX_NONE_CLEARS,
     PARALLAX_NONE_VALUES,
@@ -112,6 +113,9 @@ CHARGING_SCHEDULE_REFRESH_INTERVAL = 900
 # How long to wait for the subscription to deliver the refreshed schedule list
 # after a mutation before letting the next action proceed.
 DEPARTURE_REFRESH_TIMEOUT = 10
+# How long to wait for the next schedule list when HA's own upcoming schedule is
+# missing from an empty one, which Rivian can send just before the full list
+DEPARTURE_EMPTY_LIST_WAIT = 5
 # Grace period after a temporary precondition schedule's departure before it is
 # deleted, so a following week's occurrence never fires.
 PRECONDITION_CLEANUP_GRACE_SECONDS = 2 * 60
@@ -509,6 +513,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         # Serializes (re)subscribing to the departure schedules, so overlapping
         # calls don't each open a subscription and lose one's handle
         self._departure_subscribe_lock = asyncio.Lock()
+        self._precondition_load_lock = asyncio.Lock()
         # the in-flight reconcile task, tracked so overlapping schedules collapse into one
         # and a pending pass can be cancelled cleanly on shutdown
         self._reconcile_task: asyncio.Task[None] | None = None
@@ -749,9 +754,13 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             if unsub := self._unsub_departure_handler:
                 self._unsub_departure_handler = None
                 await unsub()
+            if self._shutting_down:
+                return
             self._unsub_departure_handler = (
                 await self.api.subscribe_for_departure_schedules(
-                    self.vehicle_id, self._process_departure_schedules
+                    self.vehicle_id,
+                    self._process_departure_schedules,
+                    on_error=self._departure_subscription_failed,
                 )
             )
             if not self._unsub_departure_handler:
@@ -759,6 +768,30 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
                     "Unable to subscribe to departure schedules for %s",
                     self.vehicle_id,
                 )
+
+    @callback
+    def _departure_subscription_failed(self, message: dict[str, Any]) -> None:
+        """End a departure schedule subscription that failed, to retry it later.
+
+        Such as Rivian rejecting the query. The subscription has ended without
+        data but its handle remains, which would keep the next refresh from
+        subscribing again, so it's ended here and retried on the next refresh.
+        """
+        _LOGGER.warning(
+            "Rivian ended vehicle %s departure schedule updates (%s); retrying later",
+            self.vehicle_id,
+            redact(message.get("payload") or message),
+        )
+        self.config_entry.async_create_task(
+            self.hass, self._end_departure_subscription(), eager_start=True
+        )
+
+    async def _end_departure_subscription(self) -> None:
+        """Unsubscribe from the departure schedules, so a refresh subscribes again."""
+        async with self._departure_subscribe_lock:
+            unsub, self._unsub_departure_handler = self._unsub_departure_handler, None
+            if unsub:
+                await unsub()
 
     @callback
     def _process_departure_schedules(self, data: dict[str, Any]) -> None:
@@ -900,7 +933,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         expiry = depart.timestamp() + PRECONDITION_CLEANUP_GRACE_SECONDS
         repeats_weekly = {
             "days": [WEEK_DAYS_ORDERED[depart.weekday()]],
-            "startsAtMin": depart.hour * 60 + depart.minute,
+            "startsAtMin": depart.hour * MINUTES_PER_HOUR + depart.minute,
         }
         return expiry, repeats_weekly, {"cabinTempCelsius": temperature}
 
@@ -921,15 +954,28 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         async with self._precondition_cleanup_lock:
             changed = self._update_precondition_ownership()
             now = time.time()
+            owned_upcoming = [
+                schedule_id
+                for schedule_id, owned_expiry in self._precondition_ids.items()
+                if owned_expiry - PRECONDITION_CLEANUP_GRACE_SECONDS > now
+            ]
             upcoming = next(
-                (
-                    schedule_id
-                    for schedule_id, owned_expiry in self._precondition_ids.items()
-                    if owned_expiry - PRECONDITION_CLEANUP_GRACE_SECONDS > now
-                    and self.get_departure_schedule(schedule_id)
-                ),
+                (sid for sid in owned_upcoming if self.get_departure_schedule(sid)),
                 None,
             )
+            if upcoming is None and owned_upcoming and not self._departure_schedules:
+                # Rivian can send an empty list just before the full one, so wait
+                # for the next before taking one that hasn't departed as deleted,
+                # rather than add a second schedule
+                self._departure_refreshed.clear()
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(
+                        self._departure_refreshed.wait(), DEPARTURE_EMPTY_LIST_WAIT
+                    )
+                upcoming = next(
+                    (sid for sid in owned_upcoming if self.get_departure_schedule(sid)),
+                    None,
+                )
             try:
                 if upcoming is None:
                     if any(
@@ -973,6 +1019,9 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         Home Assistant set it, so one moved later isn't deleted before it departs.
         Returns True if an expiry changed.
         """
+        if self._departure_stale:
+            # the list may predate HA's own change to a schedule, which it would undo
+            return False
         changed = False
         for schedule_id, expiry in self._precondition_ids.items():
             if not (schedule := self.get_departure_schedule(schedule_id)):
@@ -1135,23 +1184,32 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         self._schedule_reconcile()
 
     async def _ensure_precondition_loaded(self) -> None:
-        """Load persisted precondition ownership state once per run."""
+        """Load persisted precondition ownership state once per run.
+
+        Serialized, so a second caller doesn't load it again over state the first
+        has since changed. Entries that can't be read are skipped.
+        """
         if self._precondition_loaded:
             return
-        stored = await self._precondition_store.async_load() or {}
-        owned = stored.get("owned") or {}
-        if isinstance(owned, dict):
-            self._precondition_ids = {
-                str(sid): float(expiry) for sid, expiry in owned.items()
-            }
-        pending = stored.get("pending") or []
-        if isinstance(pending, list):
-            self._precondition_pending = [
-                {"name": str(record["name"]), "expiry": float(record["expiry"])}
-                for record in pending
-                if isinstance(record, dict) and "name" in record and "expiry" in record
-            ]
-        self._precondition_loaded = True
+        async with self._precondition_load_lock:
+            if self._precondition_loaded:
+                return
+            stored = await self._precondition_store.async_load() or {}
+            owned = stored.get("owned")
+            if isinstance(owned, dict):
+                for schedule_id, expiry in owned.items():
+                    if isinstance(expiry, (int, float)):
+                        self._precondition_ids[str(schedule_id)] = float(expiry)
+            pending = stored.get("pending")
+            if isinstance(pending, list):
+                self._precondition_pending.extend(
+                    {"name": record["name"], "expiry": float(record["expiry"])}
+                    for record in pending
+                    if isinstance(record, dict)
+                    and isinstance(record.get("name"), str)
+                    and isinstance(record.get("expiry"), (int, float))
+                )
+            self._precondition_loaded = True
 
     async def _save_precondition_state(self) -> None:
         """Persist owned precondition ids and pending creations."""
@@ -1610,10 +1668,6 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         unsub_parallax, self._unsub_parallax = self._unsub_parallax, None
         unsub_handler, self._unsub_handler = self._unsub_handler, None
         unsub_location, self._unsub_location = self._unsub_location, None
-        unsub_departure, self._unsub_departure_handler = (
-            self._unsub_departure_handler,
-            None,
-        )
         if unsub_handler:
             self._initial.clear()
         if unsub_location:
@@ -1622,8 +1676,15 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             await unsub_parallax()
         if unsub_handler:
             await unsub_handler()
-        if unsub_departure:
-            await unsub_departure()
+        # Under the lock, so a mutation's resubscribe in progress finishes first and
+        # its new subscription is the one that's ended
+        async with self._departure_subscribe_lock:
+            unsub_departure, self._unsub_departure_handler = (
+                self._unsub_departure_handler,
+                None,
+            )
+            if unsub_departure:
+                await unsub_departure()
         if close_monitor and (monitor := self.api._ws_monitor):
             await monitor.close()
 

@@ -187,3 +187,25 @@ def test_summary_departure_time() -> None:
     summary = helpers.departure_schedule_summary(schedule, "°C")
     assert summary["departure_time"] == "12:12"
     assert "time" not in summary
+
+
+def test_empty_list_when_removal_fires_keeps_the_others(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only entities missing when the delay started are removed.
+
+    A brief empty list just as it fires would otherwise remove every schedule's
+    entity, and the full list would add them back as new entities.
+    """
+    harness = _Harness(monkeypatch, registered=set())
+    harness.start(["a", "b"])
+
+    harness.set(["b"])  # a deleted
+    harness.coordinator.departure_schedules = []  # brief empty list, no call yet
+    harness.fire_removal()
+
+    assert harness.registry.unique_ids() == {PREFIX + "b"}
+    # b gets its own full delay, in case it's really gone
+    assert len(harness.timers) == 2
+    harness.set(["b"])
+    harness.timers[-1][2].assert_called_once()  # cancelled once b is back

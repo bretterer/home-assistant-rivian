@@ -43,6 +43,7 @@ def vehicle(
     coor._unsub_handler = coor._unsub_parallax = coor._unsub_location = None
     coor._location_failed = False
     coor._unsub_departure_handler = None
+    coor._departure_subscribe_lock = asyncio.Lock()
     coor._initial = asyncio.Event()
     coor._rate_limited_since = None
     coor._subscribe_failures = 0
