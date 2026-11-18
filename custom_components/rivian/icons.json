@@ -448,9 +448,6 @@
             },
             "cellular_signal_strength": {
                 "default": "mdi:signal"
-            },
-            "departure_schedules": {
-                "default": "mdi:car-clock"
             }
         },
         "switch": {

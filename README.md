@@ -131,7 +131,7 @@ Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
 | Closure state                                       | Binary sensor  | Open/closed status of all closures                                                                                             |
 | Cold range notification                             | Sensor         | Whether cold weather is reducing range                                                                                         |
 | Defrost/defog                                       | Binary sensor  | Running/not running status                                                                                                     |
-| Departure schedules                                 | Sensor         | Number of departure schedules, listed in the attributes (see [Departure Schedules](#departure-schedules))                      |
+| Departure schedule _name_                           | Switch         | One per schedule, to enable or disable it (see [Departure Schedules](#departure-schedules))                                    |
 | Destination                                         | Sensor         | Final stop of the active navigation trip                                                                                       |
 | Destination ETA                                     | Sensor         | Estimated arrival at the destination                                                                                           |
 | Door front left                                     | Binary sensor  | Open/closed status                                                                                                             |
@@ -290,7 +290,7 @@ These controls need a phone key paired over Bluetooth (see [Remote Vehicle Contr
 
 Departure schedules precondition the cabin ahead of a departure time. They do not need vehicle control to be enabled or a paired phone, so they also work for Gen 2 vehicles.
 
-Each schedule gets its own Departure schedule _name_ switch to enable or disable it. The Departure schedules sensor lists every schedule with its `schedule_id` in the `schedules` attribute. The remaining settings, including the departure time and days, are changed with the update action (Home Assistant has no multi-day selector entity, and a per-schedule time entity crowds the controls card). Schedules are created, changed and removed with actions:
+Each schedule gets its own Departure schedule _name_ switch to enable or disable it. Its attributes show the schedule's settings, including the `schedule_id` the update and delete actions take. The remaining settings, including the departure time and days, are changed with the update action (Home Assistant has no multi-day selector entity, and a per-schedule time entity crowds the controls card). Schedules are created, changed and removed with actions:
 
 | Action                             | Description                                                                |
 | ---------------------------------- | -------------------------------------------------------------------------- |

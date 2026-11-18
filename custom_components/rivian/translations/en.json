@@ -1074,9 +1074,6 @@
       },
       "cellular_signal_strength": {
         "name": "Cellular signal strength"
-      },
-      "departure_schedules": {
-        "name": "Departure schedules"
       }
     },
     "switch": {
@@ -1212,7 +1209,7 @@
         },
         "schedule_id": {
           "name": "Schedule ID",
-          "description": "The schedule to update, from the departure schedules sensor or the schedule's switch."
+          "description": "The schedule to update, from the schedule's switch."
         },
         "name": {
           "name": "Name",
@@ -1274,7 +1271,7 @@
         },
         "schedule_id": {
           "name": "Schedule ID",
-          "description": "The schedule to delete, from the departure schedules sensor or the schedule's switch."
+          "description": "The schedule to delete, from the schedule's switch."
         }
       }
     },
