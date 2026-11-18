@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from homeassistant.components.binary_sensor import (
@@ -12,7 +13,7 @@ from homeassistant.components.binary_sensor import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import ATTR_COORDINATOR, ATTR_VEHICLE, BINARY_SENSORS, DOMAIN
@@ -30,15 +31,31 @@ async def async_setup_entry(
     vehicles: dict[str, Any] = data[ATTR_VEHICLE]
     coordinators: dict[str, VehicleCoordinator] = data[ATTR_COORDINATOR][ATTR_VEHICLE]
 
-    entities = [
-        RivianBinarySensorEntity(coordinators[vehicle_id], entry, description, vehicle)
-        for vehicle_id, vehicle in vehicles.items()
-        for models, descriptions in BINARY_SENSORS.items()
-        if any(model in vehicle["model"] for model in models)
-        for description in descriptions
-        if description.supported_feature is None
-        or description.supported_feature in vehicle.get("supported_features", [])
-    ]
+    entities: list[BinarySensorEntity] = []
+    for vehicle_id, vehicle in vehicles.items():
+        coordinator = coordinators[vehicle_id]
+        unreported: list[RivianBinarySensorEntityDescription] = []
+        for models, descriptions in BINARY_SENSORS.items():
+            if not any(model in vehicle["model"] for model in models):
+                continue
+            for description in descriptions:
+                if description.supported_feature is None or (
+                    description.supported_feature
+                    in vehicle.get("supported_features", [])
+                ):
+                    entities.append(
+                        RivianBinarySensorEntity(
+                            coordinator, entry, description, vehicle
+                        )
+                    )
+                elif description.add_when_reported:
+                    unreported.append(description)
+        if unreported:
+            entities.extend(
+                _async_add_when_reported(
+                    entry, coordinator, vehicle, unreported, async_add_entities
+                )
+            )
 
     async_remove_stale_entities(
         hass,
@@ -48,9 +65,13 @@ async def async_setup_entry(
             for vehicle in vehicles.values()
             for descriptions in BINARY_SENSORS.values()
             for description in descriptions
-            # Keep feature-gated entities if the features didn't load
-            if description.supported_feature is None
-            or vehicle.get("supported_features")
+            # Keep feature-gated entities if the features didn't load, and ones
+            # added once reported, which a sleeping vehicle may not report yet
+            if (
+                description.supported_feature is None
+                or vehicle.get("supported_features")
+            )
+            and not description.add_when_reported
         ),
         (entity.unique_id for entity in entities),
     )
@@ -61,6 +82,51 @@ async def async_setup_entry(
         for vehicle_id, vehicle in vehicles.items()
     )
     async_add_entities(entities)
+
+
+def _async_add_when_reported(
+    entry: ConfigEntry,
+    coordinator: VehicleCoordinator,
+    vehicle: dict[str, Any],
+    descriptions: list[RivianBinarySensorEntityDescription],
+    async_add_entities: AddEntitiesCallback,
+) -> list[RivianBinarySensorEntity]:
+    """Return the entities the vehicle already reports, and add the rest later.
+
+    The rest are added the first time the vehicle reports a value for them. A
+    vehicle without the part reports it with no state, so it never gets them.
+    """
+    pending = list(descriptions)
+    unsubscribe: Callable[[], None] | None = None
+
+    def take_reported() -> list[RivianBinarySensorEntity]:
+        reported = [d for d in pending if coordinator.get(d.field) is not None]
+        for description in reported:
+            pending.remove(description)
+        return [
+            RivianBinarySensorEntity(coordinator, entry, description, vehicle)
+            for description in reported
+        ]
+
+    @callback
+    def stop_listening() -> None:
+        nonlocal unsubscribe
+        if unsubscribe:
+            unsubscribe()
+            unsubscribe = None
+
+    @callback
+    def add_reported() -> None:
+        if entities := take_reported():
+            if not pending:
+                stop_listening()
+            async_add_entities(entities)
+
+    entities = take_reported()
+    if pending:
+        unsubscribe = coordinator.async_add_listener(add_reported)
+        entry.async_on_unload(stop_listening)
+    return entities
 
 
 VEHICLE_UPDATES_DESCRIPTION = BinarySensorEntityDescription(
