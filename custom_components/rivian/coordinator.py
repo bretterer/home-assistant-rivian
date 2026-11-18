@@ -963,9 +963,9 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         about 15 minutes or less away, so the lead is at least
         ``PRECONDITION_LEAD_MINUTES_MINIMUM`` and the departure minute is rounded
         up, never down. If HA's temporary schedule is still current, it's moved
-        instead of adding another. There is no keyless way to stop it early:
-        deleting a schedule doesn't stop a session that has started. It's deleted
-        once it has departed, so it doesn't repeat weekly.
+        instead of adding another. Turning it off or deleting it stops
+        preconditioning early. It's deleted once it has departed, so it doesn't
+        repeat weekly.
 
         The departure minute and day are computed in Home Assistant's timezone.
         Rivian interprets them in the vehicle's local timezone, which the API does

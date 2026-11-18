@@ -242,7 +242,7 @@ async def test_lead_is_clamped(clock: SimpleNamespace, lead: int, minutes: int) 
 
 
 async def test_press_again_moves_the_current_schedule(clock: SimpleNamespace) -> None:
-    """Rather than add a second one that conditions again and can't be stopped."""
+    """Rather than add a second one that conditions the cabin again."""
     current = _schedule("S1", NOW + timedelta(minutes=10))
     coordinator, created = _coordinator(
         [current, _schedule("U1", NOW + timedelta(minutes=5), "Weekdays")]

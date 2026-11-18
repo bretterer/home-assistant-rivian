@@ -296,7 +296,7 @@ Each schedule gets its own Departure schedule _name_ switch to enable or disable
 | ---------------------------------- | -------------------------------------------------------------------------- |
 | `rivian.create_departure_schedule` | Create a schedule                                                          |
 | `rivian.update_departure_schedule` | Change a schedule, fields that are left out keep their current value       |
-| `rivian.delete_departure_schedule` | Delete a schedule, this does not stop preconditioning that already started |
+| `rivian.delete_departure_schedule` | Delete a schedule, which also stops preconditioning it has started         |
 
 ```yaml
 action: rivian.create_departure_schedule
@@ -329,7 +329,7 @@ data:
 
 The temporary schedule is a departure schedule named `HA Precondition Now`, with its own Departure schedule switch showing its departure time and temperature. Pressing the button or running the action again before it departs changes that schedule rather than adding another. Home Assistant deletes it once it has departed, so it doesn't repeat weekly, and when the integration is removed. If it can't, such as when Rivian can't be reached, the log says to delete it in the Rivian app.
 
-There is no keyless way to stop a session early — deleting the schedule does not stop preconditioning that has already started, so it runs until the departure time. Stop it from the Rivian app if needed.
+Preconditioning runs until the departure time. To stop it early, turn off the schedule's switch or delete the schedule.
 
 The departure time is computed in Home Assistant's timezone and interpreted by Rivian in the vehicle's local timezone, which the API does not expose. This assumes the two match (the vehicle is near home); if they differ, the button may precondition at the wrong time. Home Assistant recognizes its temporary schedules by their name, which the departure schedule actions don't let you use. Since one always departs within the hour, any schedule named `HA Precondition Now` that doesn't, including one you move further out in the Rivian app, is treated as departed and deleted. Don't give your own schedules that name in the app.
 
