@@ -24,7 +24,6 @@ from custom_components.rivian.const import (
 )
 from custom_components.rivian.coordinator import (
     PRECONDITION_CLEANUP_GRACE_SECONDS,
-    PRECONDITION_PENDING_MAX_AGE_SECONDS,
     PRECONDITION_RETRY_SECONDS,
     VehicleCoordinator,
     precondition_departure,
@@ -43,6 +42,8 @@ def _schedule_coordinator() -> VehicleCoordinator:
     coordinator = _coordinator({})
     coordinator._departure_stale = False
     coordinator._expect_empty_schedules = False
+    coordinator._empty_list_hold = None
+    coordinator._departure_failure_logged = False
     return coordinator
 
 
@@ -53,25 +54,30 @@ def _received(coordinator: VehicleCoordinator, schedules: list[Any]) -> None:
 
 
 @pytest.mark.parametrize(
-    ("previous", "expect_empty", "confirmed"),
+    ("previous", "expect_empty", "held"),
     [
-        ([{"id": "a"}], False, False),
-        ([], False, True),
-        (None, False, True),
-        ([{"id": "a"}], True, True),
+        ([{"id": "a"}], False, True),
+        ([], False, False),
+        (None, False, False),
+        ([{"id": "a"}], True, False),
     ],
     ids=["after-schedules", "again", "first", "deleting-the-last"],
 )
-def test_empty_schedule_list_confirms_only_when_real(
-    previous: list[Any] | None, expect_empty: bool, confirmed: bool
+def test_empty_schedule_list_held_back_after_schedules(
+    monkeypatch: pytest.MonkeyPatch,
+    previous: list[Any] | None,
+    expect_empty: bool,
+    held: bool,
 ) -> None:
-    """An empty list right after schedules may be brief, so it confirms nothing.
+    """An empty list right after schedules may be brief, so it's held back.
 
-    Another empty list, the first list, or deleting the last schedule does.
+    Another empty list, the first list, or deleting the last schedule is used.
     """
+    timers = _Timers()
+    monkeypatch.setattr(coordinator_module, "async_call_later", timers)
     coordinator = _schedule_coordinator()
+    coordinator.hass = MagicMock()
     # confirmed by an earlier list, as before a resubscribe
-    coordinator._departure_stale = False
     coordinator._departure_refreshed = asyncio.Event()
     coordinator._departure_refreshed.set()
     coordinator._departure_schedules = previous
@@ -82,9 +88,55 @@ def test_empty_schedule_list_confirms_only_when_real(
 
     _received(coordinator, [])
 
-    assert coordinator._departure_schedules == []  # still shown
-    assert coordinator._departure_refreshed.is_set() is confirmed
-    assert coordinator._departure_stale is not confirmed
+    assert coordinator._departure_schedules == (previous if held else [])
+    assert coordinator._departure_refreshed.is_set() is not held
+    assert coordinator._departure_stale is held
+    assert len(timers.calls) == (1 if held else 0)
+
+
+def _held_coordinator(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[VehicleCoordinator, _Timers]:
+    timers = _Timers()
+    monkeypatch.setattr(coordinator_module, "async_call_later", timers)
+    coordinator = _schedule_coordinator()
+    coordinator.hass = MagicMock()
+    coordinator._departure_refreshed = asyncio.Event()
+    coordinator._departure_schedules = [{"id": "a"}]
+    coordinator._precondition_pending = []
+    coordinator._precondition_ids = {}
+    coordinator.async_update_listeners = MagicMock()
+    return coordinator, timers
+
+
+def test_held_empty_list_dropped_for_the_full_list(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The full list arriving in time replaces the held back empty one."""
+    coordinator, timers = _held_coordinator(monkeypatch)
+
+    _received(coordinator, [])
+    _received(coordinator, [{"id": "a"}])
+
+    timers.calls[0][2].assert_called_once()  # the hold is cancelled
+    assert coordinator._departure_schedules == [{"id": "a"}]
+    assert coordinator._departure_refreshed.is_set()
+    assert not coordinator._departure_stale
+    coordinator.async_update_listeners.assert_not_called()
+
+
+def test_held_empty_list_used_if_nothing_follows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With no other list by the end of the hold, they're really all gone."""
+    coordinator, timers = _held_coordinator(monkeypatch)
+
+    _received(coordinator, [])
+    timers.calls[0][1](None)  # the hold ends
+
+    assert coordinator._departure_schedules == []
+    assert coordinator._departure_refreshed.is_set()
+    assert not coordinator._departure_stale
 
 
 class _TranslatedError(Exception):
@@ -549,39 +601,16 @@ def test_precondition_departure_across_a_dst_change() -> None:
     assert depart.astimezone(UTC) - now.astimezone(UTC) == timedelta(minutes=20)
 
 
-async def test_precondition_waits_out_a_brief_empty_list(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """HA's upcoming schedule missing from an empty list is waited for, not doubled."""
-    now = datetime(2026, 11, 14, 12, 51, 24, tzinfo=UTC)
-    monkeypatch.setattr(coordinator_module.dt_util, "now", lambda: now)
-    monkeypatch.setattr(coordinator_module.time, "time", now.timestamp)
-    departs_soon = now.timestamp() + 10 * 60 + PRECONDITION_CLEANUP_GRACE_SECONDS
-    coordinator, created = _precondition_coordinator(owned={"S1": departs_soon})
-    coordinator._departure_schedules = []
-
-    async def full_list() -> None:
-        await asyncio.sleep(0)
-        coordinator._departure_schedules = [{"id": "S1"}]
-        coordinator._departure_refreshed.set()
-
-    await asyncio.gather(coordinator.precondition_now(), full_list())
-
-    assert not created
-    coordinator.update_departure_schedule.assert_awaited_once()
-
-
 async def test_precondition_after_hass_schedule_was_deleted(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """If no list with it follows, it was deleted (in the app), so one is created."""
+    """HA's schedule missing from the list was deleted (in the app): a new one."""
     now = datetime(2026, 11, 14, 12, 51, 24, tzinfo=UTC)
     monkeypatch.setattr(coordinator_module.dt_util, "now", lambda: now)
     monkeypatch.setattr(coordinator_module.time, "time", now.timestamp)
-    monkeypatch.setattr(coordinator_module, "DEPARTURE_EMPTY_LIST_WAIT", 0.01)
     departs_soon = now.timestamp() + 10 * 60 + PRECONDITION_CLEANUP_GRACE_SECONDS
     coordinator, created = _precondition_coordinator(owned={"S1": departs_soon})
-    coordinator._departure_schedules = []
+    coordinator._departure_schedules = [{"id": "other"}]
 
     await coordinator.precondition_now()
 
@@ -629,25 +658,57 @@ async def test_unreadable_stored_entries_are_skipped() -> None:
     ]
 
 
-async def test_failed_departure_subscription_is_retried() -> None:
-    """A subscription Rivian ended is dropped, so the next refresh subscribes again."""
+def _failing_subscription(subscription: int) -> tuple[VehicleCoordinator, AsyncMock]:
     coordinator = _coordinator({})
     coordinator._departure_subscribe_lock = asyncio.Lock()
+    coordinator._departure_subscription = subscription
+    coordinator._departure_failure_logged = False
     unsubscribe = AsyncMock()
     coordinator._unsub_departure_handler = unsubscribe
     coordinator.hass = MagicMock()
-    tasks: list[Any] = []
+    coordinator.tasks = []
     coordinator.config_entry = MagicMock(
-        async_create_task=lambda hass, coro, eager_start=True: tasks.append(
+        async_create_task=lambda hass, coro, eager_start=True: coordinator.tasks.append(
             asyncio.ensure_future(coro)
         )
     )
+    return coordinator, unsubscribe
 
-    coordinator._departure_subscription_failed({"payload": [{"message": "nope"}]})
-    await asyncio.gather(*tasks)
+
+async def test_failed_departure_subscription_is_retried() -> None:
+    """A subscription Rivian ended is dropped, so the next refresh subscribes again."""
+    coordinator, unsubscribe = _failing_subscription(1)
+
+    coordinator._departure_subscription_failed(1, {"payload": [{"message": "nope"}]})
+    await asyncio.gather(*coordinator.tasks)
 
     unsubscribe.assert_awaited_once()
     assert coordinator._unsub_departure_handler is None
+
+
+async def test_earlier_subscription_error_keeps_the_new_one() -> None:
+    """An error from a replaced subscription doesn't end the one that replaced it."""
+    coordinator, unsubscribe = _failing_subscription(2)
+
+    coordinator._departure_subscription_failed(1, {"payload": [{"message": "nope"}]})
+    await asyncio.gather(*coordinator.tasks)
+
+    unsubscribe.assert_not_awaited()
+    assert coordinator._unsub_departure_handler is unsubscribe
+
+
+async def test_repeated_subscription_failures_warn_once(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Retried each refresh, a failure warns once until schedules arrive again."""
+    coordinator, _ = _failing_subscription(1)
+
+    with caplog.at_level("DEBUG"):
+        coordinator._departure_subscription_failed(1, {"payload": []})
+        coordinator._departure_subscription_failed(1, {"payload": []})
+    await asyncio.gather(*coordinator.tasks)
+
+    assert [r.levelname for r in caplog.records].count("WARNING") == 1
 
 
 async def test_precondition_after_departure_creates_a_new_schedule(
@@ -666,23 +727,64 @@ async def test_precondition_after_departure_creates_a_new_schedule(
     assert len(created) == 1
 
 
-async def test_precondition_while_one_is_being_created(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize("created_anyway", [True, False])
+async def test_unknown_creation_decided_by_a_fresh_list(
+    monkeypatch: pytest.MonkeyPatch, created_anyway: bool
 ) -> None:
-    """A press while HA's schedule has no id yet is refused, not duplicated."""
+    """A record left by an unknown outcome doesn't block presses until it departs.
+
+    A fresh list shows whether Rivian created the schedule: if so it's adopted and
+    moved, if not the record is dropped and a new one created.
+    """
     now = datetime(2026, 11, 14, 12, 51, 24, tzinfo=UTC)
     monkeypatch.setattr(coordinator_module.dt_util, "now", lambda: now)
     monkeypatch.setattr(coordinator_module.time, "time", now.timestamp)
     expiry = now.timestamp() + 20 * 60 + PRECONDITION_CLEANUP_GRACE_SECONDS
+    name = "HA Precondition abc123"
     coordinator, created = _precondition_coordinator(
-        pending=[{"name": "Home Assistant abc123", "expiry": expiry}]
+        pending=[{"name": name, "expiry": expiry}]
+    )
+    coordinator._departure_lock = asyncio.Lock()
+
+    async def fresh_list() -> None:
+        coordinator._departure_schedules = (
+            [{"id": "S1", "name": name}] if created_anyway else []
+        )
+
+    coordinator._ensure_fresh_departure_schedules = AsyncMock(side_effect=fresh_list)
+
+    await coordinator.precondition_now()
+
+    coordinator._ensure_fresh_departure_schedules.assert_awaited_once()
+    if created_anyway:
+        assert not created
+        coordinator.update_departure_schedule.assert_awaited_once()
+        assert "S1" in coordinator._precondition_ids
+    else:
+        assert len(created) == 1
+        coordinator.update_departure_schedule.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    ("target", "sent"),
+    [(21.0, 21), (21.2, 21), (21.3, 21.5)],
+    ids=["whole", "rounds-down", "rounds-up"],
+)
+async def test_button_sends_temperature_like_the_action(
+    monkeypatch: pytest.MonkeyPatch, target: float, sent: float
+) -> None:
+    """The same rounding and type as the action, so 21.0 °C is sent as 21."""
+    now = datetime(2026, 11, 14, 12, 51, 24, tzinfo=UTC)
+    monkeypatch.setattr(coordinator_module.dt_util, "now", lambda: now)
+    coordinator, created = _precondition_coordinator(
+        data={"hvacTargetTemperature": {"value": target}}
     )
 
-    with pytest.raises(HomeAssistantError):
-        await coordinator.precondition_now()
+    await coordinator.precondition_now()
 
-    assert not created
-    coordinator.update_departure_schedule.assert_not_awaited()
+    value = created[0]["departureSettings"]["comfortSettings"]["cabinTempCelsius"]
+    assert value == sent
+    assert type(value) is type(sent)
 
 
 class _Drivers:
@@ -757,6 +859,7 @@ def _cleanup_coordinator(
     coordinator._precondition_cleanup_lock = asyncio.Lock()
     coordinator._departure_stale = False
     coordinator._expect_empty_schedules = False
+    coordinator._empty_list_hold = None
     coordinator._precondition_timer = None
     coordinator._reconcile_task = None
     coordinator._shutting_down = False
@@ -837,34 +940,6 @@ async def test_schedule_gone_at_expiry_is_forgotten(timers: _Timers) -> None:
     assert coordinator._precondition_ids == {}
     coordinator._save_precondition_state.assert_awaited_once()
     assert timers.calls == []
-
-
-async def test_expired_schedule_kept_through_a_brief_empty_list(
-    timers: _Timers,
-) -> None:
-    """An empty list may come just before the full one, so the id is kept."""
-    coordinator = _cleanup_coordinator(owned={"temp": time.time() - 1}, schedules=[])
-
-    await coordinator._reconcile_and_cleanup()
-
-    assert coordinator._precondition_ids.keys() == {"temp"}
-    # the full list arrives with the schedule, which is then deleted
-    coordinator._departure_schedules = [{"id": "temp"}]
-    await coordinator._reconcile_and_cleanup()
-    coordinator.delete_departure_schedule.assert_awaited_once()
-    assert coordinator.delete_departure_schedule.await_args.args == ("temp",)
-
-
-async def test_long_expired_schedule_forgotten_with_an_empty_list(
-    timers: _Timers,
-) -> None:
-    """With no schedules left at all, an id is dropped once well past its expiry."""
-    expiry = time.time() - PRECONDITION_PENDING_MAX_AGE_SECONDS - 1
-    coordinator = _cleanup_coordinator(owned={"temp": expiry}, schedules=[])
-
-    await coordinator._reconcile_and_cleanup()
-
-    assert coordinator._precondition_ids == {}
 
 
 async def test_failed_cleanup_deletion_is_retried(timers: _Timers) -> None:
@@ -957,6 +1032,7 @@ async def test_overlapping_departure_subscribes_open_one() -> None:
     coordinator = _coordinator({})
     coordinator._unsub_departure_handler = None
     coordinator._departure_subscribe_lock = asyncio.Lock()
+    coordinator._departure_subscription = 0
     coordinator._shutting_down = False
 
     async def subscribe(vehicle_id: str, callback: Any, **kwargs: Any) -> AsyncMock:

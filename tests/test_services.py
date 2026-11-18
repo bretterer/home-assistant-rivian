@@ -19,12 +19,13 @@ ENTITIES = {
 }
 
 
-def _user(allowed: set[str] | None = None) -> SimpleNamespace:
+def _user(allowed: set[str] | None = None, admin: bool = False) -> SimpleNamespace:
     allowed = allowed or set()
     return SimpleNamespace(
+        is_admin=admin,
         permissions=SimpleNamespace(
             check_entity=lambda entity_id, policy: entity_id in allowed
-        )
+        ),
     )
 
 
@@ -129,6 +130,18 @@ async def test_call_without_user_is_trusted(
 
     await delete(_call(None))
     hass.auth.async_get_user.assert_not_awaited()
+    coordinator.delete_departure_schedule.assert_awaited_once_with("schedule")
+
+
+async def test_admin_is_allowed_without_entities(
+    hass: SimpleNamespace, coordinator: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An admin may act on a vehicle whose entities are all disabled."""
+    monkeypatch.setitem(ENTITIES, DEVICE_ID, [])
+    hass.auth.async_get_user.return_value = _user(admin=True)
+    delete = _handlers(hass)[services.SERVICE_DELETE_DEPARTURE_SCHEDULE]
+
+    await delete(_call("admin"))
     coordinator.delete_departure_schedule.assert_awaited_once_with("schedule")
 
 

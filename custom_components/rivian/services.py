@@ -41,7 +41,7 @@ from .const import (
     WEEK_DAYS_ORDERED,
 )
 from .coordinator import VehicleCoordinator
-from .helpers import deep_merge
+from .helpers import deep_merge, schedule_cabin_temperature
 
 ATTR_DAYS: Final = "days"
 ATTR_DEPARTURE_TIME: Final = "departure_time"
@@ -177,6 +177,9 @@ async def _async_get_controlled_vehicle(
         raise UnknownUser(
             context=call.context, permission=POLICY_CONTROL, user_id=user_id
         )
+    if user.is_admin:
+        # even with no entities to check, such as all disabled
+        return coordinator
     entities = er.async_entries_for_device(
         er.async_get(hass), call.data[ATTR_DEVICE_ID]
     )
@@ -198,8 +201,7 @@ def _to_celsius(hass: HomeAssistant, temperature: float) -> float:
 
     Raises if it's outside what a schedule allows. The limits are compared in the
     user's unit, as shown, so the minimum itself (60.8 °F) isn't rejected for a
-    rounding error in the conversion. Rounded to the Rivian app's 0.5 °C steps;
-    whole values are ints.
+    rounding error in the conversion.
     """
     unit = hass.config.units.temperature_unit
     low, high = (
@@ -219,12 +221,9 @@ def _to_celsius(hass: HomeAssistant, temperature: float) -> float:
                 "unit": unit,
             },
         )
-    celsius = TemperatureConverter.convert(temperature, unit, UnitOfTemperature.CELSIUS)
-    celsius = max(
-        DEPARTURE_SCHEDULE_TEMPERATURE_MINIMUM,
-        min(DEPARTURE_SCHEDULE_TEMPERATURE_MAXIMUM, round(celsius * 2) / 2),
+    return schedule_cabin_temperature(
+        TemperatureConverter.convert(temperature, unit, UnitOfTemperature.CELSIUS)
     )
-    return int(celsius) if float(celsius).is_integer() else celsius
 
 
 def _get_schedule_changes(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, Any]:

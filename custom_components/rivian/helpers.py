@@ -33,6 +33,8 @@ from .const import (
     CONF_REFRESH_TOKEN,
     CONF_USER_SESSION_TOKEN,
     DEPARTURE_SCHEDULE_SURFACES,
+    DEPARTURE_SCHEDULE_TEMPERATURE_MAXIMUM,
+    DEPARTURE_SCHEDULE_TEMPERATURE_MINIMUM,
     DOMAIN,
     MINUTES_PER_HOUR,
 )
@@ -132,6 +134,19 @@ def deep_merge(base: dict[str, Any], changes: dict[str, Any]) -> dict[str, Any]:
     return merged
 
 
+def schedule_cabin_temperature(celsius: float) -> float:
+    """Return a cabin temperature in °C as a departure schedule takes it.
+
+    Rounded to the Rivian app's 0.5 °C steps, within the schedule limits, so LO
+    and HI become the nearest limit. Whole values are ints.
+    """
+    celsius = max(
+        DEPARTURE_SCHEDULE_TEMPERATURE_MINIMUM,
+        min(DEPARTURE_SCHEDULE_TEMPERATURE_MAXIMUM, round(celsius * 2) / 2),
+    )
+    return int(celsius) if float(celsius).is_integer() else celsius
+
+
 def departure_schedule_to_input(schedule: dict[str, Any]) -> dict[str, Any]:
     """Convert a departure schedule as received into the format used to set one."""
     data = deepcopy({k: v for k, v in schedule.items() if k != "id"})
@@ -199,19 +214,21 @@ def track_departure_schedule_entities(
     """
     unique_id_prefix = f"{vin}-{key}_"
     known_ids: set[str] = set()
-    # A removal timer for each missing entity, so each waits its own full delay
+    # A removal timer for each missing schedule, so each waits its own full delay
     # from when it went missing, and one coming back cancels only its own
     removals: dict[str, CALLBACK_TYPE] = {}
     last_schedules: list[dict[str, Any]] | None = None
 
-    def _missing_entity_ids(schedule_ids: set[str]) -> set[str]:
+    def _missing_entities(schedule_ids: set[str]) -> dict[str, str]:
+        """Return the entity ids of schedules not in the list, by schedule id."""
         registry = er.async_get(hass)
         return {
-            reg_entry.entity_id
+            schedule_id: reg_entry.entity_id
             for reg_entry in er.async_entries_for_config_entry(registry, entry.entry_id)
             if reg_entry.domain == platform
             and reg_entry.unique_id.startswith(unique_id_prefix)
-            and reg_entry.unique_id.removeprefix(unique_id_prefix) not in schedule_ids
+            and (schedule_id := reg_entry.unique_id.removeprefix(unique_id_prefix))
+            not in schedule_ids
         }
 
     @callback
@@ -221,15 +238,15 @@ def track_departure_schedule_entities(
         removals.clear()
 
     @callback
-    def _remove(entity_id: str, _now: Any) -> None:
-        removals.pop(entity_id, None)
+    def _remove(schedule_id: str, _now: Any) -> None:
+        removals.pop(schedule_id, None)
         if (schedules := coordinator.departure_schedules) is None:
             return
         schedule_ids = {schedule["id"] for schedule in schedules}
-        if entity_id in _missing_entity_ids(schedule_ids):
+        if entity_id := _missing_entities(schedule_ids).get(schedule_id):
             er.async_get(hass).async_remove(entity_id)
-        # removed entities are added again if their schedule comes back
-        known_ids.intersection_update(schedule_ids)
+            # added again if its schedule comes back; others missing keep theirs
+            known_ids.discard(schedule_id)
 
     @callback
     def _update() -> None:
@@ -245,12 +262,12 @@ def track_departure_schedule_entities(
         if new_ids := schedule_ids - known_ids:
             async_add_entities(entity_factory(schedule_id) for schedule_id in new_ids)
             known_ids.update(new_ids)
-        missing = _missing_entity_ids(schedule_ids)
-        for entity_id in set(removals) - missing:
-            removals.pop(entity_id)()
-        for entity_id in missing - set(removals):
-            removals[entity_id] = async_call_later(
-                hass, DEPARTURE_SCHEDULE_REMOVE_DELAY, partial(_remove, entity_id)
+        missing = _missing_entities(schedule_ids).keys()
+        for schedule_id in removals.keys() - missing:
+            removals.pop(schedule_id)()
+        for schedule_id in missing - removals.keys():
+            removals[schedule_id] = async_call_later(
+                hass, DEPARTURE_SCHEDULE_REMOVE_DELAY, partial(_remove, schedule_id)
             )
 
     entry.async_on_unload(coordinator.async_add_listener(_update))

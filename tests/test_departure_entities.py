@@ -224,3 +224,19 @@ def test_each_missing_schedule_has_its_own_delay(
 
     harness.set([])  # a missing again: a new, full delay
     assert len(harness.timers) == 3
+
+
+def test_removal_forgets_only_its_own_schedule(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A schedule still waiting on its own delay isn't added again when it returns."""
+    harness = _Harness(monkeypatch, registered=set())
+    harness.start(["a", "b"])
+
+    harness.set(["b"])  # a missing
+    harness.set([])  # b missing too, later
+    harness.timers[0][1](None)  # a's delay ends: a removed
+    harness.set(["b"])  # b comes back before its delay ends
+
+    assert harness.added.count("b") == 1
+    assert harness.registry.unique_ids() == {PREFIX + "b"}

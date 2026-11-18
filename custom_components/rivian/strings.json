@@ -1296,9 +1296,6 @@
     }
   },
   "exceptions": {
-    "precondition_already_scheduled": {
-      "message": "Preconditioning is already being scheduled; try again in a moment"
-    },
     "invalid_device": {
       "message": "{device_id} is not a Rivian vehicle"
     },

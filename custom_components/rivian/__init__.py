@@ -155,7 +155,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
-    api: Rivian = hass.data[DOMAIN][entry.entry_id][ATTR_API]
+    # Stop the vehicles' background work, such as a precondition cleanup, before
+    # closing the client it uses. Home Assistant shuts them down again after this
+    # returns, which does nothing more
+    data = hass.data[DOMAIN][entry.entry_id]
+    for coordinator in data[ATTR_COORDINATOR][ATTR_VEHICLE].values():
+        await coordinator.async_shutdown()
+    api: Rivian = data[ATTR_API]
     await api.close()
 
     if unload_ok:
