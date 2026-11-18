@@ -132,7 +132,8 @@ def test_removal_uses_the_list_when_it_fires(monkeypatch: pytest.MonkeyPatch) ->
 
     harness.set([])
     harness.coordinator.departure_schedules = [{"id": "a"}]  # no listener call yet
-    harness.fire_removal()
+    for _, action, _ in list(harness.timers):
+        action(None)
 
     assert harness.registry.unique_ids() == {PREFIX + "a"}
 
@@ -192,7 +193,7 @@ def test_summary_departure_time() -> None:
 def test_empty_list_when_removal_fires_keeps_the_others(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Only entities missing when the delay started are removed.
+    """Only the entity whose own delay ended is removed.
 
     A brief empty list just as it fires would otherwise remove every schedule's
     entity, and the full list would add them back as new entities.
@@ -201,11 +202,25 @@ def test_empty_list_when_removal_fires_keeps_the_others(
     harness.start(["a", "b"])
 
     harness.set(["b"])  # a deleted
+    assert len(harness.timers) == 1
     harness.coordinator.departure_schedules = []  # brief empty list, no call yet
     harness.fire_removal()
 
     assert harness.registry.unique_ids() == {PREFIX + "b"}
-    # b gets its own full delay, in case it's really gone
-    assert len(harness.timers) == 2
-    harness.set(["b"])
-    harness.timers[-1][2].assert_called_once()  # cancelled once b is back
+
+
+def test_each_missing_schedule_has_its_own_delay(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One coming back cancels only its own removal; one gone again starts anew."""
+    harness = _Harness(monkeypatch, registered=set())
+    harness.start(["a", "b"])
+
+    harness.set([])  # both missing
+    (_, _, cancel_first), (_, _, cancel_second) = harness.timers
+    harness.set(["a"])  # a is back, b still missing
+    assert [cancel_first.called, cancel_second.called].count(True) == 1
+    assert len(harness.timers) == 2  # b keeps its original delay
+
+    harness.set([])  # a missing again: a new, full delay
+    assert len(harness.timers) == 3

@@ -7,6 +7,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+import voluptuous as vol
 
 from custom_components.rivian import services
 from homeassistant.exceptions import Unauthorized, UnknownUser
@@ -66,15 +67,22 @@ def coordinator(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
     return coordinator
 
 
-def _handlers(hass: SimpleNamespace) -> dict[str, Any]:
+def _register(hass: SimpleNamespace) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Set up the actions; return their handlers and schemas by name."""
     handlers: dict[str, Any] = {}
-    hass.services = SimpleNamespace(
-        async_register=lambda domain, service, handler, schema: handlers.__setitem__(
-            service, handler
-        )
-    )
+    schemas: dict[str, Any] = {}
+
+    def register(domain: str, service: str, handler: Any, schema: Any) -> None:
+        handlers[service] = handler
+        schemas[service] = schema
+
+    hass.services = SimpleNamespace(async_register=register)
     services.async_setup_services(hass)
-    return handlers
+    return handlers, schemas
+
+
+def _handlers(hass: SimpleNamespace) -> dict[str, Any]:
+    return _register(hass)[0]
 
 
 async def test_user_without_vehicle_control_is_denied(
@@ -157,9 +165,6 @@ async def test_precondition_cabin(
     expected: tuple[Any, Any],
 ) -> None:
     """The lead time is passed on, and the temperature converted to Celsius."""
-    # the test harness mocks Home Assistant's constants as one shared stand-in
-    monkeypatch.setattr(services, "ATTR_DEVICE_ID", "device_id")
-    monkeypatch.setattr(services, "ATTR_TEMPERATURE", "temperature")
     coordinator.precondition_now = AsyncMock()
     hass.config = SimpleNamespace(units=SimpleNamespace(temperature_unit="°F"))
     call = _call(None)
@@ -172,6 +177,114 @@ async def test_precondition_cabin(
     await _handlers(hass)[services.SERVICE_PRECONDITION_CABIN](call)
 
     coordinator.precondition_now.assert_awaited_once_with(*expected)
+
+
+@pytest.mark.parametrize(
+    ("service", "data"),
+    [
+        (services.SERVICE_PRECONDITION_CABIN, {"device_id": "d"}),
+        (
+            services.SERVICE_PRECONDITION_CABIN,
+            {"device_id": "d", "lead_time": "30", "temperature": "72"},
+        ),
+        (
+            services.SERVICE_CREATE_DEPARTURE_SCHEDULE,
+            {
+                "device_id": "d",
+                "name": "Weekdays",
+                "departure_time": "07:30:00",
+                "days": ["Monday", "Friday"],
+            },
+        ),
+        (
+            services.SERVICE_UPDATE_DEPARTURE_SCHEDULE,
+            {"device_id": "d", "schedule_id": "s", "enabled": False},
+        ),
+        (
+            services.SERVICE_DELETE_DEPARTURE_SCHEDULE,
+            {"device_id": "d", "schedule_id": "s"},
+        ),
+    ],
+)
+def test_action_schema_accepts(
+    hass: SimpleNamespace, service: str, data: dict[str, Any]
+) -> None:
+    schema = _register(hass)[1][service]
+    schema(data)
+
+
+@pytest.mark.parametrize(
+    ("service", "data"),
+    [
+        (services.SERVICE_PRECONDITION_CABIN, {}),
+        (services.SERVICE_PRECONDITION_CABIN, {"device_id": "d", "lead_time": 15}),
+        (services.SERVICE_PRECONDITION_CABIN, {"device_id": "d", "lead_time": 61}),
+        (
+            services.SERVICE_CREATE_DEPARTURE_SCHEDULE,
+            {
+                "device_id": "d",
+                "name": "HA Precondition mine",
+                "departure_time": "07:30:00",
+                "days": ["Monday"],
+            },
+        ),
+        (
+            services.SERVICE_CREATE_DEPARTURE_SCHEDULE,
+            {
+                "device_id": "d",
+                "name": "Weekdays",
+                "departure_time": "07:30:00",
+                "days": ["Someday"],
+            },
+        ),
+        (services.SERVICE_UPDATE_DEPARTURE_SCHEDULE, {"device_id": "d"}),
+        (
+            services.SERVICE_UPDATE_DEPARTURE_SCHEDULE,
+            {"device_id": "d", "schedule_id": "s", "time": "07:30:00"},
+        ),
+    ],
+    ids=[
+        "precondition-no-vehicle",
+        "precondition-lead-too-short",
+        "precondition-lead-too-long",
+        "create-reserved-name",
+        "create-unknown-day",
+        "update-no-schedule",
+        "update-old-time-field",
+    ],
+)
+def test_action_schema_rejects(
+    hass: SimpleNamespace, service: str, data: dict[str, Any]
+) -> None:
+    schema = _register(hass)[1][service]
+    with pytest.raises(vol.Invalid):
+        schema(data)
+
+
+@pytest.mark.parametrize(
+    ("temperature", "celsius"),
+    [(60.8, 16), (84.2, 29), (72, 22)],
+    ids=["minimum", "maximum", "middle"],
+)
+def test_fahrenheit_limits_are_accepted(temperature: float, celsius: float) -> None:
+    """The limits as shown in °F aren't rejected for a conversion rounding error."""
+    hass = SimpleNamespace(
+        config=SimpleNamespace(units=SimpleNamespace(temperature_unit="°F"))
+    )
+    assert services._to_celsius(hass, temperature) == celsius
+
+
+@pytest.mark.parametrize("temperature", [60.7, 84.3])
+def test_fahrenheit_outside_the_limits_is_rejected(
+    monkeypatch: pytest.MonkeyPatch, temperature: float
+) -> None:
+    monkeypatch.setattr(services, "ServiceValidationError", _TranslatedError)
+    hass = SimpleNamespace(
+        config=SimpleNamespace(units=SimpleNamespace(temperature_unit="°F"))
+    )
+    with pytest.raises(_TranslatedError) as err:
+        services._to_celsius(hass, temperature)
+    assert err.value.translation_key == "temperature_out_of_range"
 
 
 class _TranslatedError(Exception):

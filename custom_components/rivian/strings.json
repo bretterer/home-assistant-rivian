@@ -1308,6 +1308,9 @@
     "schedule_rejected": {
       "message": "Rivian rejected {action}: {reason}"
     },
+    "schedule_unconfirmed": {
+      "message": "Rivian didn't confirm {action} ({reason}); it may still have been applied"
+    },
     "schedules_out_of_sync": {
       "message": "Departure schedules are out of sync with Rivian; please try again"
     },

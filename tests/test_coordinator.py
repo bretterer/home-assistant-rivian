@@ -42,7 +42,83 @@ def _coordinator(data: dict[str, Any]) -> VehicleCoordinator:
 def _schedule_coordinator() -> VehicleCoordinator:
     coordinator = _coordinator({})
     coordinator._departure_stale = False
+    coordinator._expect_empty_schedules = False
     return coordinator
+
+
+def _received(coordinator: VehicleCoordinator, schedules: list[Any]) -> None:
+    coordinator._process_departure_schedules(
+        {"payload": {"data": {"vehicleDepartureSchedules": schedules}}}
+    )
+
+
+@pytest.mark.parametrize(
+    ("previous", "expect_empty", "confirmed"),
+    [
+        ([{"id": "a"}], False, False),
+        ([], False, True),
+        (None, False, True),
+        ([{"id": "a"}], True, True),
+    ],
+    ids=["after-schedules", "again", "first", "deleting-the-last"],
+)
+def test_empty_schedule_list_confirms_only_when_real(
+    previous: list[Any] | None, expect_empty: bool, confirmed: bool
+) -> None:
+    """An empty list right after schedules may be brief, so it confirms nothing.
+
+    Another empty list, the first list, or deleting the last schedule does.
+    """
+    coordinator = _schedule_coordinator()
+    coordinator._departure_stale = True
+    coordinator._departure_refreshed = asyncio.Event()
+    coordinator._departure_schedules = previous
+    coordinator._expect_empty_schedules = expect_empty
+    coordinator._precondition_pending = []
+    coordinator._precondition_ids = {}
+    coordinator.async_update_listeners = MagicMock()
+
+    _received(coordinator, [])
+
+    assert coordinator._departure_schedules == []  # still shown
+    assert coordinator._departure_refreshed.is_set() is confirmed
+    assert coordinator._departure_stale is not confirmed
+
+
+class _TranslatedError(Exception):
+    """Stands in for Home Assistant's errors, keeping their translation key."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args)
+        self.translation_key = kwargs.get("translation_key")
+
+
+@pytest.mark.parametrize(
+    ("error", "key"),
+    [
+        (RivianApiException("timed out"), "schedule_unconfirmed"),
+        (
+            RivianApiException("rejected", {"errors": [{"message": "Bad input"}]}),
+            "schedule_rejected",
+        ),
+    ],
+    ids=["timeout", "graphql-error"],
+)
+async def test_schedule_write_rejected_only_with_graphql_errors(
+    monkeypatch: pytest.MonkeyPatch, error: Exception, key: str
+) -> None:
+    """Without GraphQL errors, such as after a timeout, the outcome is unknown."""
+    monkeypatch.setattr(coordinator_module, "HomeAssistantError", _TranslatedError)
+    coordinator = _schedule_coordinator()
+
+    async def request() -> None:
+        raise error
+
+    with pytest.raises(_TranslatedError) as err:
+        await coordinator._departure_schedule_mutation(
+            "createDepartureSchedule", request()
+        )
+    assert err.value.translation_key == key
 
 
 async def test_failed_schedule_write_marks_cache_unconfirmed() -> None:
@@ -155,6 +231,7 @@ def _precondition_coordinator(
     coordinator._precondition_cleanup_lock = asyncio.Lock()
     coordinator._precondition_lock = asyncio.Lock()
     coordinator._departure_stale = False
+    coordinator._expect_empty_schedules = False
     coordinator._departure_refreshed = asyncio.Event()
     coordinator._departure_schedules = [{"id": sid} for sid in owned or {}]
     coordinator._arm_precondition_timer = MagicMock()
@@ -280,6 +357,91 @@ async def test_cleanup_follows_a_departure_moved_in_the_app(
     coordinator._save_precondition_state.assert_awaited()
 
 
+def _denver(monkeypatch: pytest.MonkeyPatch) -> ZoneInfo:
+    zone = ZoneInfo("America/Denver")
+    monkeypatch.setattr(
+        coordinator_module.dt_util, "as_local", lambda value: value.astimezone(zone)
+    )
+    monkeypatch.setattr(
+        coordinator_module.dt_util,
+        "utc_from_timestamp",
+        lambda timestamp: datetime.fromtimestamp(timestamp, UTC),
+    )
+    return zone
+
+
+def test_unchanged_departed_schedule_keeps_its_departure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One that has departed unchanged isn't moved to next week, so it's cleaned up."""
+    zone = _denver(monkeypatch)
+    departure = datetime(2026, 11, 18, 12, 12, tzinfo=zone)
+    schedule = {"occurrence": {"days": ["Wednesday"], "startsAtMin": 12 * 60 + 12}}
+
+    result = coordinator_module.precondition_schedule_departure(
+        schedule, departure.timestamp(), departure.timestamp() + 3600
+    )
+
+    assert result == departure
+
+
+def test_edited_schedule_takes_its_next_occurrence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Moved to a day that has passed this week, it departs next week, not then."""
+    zone = _denver(monkeypatch)
+    departure = datetime(2026, 11, 18, 12, 12, tzinfo=zone)  # a Wednesday
+    now = departure - timedelta(minutes=10)
+    schedule = {"occurrence": {"days": ["Tuesday"], "startsAtMin": 13 * 60}}
+
+    result = coordinator_module.precondition_schedule_departure(
+        schedule, departure.timestamp(), now.timestamp()
+    )
+
+    assert result == datetime(2026, 11, 24, 13, 0, tzinfo=zone)
+
+
+def test_repeated_wall_time_keeps_its_instant(monkeypatch: pytest.MonkeyPatch) -> None:
+    """01:30 happens twice as the clocks go back; the recorded one is kept."""
+    zone = _denver(monkeypatch)
+    second = datetime(2026, 11, 1, 1, 30, tzinfo=zone, fold=1)
+    schedule = {"occurrence": {"days": ["Sunday"], "startsAtMin": 90}}
+
+    result = coordinator_module.precondition_schedule_departure(
+        schedule, second.timestamp(), second.timestamp() - 600
+    )
+
+    assert result is not None
+    assert result.timestamp() == second.timestamp()
+
+
+async def test_schedule_moved_just_before_deletion_is_kept(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Rechecked as it stands just before deleting, one moved later isn't deleted."""
+    zone = _denver(monkeypatch)
+    departure = datetime(2026, 11, 18, 12, 12, tzinfo=zone)
+    now = departure + timedelta(minutes=5)
+    monkeypatch.setattr(coordinator_module.time, "time", now.timestamp)
+    coordinator = _cleanup_coordinator(
+        owned={"S1": departure.timestamp() + PRECONDITION_CLEANUP_GRACE_SECONDS}
+    )
+    keep = coordinator._precondition_moved("S1")
+
+    moved = {"occurrence": {"days": ["Wednesday"], "startsAtMin": 13 * 60}}
+    assert keep(moved)
+    assert coordinator._precondition_ids["S1"] == (
+        datetime(2026, 11, 18, 13, 0, tzinfo=zone).timestamp()
+        + PRECONDITION_CLEANUP_GRACE_SECONDS
+    )
+    unchanged = {"occurrence": {"days": ["Wednesday"], "startsAtMin": 13 * 60}}
+    coordinator._precondition_ids["S1"] = (
+        departure.timestamp() + PRECONDITION_CLEANUP_GRACE_SECONDS
+    )
+    unchanged["occurrence"]["startsAtMin"] = 12 * 60 + 12
+    assert not keep(unchanged)
+
+
 async def test_precondition_needs_the_schedule_list() -> None:
     """Without the list, HA's upcoming schedule can't be found, so it's refused."""
     coordinator, created = _precondition_coordinator()
@@ -306,6 +468,23 @@ async def test_rejected_precondition_does_not_block_the_next(
         await coordinator.precondition_now()
 
     assert coordinator._precondition_pending == []
+
+
+async def test_unconfirmed_precondition_keeps_its_record(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """After a timeout the schedule may exist, so its record stays to adopt it."""
+    now = datetime(2026, 11, 14, 12, 51, 24, tzinfo=UTC)
+    monkeypatch.setattr(coordinator_module.dt_util, "now", lambda: now)
+    coordinator, _ = _precondition_coordinator()
+    unconfirmed = HomeAssistantError("unconfirmed")
+    unconfirmed.translation_key = "schedule_unconfirmed"
+    coordinator.create_departure_schedule = AsyncMock(side_effect=unconfirmed)
+
+    with pytest.raises(HomeAssistantError):
+        await coordinator.precondition_now()
+
+    assert len(coordinator._precondition_pending) == 1
 
 
 async def test_concurrent_preconditions_create_one_schedule(
@@ -496,8 +675,17 @@ class _Drivers:
         ("identity", None, False),
         ("identity", {"isPaired": False}, False),
         ("identity", {"isPaired": True}, True),
+        ("identity", {"isPaired": True, "isEnabled": True}, True),
+        ("identity", {"isPaired": True, "isEnabled": False}, False),
     ],
-    ids=["not-enrolled", "enrolled-no-device", "enrolled-unpaired", "paired"],
+    ids=[
+        "not-enrolled",
+        "enrolled-no-device",
+        "enrolled-unpaired",
+        "paired",
+        "paired-enabled",
+        "paired-disabled",
+    ],
 )
 def test_has_paired_phone(
     identity_id: str | None, device: dict[str, Any] | None, paired: bool
@@ -543,6 +731,7 @@ def _cleanup_coordinator(
     coordinator._precondition_loaded = True
     coordinator._precondition_cleanup_lock = asyncio.Lock()
     coordinator._departure_stale = False
+    coordinator._expect_empty_schedules = False
     coordinator._precondition_timer = None
     coordinator._reconcile_task = None
     coordinator._shutting_down = False
@@ -581,7 +770,8 @@ async def test_cleanup_deletes_expired_schedule_and_stops_timer(
 
     await coordinator._reconcile_and_cleanup()
 
-    coordinator.delete_departure_schedule.assert_awaited_once_with("temp")
+    coordinator.delete_departure_schedule.assert_awaited_once()
+    assert coordinator.delete_departure_schedule.await_args.args == ("temp",)
     assert coordinator._precondition_ids == {}
     assert timers.calls == []
 
@@ -605,7 +795,8 @@ async def test_missing_schedule_kept_until_expiry(timers: _Timers) -> None:
     coordinator._precondition_ids["temp"] = time.time() - 1  # now expired
     await coordinator._reconcile_and_cleanup()
 
-    coordinator.delete_departure_schedule.assert_awaited_once_with("temp")
+    coordinator.delete_departure_schedule.assert_awaited_once()
+    assert coordinator.delete_departure_schedule.await_args.args == ("temp",)
     assert coordinator._precondition_ids == {}
 
 
@@ -635,7 +826,8 @@ async def test_expired_schedule_kept_through_a_brief_empty_list(
     # the full list arrives with the schedule, which is then deleted
     coordinator._departure_schedules = [{"id": "temp"}]
     await coordinator._reconcile_and_cleanup()
-    coordinator.delete_departure_schedule.assert_awaited_once_with("temp")
+    coordinator.delete_departure_schedule.assert_awaited_once()
+    assert coordinator.delete_departure_schedule.await_args.args == ("temp",)
 
 
 async def test_long_expired_schedule_forgotten_with_an_empty_list(
@@ -706,7 +898,7 @@ async def test_unload_during_cleanup_does_not_rearm_timer(
     )
     deleting = asyncio.Event()
 
-    async def delete(schedule_id: str) -> None:
+    async def delete(schedule_id: str, **kwargs: Any) -> None:
         deleting.set()
         await asyncio.Event().wait()
 

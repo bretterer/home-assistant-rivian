@@ -196,22 +196,20 @@ async def _async_get_controlled_vehicle(
 def _to_celsius(hass: HomeAssistant, temperature: float) -> float:
     """Convert a cabin temperature in the user's unit to °C for a schedule.
 
-    Raises if it's outside what a schedule allows, with the limits in the user's
-    unit. Rounded to the Rivian app's 0.5 °C steps; whole values are ints.
+    Raises if it's outside what a schedule allows. The limits are compared in the
+    user's unit, as shown, so the minimum itself (60.8 °F) isn't rejected for a
+    rounding error in the conversion. Rounded to the Rivian app's 0.5 °C steps;
+    whole values are ints.
     """
     unit = hass.config.units.temperature_unit
-    celsius = TemperatureConverter.convert(temperature, unit, UnitOfTemperature.CELSIUS)
-    if not (
-        DEPARTURE_SCHEDULE_TEMPERATURE_MINIMUM
-        <= celsius
-        <= DEPARTURE_SCHEDULE_TEMPERATURE_MAXIMUM
-    ):
-        low = TemperatureConverter.convert(
-            DEPARTURE_SCHEDULE_TEMPERATURE_MINIMUM, UnitOfTemperature.CELSIUS, unit
+    low, high = (
+        round(TemperatureConverter.convert(limit, UnitOfTemperature.CELSIUS, unit), 6)
+        for limit in (
+            DEPARTURE_SCHEDULE_TEMPERATURE_MINIMUM,
+            DEPARTURE_SCHEDULE_TEMPERATURE_MAXIMUM,
         )
-        high = TemperatureConverter.convert(
-            DEPARTURE_SCHEDULE_TEMPERATURE_MAXIMUM, UnitOfTemperature.CELSIUS, unit
-        )
+    )
+    if not low <= temperature <= high:
         raise ServiceValidationError(
             translation_domain=DOMAIN,
             translation_key="temperature_out_of_range",
@@ -221,8 +219,12 @@ def _to_celsius(hass: HomeAssistant, temperature: float) -> float:
                 "unit": unit,
             },
         )
-    celsius = round(celsius * 2) / 2
-    return int(celsius) if celsius.is_integer() else celsius
+    celsius = TemperatureConverter.convert(temperature, unit, UnitOfTemperature.CELSIUS)
+    celsius = max(
+        DEPARTURE_SCHEDULE_TEMPERATURE_MINIMUM,
+        min(DEPARTURE_SCHEDULE_TEMPERATURE_MAXIMUM, round(celsius * 2) / 2),
+    )
+    return int(celsius) if float(celsius).is_integer() else celsius
 
 
 def _get_schedule_changes(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, Any]:

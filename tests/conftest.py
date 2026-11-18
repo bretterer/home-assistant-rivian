@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from datetime import UTC
+from datetime import UTC, time
 from enum import IntFlag, StrEnum
 import inspect
 import os
@@ -237,6 +237,10 @@ def _setup_mock_environment() -> None:
         const_mod.DEGREE = "°"  # type: ignore[attr-defined]
         const_mod.PERCENTAGE = "%"  # type: ignore[attr-defined]
         const_mod.SIGNAL_STRENGTH_DECIBELS_MILLIWATT = "dBm"  # type: ignore[attr-defined]
+        # Real values, as the actions' schemas are keyed by them
+        const_mod.ATTR_DEVICE_ID = "device_id"  # type: ignore[attr-defined]
+        const_mod.ATTR_NAME = "name"  # type: ignore[attr-defined]
+        const_mod.ATTR_TEMPERATURE = "temperature"  # type: ignore[attr-defined]
         const_mod.CONF_EMAIL = "email"  # type: ignore[attr-defined]
         const_mod.CONF_LATITUDE = "latitude"  # type: ignore[attr-defined]
         const_mod.CONF_LONGITUDE = "longitude"  # type: ignore[attr-defined]
@@ -495,6 +499,9 @@ def _setup_mock_environment() -> None:
         cv_mod.ensure_list = lambda x: x if isinstance(x, list) else [x]  # type: ignore[attr-defined]
         cv_mod.positive_int = int  # type: ignore[attr-defined]
         cv_mod.url = str  # type: ignore[attr-defined]
+        cv_mod.time = lambda value: (  # type: ignore[attr-defined]
+            value if isinstance(value, time) else time.fromisoformat(value)
+        )
         sys.modules["homeassistant.helpers.config_validation"] = cv_mod
         helpers_mod.config_validation = cv_mod
 
@@ -909,11 +916,12 @@ def _setup_mock_environment() -> None:
                 def fahrenheit(unit: str) -> bool:
                     return str(unit) in ("°F", "fahrenheit")
 
+                # Home Assistant's formulas, including their rounding errors
                 if fahrenheit(from_unit) == fahrenheit(to_unit):
                     return value
                 if fahrenheit(to_unit):
-                    return value * 9 / 5 + 32
-                return (value - 32) * 5 / 9
+                    return (value * 1.8) + 32.0
+                return (value - 32.0) / 1.8
 
         unit_conversion_mod.TemperatureConverter = TemperatureConverter  # type: ignore[attr-defined]
         sys.modules["homeassistant.util.unit_conversion"] = unit_conversion_mod

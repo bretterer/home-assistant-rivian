@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from copy import deepcopy
+from functools import partial
 import logging
 from typing import Any
 
@@ -198,60 +199,41 @@ def track_departure_schedule_entities(
     """
     unique_id_prefix = f"{vin}-{key}_"
     known_ids: set[str] = set()
-    cancel_removal: CALLBACK_TYPE | None = None
-    # Entities missing when the removal timer was armed; only these are removed
-    # when it fires, so a list that leaves others out just then doesn't
-    pending_removal: set[str] = set()
+    # A removal timer for each missing entity, so each waits its own full delay
+    # from when it went missing, and one coming back cancels only its own
+    removals: dict[str, CALLBACK_TYPE] = {}
     last_schedules: list[dict[str, Any]] | None = None
 
-    def _missing_entity_ids(schedule_ids: set[str]) -> list[str]:
+    def _missing_entity_ids(schedule_ids: set[str]) -> set[str]:
         registry = er.async_get(hass)
-        return [
+        return {
             reg_entry.entity_id
             for reg_entry in er.async_entries_for_config_entry(registry, entry.entry_id)
             if reg_entry.domain == platform
             and reg_entry.unique_id.startswith(unique_id_prefix)
             and reg_entry.unique_id.removeprefix(unique_id_prefix) not in schedule_ids
-        ]
+        }
 
     @callback
-    def _cancel_removal() -> None:
-        nonlocal cancel_removal
-        if cancel_removal:
-            cancel_removal()
-            cancel_removal = None
+    def _cancel_removals() -> None:
+        for cancel in removals.values():
+            cancel()
+        removals.clear()
 
     @callback
-    def _arm_removal(missing: list[str]) -> None:
-        nonlocal cancel_removal
-        pending_removal.clear()
-        pending_removal.update(missing)
-        cancel_removal = async_call_later(
-            hass, DEPARTURE_SCHEDULE_REMOVE_DELAY, _remove_missing
-        )
-
-    @callback
-    def _remove_missing(_now: Any) -> None:
-        nonlocal cancel_removal
-        cancel_removal = None
+    def _remove(entity_id: str, _now: Any) -> None:
+        removals.pop(entity_id, None)
         if (schedules := coordinator.departure_schedules) is None:
             return
         schedule_ids = {schedule["id"] for schedule in schedules}
-        missing = _missing_entity_ids(schedule_ids)
-        registry = er.async_get(hass)
-        for entity_id in pending_removal.intersection(missing):
-            registry.async_remove(entity_id)
+        if entity_id in _missing_entity_ids(schedule_ids):
+            er.async_get(hass).async_remove(entity_id)
         # removed entities are added again if their schedule comes back
         known_ids.intersection_update(schedule_ids)
-        # ones that went missing since have their own full delay
-        if still_missing := [e for e in missing if e not in pending_removal]:
-            _arm_removal(still_missing)
-        else:
-            pending_removal.clear()
 
     @callback
     def _update() -> None:
-        nonlocal cancel_removal, last_schedules
+        nonlocal last_schedules
         # The coordinator updates its listeners for every vehicle message, but only
         # replaces the list when it changes, so skip scanning the registry otherwise
         if (schedules := coordinator.departure_schedules) is None or (
@@ -263,11 +245,14 @@ def track_departure_schedule_entities(
         if new_ids := schedule_ids - known_ids:
             async_add_entities(entity_factory(schedule_id) for schedule_id in new_ids)
             known_ids.update(new_ids)
-        if not (missing := _missing_entity_ids(schedule_ids)):
-            _cancel_removal()
-        elif cancel_removal is None:
-            _arm_removal(missing)
+        missing = _missing_entity_ids(schedule_ids)
+        for entity_id in set(removals) - missing:
+            removals.pop(entity_id)()
+        for entity_id in missing - set(removals):
+            removals[entity_id] = async_call_later(
+                hass, DEPARTURE_SCHEDULE_REMOVE_DELAY, partial(_remove, entity_id)
+            )
 
     entry.async_on_unload(coordinator.async_add_listener(_update))
-    entry.async_on_unload(_cancel_removal)
+    entry.async_on_unload(_cancel_removals)
     _update()
