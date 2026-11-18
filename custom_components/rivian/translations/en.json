@@ -1156,7 +1156,7 @@
           "name": "Name",
           "description": "The name of the schedule."
         },
-        "time": {
+        "departure_time": {
           "name": "Departure time",
           "description": "The departure time, local to the vehicle."
         },
@@ -1218,7 +1218,7 @@
           "name": "Name",
           "description": "The name of the schedule."
         },
-        "time": {
+        "departure_time": {
           "name": "Departure time",
           "description": "The departure time, local to the vehicle."
         },

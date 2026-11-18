@@ -179,3 +179,11 @@ def test_summary_temperature_in_the_users_unit(unit: str, temperature: float) ->
     }
     summary = helpers.departure_schedule_summary(schedule, unit)
     assert summary["temperature"] == temperature
+
+
+def test_summary_departure_time() -> None:
+    """The departure time is named as the actions take it, as HH:MM."""
+    schedule = {"id": "S1", "occurrence": {"days": ["Wednesday"], "startsAtMin": 732}}
+    summary = helpers.departure_schedule_summary(schedule, "°C")
+    assert summary["departure_time"] == "12:12"
+    assert "time" not in summary

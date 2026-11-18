@@ -303,7 +303,7 @@ action: rivian.create_departure_schedule
 data:
   device_id: <your vehicle>
   name: Weekdays
-  time: "07:30:00"
+  departure_time: "07:30:00"
   days: [Monday, Tuesday, Wednesday, Thursday, Friday]
   temperature: 21 # in your HA unit system; use e.g. 70 if that is °F
   front_defrost: Defrost

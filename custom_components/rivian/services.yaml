@@ -14,7 +14,7 @@ create_departure_schedule:
       example: Weekdays
       selector:
         text:
-    time:
+    departure_time:
       required: true
       example: "07:30:00"
       selector:
@@ -107,7 +107,7 @@ update_departure_schedule:
     name:
       selector:
         text:
-    time:
+    departure_time:
       selector:
         time:
     days:

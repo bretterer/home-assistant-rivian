@@ -12,7 +12,6 @@ from homeassistant.const import (
     ATTR_DEVICE_ID,
     ATTR_NAME,
     ATTR_TEMPERATURE,
-    ATTR_TIME,
     UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant, ServiceCall, callback
@@ -45,6 +44,7 @@ from .coordinator import VehicleCoordinator
 from .helpers import deep_merge
 
 ATTR_DAYS: Final = "days"
+ATTR_DEPARTURE_TIME: Final = "departure_time"
 ATTR_ENABLED: Final = "enabled"
 ATTR_FRONT_DEFROST: Final = "front_defrost"
 ATTR_LEAD_TIME: Final = "lead_time"
@@ -92,7 +92,7 @@ CREATE_DEPARTURE_SCHEDULE_SCHEMA: Final = vol.Schema(
     {
         vol.Required(ATTR_DEVICE_ID): cv.string,
         vol.Required(ATTR_NAME): _NAME_SCHEMA,
-        vol.Required(ATTR_TIME): cv.time,
+        vol.Required(ATTR_DEPARTURE_TIME): cv.time,
         vol.Required(ATTR_DAYS): _DAYS_SCHEMA,
         **_SETTINGS_SCHEMA,
     }
@@ -102,7 +102,7 @@ UPDATE_DEPARTURE_SCHEDULE_SCHEMA: Final = vol.Schema(
         vol.Required(ATTR_DEVICE_ID): cv.string,
         vol.Required(ATTR_SCHEDULE_ID): cv.string,
         vol.Optional(ATTR_NAME): _NAME_SCHEMA,
-        vol.Optional(ATTR_TIME): cv.time,
+        vol.Optional(ATTR_DEPARTURE_TIME): cv.time,
         vol.Optional(ATTR_DAYS): _DAYS_SCHEMA,
         **_SETTINGS_SCHEMA,
     }
@@ -242,8 +242,8 @@ def _get_schedule_changes(hass: HomeAssistant, data: dict[str, Any]) -> dict[str
         changes["isEnabled"] = data[ATTR_ENABLED]
     if ATTR_DAYS in data:
         weekly["days"] = [day for day in WEEK_DAYS_ORDERED if day in data[ATTR_DAYS]]
-    if ATTR_TIME in data:
-        value: time = data[ATTR_TIME]
+    if ATTR_DEPARTURE_TIME in data:
+        value: time = data[ATTR_DEPARTURE_TIME]
         weekly["startsAtMin"] = value.hour * MINUTES_PER_HOUR + value.minute
     if ATTR_TEMPERATURE in data:
         comfort["cabinTempCelsius"] = _to_celsius(hass, data[ATTR_TEMPERATURE])

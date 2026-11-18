@@ -166,7 +166,7 @@ def departure_schedule_summary(
         "name": schedule.get("name"),
         "enabled": schedule.get("isEnabled"),
         "days": occurrence.get("days"),
-        "time": time,
+        "departure_time": time,
         "skipped_on": occurrence.get("skippedOn"),
         "temperature": temperature,
         "front_defrost": comfort.get("frontDefogDefrost"),
