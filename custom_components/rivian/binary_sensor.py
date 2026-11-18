@@ -39,7 +39,9 @@ async def async_setup_entry(
             if not any(model in vehicle["model"] for model in models):
                 continue
             for description in descriptions:
-                if description.supported_feature is None or (
+                if description.add_when_reported:
+                    unreported.append(description)
+                elif description.supported_feature is None or (
                     description.supported_feature
                     in vehicle.get("supported_features", [])
                 ):
@@ -48,8 +50,6 @@ async def async_setup_entry(
                             coordinator, entry, description, vehicle
                         )
                     )
-                elif description.add_when_reported:
-                    unreported.append(description)
         if unreported:
             entities.extend(
                 _async_add_when_reported(

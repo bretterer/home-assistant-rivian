@@ -73,12 +73,14 @@ def tonneau_keys(entities: list[Any]) -> set[str]:
     }
 
 
-def test_added_at_setup_with_the_feature() -> None:
-    """A truck with the tonneau command gets the sensors before any state."""
+def test_tonneau_command_does_not_add_them() -> None:
+    """The tonneau command only gates the cover; the sensors wait for a state."""
     coordinator = FakeCoordinator({})
     added, _, _ = setup(coordinator, ["TONNEAU_CMD"])
+    assert not tonneau_keys(added)
+
+    coordinator.update(closureTonneauClosed="closed", closureTonneauLocked="locked")
     assert tonneau_keys(added) == TONNEAU_KEYS
-    assert not coordinator.listeners
 
 
 def test_added_at_setup_when_already_reported() -> None:
