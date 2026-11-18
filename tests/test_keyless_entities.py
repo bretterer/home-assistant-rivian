@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -97,3 +97,29 @@ def test_precondition_temperature_starts_at_the_set_temperature(
         coordinator, MagicMock(), VEHICLES["keyless"]
     )
     assert coordinator.precondition_temperature == expected
+
+
+@pytest.mark.parametrize(
+    ("entity_class", "attr", "value"),
+    [
+        (number.RivianPreconditionLeadTimeEntity, "precondition_lead_minutes", 45),
+        (number.RivianPreconditionTemperatureEntity, "precondition_temperature", 23),
+    ],
+    ids=["lead_time", "temperature"],
+)
+async def test_setting_a_number_applies_it_to_a_scheduled_precondition(
+    entity_class: Any, attr: str, value: float
+) -> None:
+    """A new value is stored, then applied to a schedule that hasn't departed."""
+    coordinator = MagicMock()
+    coordinator.get = lambda key: None
+    seen: list[float] = []
+    coordinator.update_upcoming_precondition = AsyncMock(
+        side_effect=lambda: seen.append(getattr(coordinator, attr))
+    )
+    entity = entity_class(coordinator, MagicMock(), VEHICLES["keyless"])
+    entity.async_write_ha_state = MagicMock()
+
+    await entity.async_set_native_value(value)
+
+    assert seen == [value]

@@ -218,6 +218,43 @@ async def test_precondition_again_moves_the_upcoming_schedule(
     coordinator._save_precondition_state.assert_awaited()
 
 
+async def test_changing_a_setting_moves_the_upcoming_schedule(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A new lead time or temperature applies to HA's schedule right away."""
+    now = datetime(2026, 11, 14, 12, 51, 24, tzinfo=UTC)
+    monkeypatch.setattr(coordinator_module.dt_util, "now", lambda: now)
+    monkeypatch.setattr(coordinator_module.time, "time", now.timestamp)
+    departs_soon = now.timestamp() + 10 * 60 + PRECONDITION_CLEANUP_GRACE_SECONDS
+    coordinator, created = _precondition_coordinator(40, owned={"S1": departs_soon})
+
+    assert await coordinator.update_upcoming_precondition()
+
+    assert not created
+    depart = precondition_departure(now, 40)
+    changes = coordinator.update_departure_schedule.await_args.args[1]
+    assert changes["repeatsWeekly"]["startsAtMin"] == depart.hour * 60 + depart.minute
+    # a schedule that was turned off stays off
+    assert "isEnabled" not in changes
+    assert coordinator._precondition_ids["S1"] == (
+        depart.timestamp() + PRECONDITION_CLEANUP_GRACE_SECONDS
+    )
+
+
+async def test_changing_a_setting_without_a_schedule_changes_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With no schedule of HA's, a new setting is only stored for the button."""
+    now = datetime(2026, 11, 14, 12, 51, 24, tzinfo=UTC)
+    monkeypatch.setattr(coordinator_module.dt_util, "now", lambda: now)
+    coordinator, created = _precondition_coordinator(30)
+
+    assert not await coordinator.update_upcoming_precondition()
+
+    assert not created
+    coordinator.update_departure_schedule.assert_not_awaited()
+
+
 async def test_precondition_after_departure_creates_a_new_schedule(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -199,7 +199,8 @@ class RivianPreconditionNumberEntity(RivianVehicleEntity, RestoreNumber):
     """Base for keyless preconditioning settings stored on the coordinator.
 
     The value lives on the coordinator so the button can read it, and is restored
-    across restarts from the entity's own last state.
+    across restarts from the entity's own last state. Setting it while Home
+    Assistant's precondition schedule hasn't departed updates that schedule.
     """
 
     _attr_mode = NumberMode.BOX
@@ -229,9 +230,10 @@ class RivianPreconditionNumberEntity(RivianVehicleEntity, RestoreNumber):
             self.async_write_ha_state()
 
     async def async_set_native_value(self, value: float) -> None:
-        """Store a new value on the coordinator."""
+        """Store a new value, and apply it to a precondition that's scheduled."""
         setattr(self.coordinator, self._coordinator_attr, value)
         self.async_write_ha_state()
+        await self.coordinator.update_upcoming_precondition()
 
 
 class RivianPreconditionLeadTimeEntity(RivianPreconditionNumberEntity):
