@@ -358,6 +358,22 @@ def _setup_mock_environment() -> None:
             "homeassistant.helpers.device_registry", is_package=False
         )
         helpers_mod.device_registry.DeviceEntry = SubscriptableMock  # type: ignore[attr-defined]
+        helpers_mod.device_registry.CONNECTION_NETWORK_MAC = "mac"  # type: ignore[attr-defined]
+
+        def format_mac(mac: str) -> str:
+            """Format a MAC address like Home Assistant's format_mac."""
+            if len(mac) == 17 and mac.count(":") == 5:
+                return mac.lower()
+            to_test = mac
+            if len(to_test) == 17 and to_test.count("-") == 5:
+                to_test = to_test.replace("-", "")
+            elif len(to_test) == 14 and to_test.count(".") == 2:
+                to_test = to_test.replace(".", "")
+            if len(to_test) == 12:
+                return ":".join(to_test.lower()[i : i + 2] for i in range(0, 12, 2))
+            return mac
+
+        helpers_mod.device_registry.format_mac = format_mac  # type: ignore[attr-defined]
         helpers_mod.issue_registry = DynamicModule(
             "homeassistant.helpers.issue_registry", is_package=False
         )
