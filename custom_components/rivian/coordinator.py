@@ -6,6 +6,7 @@ from abc import ABC, abstractmethod
 import asyncio
 from collections.abc import Awaitable, Callable, Coroutine
 import contextlib
+from dataclasses import dataclass
 from datetime import UTC, datetime, time as dt_time, timedelta
 from functools import partial
 import logging
@@ -47,9 +48,6 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.util import dt as dt_util
 
 from .const import (
-    ATTR_COORDINATOR,
-    ATTR_USER,
-    ATTR_VEHICLE,
     CHARGING_STATE_KEYS,
     DEFAULT_CHARGING_SCHEDULE,
     DEFAULT_DEPARTURE_SCHEDULE,
@@ -152,12 +150,13 @@ GEAR_GUARD_LIVE_ATTEMPTS = 3
 class RivianDataUpdateCoordinator(DataUpdateCoordinator[T], ABC, Generic[T]):
     """Data update coordinator for the Rivian integration."""
 
+    config_entry: RivianConfigEntry
     key: str
     _update_interval_seconds = 30
     _error_count = 0
 
     def __init__(
-        self, hass: HomeAssistant, config_entry: ConfigEntry, client: Rivian
+        self, hass: HomeAssistant, config_entry: RivianConfigEntry, client: Rivian
     ) -> None:
         """Initialize the coordinator."""
         super().__init__(
@@ -1659,9 +1658,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
 
     def _phone_key(self) -> dict[str, str]:
         """Return the paired phone's key, as `send_parallax_command` takes it."""
-        vehicle = self.hass.data[DOMAIN][self.config_entry.entry_id][ATTR_VEHICLE][
-            self.vehicle_id
-        ]
+        vehicle = self.config_entry.runtime_data.vehicles[self.vehicle_id]
         return {
             "identity_id": vehicle["phone_identity_id"],
             "vehicle_key": vehicle["public_key"],
@@ -1680,9 +1677,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         A released side bin that doesn't clear its latch reports a timeout though
         it opened, so for those `command`s that's logged instead of raised.
         """
-        vehicle = self.hass.data[DOMAIN][self.config_entry.entry_id][ATTR_VEHICLE][
-            self.vehicle_id
-        ]
+        vehicle = self.config_entry.runtime_data.vehicles[self.vehicle_id]
         command_id = str(uuid.uuid4())
         result: asyncio.Future[dict[str, Any]] = (
             asyncio.get_running_loop().create_future()
@@ -1894,8 +1889,8 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         self, command: VehicleCommand, params: dict[str, Any] | None = None
     ) -> None:
         """Send a command to the vehicle, over Parallax if it takes it that way."""
-        entry_data = self.hass.data[DOMAIN][self.config_entry.entry_id]
-        vehicle = entry_data[ATTR_VEHICLE][self.vehicle_id]
+        data = self.config_entry.runtime_data
+        vehicle = data.vehicles[self.vehicle_id]
         if (feature := vehicle_command_feature(command)) and feature in vehicle[
             "supported_features"
         ]:
@@ -1914,8 +1909,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             except TimeoutError:
                 pass  # didn't wake-up in time, but we'll try command anyway
 
-        user: UserCoordinator = entry_data[ATTR_COORDINATOR][ATTR_USER]
-        phone_info = user.get_enrolled_phone_data(
+        phone_info = data.user_coordinator.get_enrolled_phone_data(
             self.config_entry.options.get("public_key")
         )
 
@@ -1966,3 +1960,17 @@ class WallboxCoordinator(RivianDataUpdateCoordinator[list[dict[str, Any]]]):
     async def _fetch_data(self) -> ClientResponse:
         """Fetch the data."""
         return await self.api.get_registered_wallboxes()
+
+
+@dataclass(kw_only=True)
+class RivianData:
+    """What a config entry holds while it's loaded."""
+
+    api: Rivian
+    vehicles: dict[str, dict[str, Any]]
+    user_coordinator: UserCoordinator
+    vehicle_coordinators: dict[str, VehicleCoordinator]
+    wallbox_coordinator: WallboxCoordinator
+
+
+type RivianConfigEntry = ConfigEntry[RivianData]

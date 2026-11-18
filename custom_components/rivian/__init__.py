@@ -18,11 +18,6 @@ from homeassistant.helpers.issue_registry import IssueSeverity, async_create_iss
 from homeassistant.helpers.typing import ConfigType
 
 from .const import (
-    ATTR_API,
-    ATTR_COORDINATOR,
-    ATTR_USER,
-    ATTR_VEHICLE,
-    ATTR_WALLBOX,
     CONF_VEHICLE_CONTROL,
     DOMAIN,
     ISSUE_STATE_VALUES_CHANGED,
@@ -32,6 +27,8 @@ from .const import (
 )
 from .coordinator import (
     DEPARTURE_EMPTY_LIST_HOLD,
+    RivianConfigEntry,
+    RivianData,
     UserCoordinator,
     VehicleCoordinator,
     WallboxCoordinator,
@@ -77,15 +74,13 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     return True
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_setup_entry(hass: HomeAssistant, entry: RivianConfigEntry) -> bool:
     """Load the saved entries."""
     _LOGGER.info(
         "Rivian integration is starting under version %s. Please report issues at %s",
         VERSION,
         ISSUE_URL,
     )
-
-    hass.data.setdefault(DOMAIN, {})
 
     client = get_rivian_api_from_entry(hass, entry)
     try:
@@ -126,15 +121,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
     await wallbox_coordinator.async_config_entry_first_refresh()
 
-    hass.data[DOMAIN][entry.entry_id] = {
-        ATTR_API: client,
-        ATTR_VEHICLE: vehicles,
-        ATTR_COORDINATOR: {
-            ATTR_USER: coordinator,
-            ATTR_VEHICLE: vehicle_coordinators,
-            ATTR_WALLBOX: wallbox_coordinator,
-        },
-    }
+    entry.runtime_data = RivianData(
+        api=client,
+        vehicles=vehicles,
+        user_coordinator=coordinator,
+        vehicle_coordinators=vehicle_coordinators,
+        wallbox_coordinator=wallbox_coordinator,
+    )
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
@@ -166,7 +159,7 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_unload_entry(hass: HomeAssistant, entry: RivianConfigEntry) -> bool:
     """Unload a config entry."""
     if not await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         return False
@@ -174,15 +167,14 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Stop the vehicles' background work, such as a precondition cleanup, before
     # closing the client it uses. Home Assistant shuts them down again after this
     # returns, which does nothing more
-    data = hass.data[DOMAIN].pop(entry.entry_id)
-    for coordinator in data[ATTR_COORDINATOR][ATTR_VEHICLE].values():
+    data = entry.runtime_data
+    for coordinator in data.vehicle_coordinators.values():
         try:
             await coordinator.async_shutdown()
         except Exception:
             # the others still stop, and the client still closes
             _LOGGER.exception("Error stopping vehicle %s", coordinator.vehicle_id)
-    api: Rivian = data[ATTR_API]
-    await api.close()
+    await data.api.close()
     return True
 
 
@@ -331,15 +323,12 @@ async def update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
 
 async def async_remove_config_entry_device(
-    hass: HomeAssistant, config_entry: ConfigEntry, device_entry: DeviceEntry
+    hass: HomeAssistant, config_entry: RivianConfigEntry, device_entry: DeviceEntry
 ) -> bool:
     """Remove a config entry from a device."""
-    coordinators = hass.data[DOMAIN][config_entry.entry_id][ATTR_COORDINATOR]
-    user_coordinator: UserCoordinator = coordinators[ATTR_USER]
-    wallbox_coordinator: WallboxCoordinator = coordinators[ATTR_WALLBOX]
-
-    vehicles = user_coordinator.get_vehicles().keys()
-    wallboxes = {x["wallboxId"] for x in wallbox_coordinator.data}
+    data = config_entry.runtime_data
+    vehicles = data.user_coordinator.get_vehicles().keys()
+    wallboxes = {x["wallboxId"] for x in data.wallbox_coordinator.data}
 
     return not any(
         identifier

@@ -9,7 +9,6 @@ from unittest.mock import MagicMock
 import pytest
 
 from custom_components.rivian import button
-from custom_components.rivian.const import ATTR_COORDINATOR, ATTR_VEHICLE, DOMAIN
 
 VEHICLES = {
     "paired": {
@@ -33,18 +32,13 @@ def _hass() -> tuple[SimpleNamespace, SimpleNamespace]:
         )
         for vehicle_id in VEHICLES
     }
-    entry = SimpleNamespace(entry_id="entry")
-    hass = SimpleNamespace(
-        data={
-            DOMAIN: {
-                "entry": {
-                    ATTR_VEHICLE: VEHICLES,
-                    ATTR_COORDINATOR: {ATTR_VEHICLE: coordinators},
-                }
-            }
-        }
+    entry = SimpleNamespace(
+        entry_id="entry",
+        runtime_data=SimpleNamespace(
+            vehicles=VEHICLES, vehicle_coordinators=coordinators
+        ),
     )
-    return hass, entry
+    return SimpleNamespace(), entry
 
 
 def _stale(module: Any, monkeypatch: pytest.MonkeyPatch) -> list[tuple[set, set]]:

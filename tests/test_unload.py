@@ -10,12 +10,6 @@ from unittest.mock import AsyncMock
 import pytest
 
 from custom_components import rivian
-from custom_components.rivian.const import (
-    ATTR_API,
-    ATTR_COORDINATOR,
-    ATTR_VEHICLE,
-    DOMAIN,
-)
 
 
 async def test_vehicles_stop_before_the_client_closes() -> None:
@@ -25,25 +19,19 @@ async def test_vehicles_stop_before_the_client_closes() -> None:
         async_shutdown=AsyncMock(side_effect=lambda: order.append("vehicle"))
     )
     api = SimpleNamespace(close=AsyncMock(side_effect=lambda: order.append("api")))
-    entry = SimpleNamespace(entry_id="entry")
     hass = SimpleNamespace(
         config_entries=SimpleNamespace(
             async_unload_platforms=AsyncMock(return_value=True)
-        ),
-        data={
-            DOMAIN: {
-                "entry": {
-                    ATTR_API: api,
-                    ATTR_COORDINATOR: {ATTR_VEHICLE: {"V": vehicle}},
-                }
-            }
-        },
+        )
+    )
+    entry = SimpleNamespace(
+        entry_id="entry",
+        runtime_data=SimpleNamespace(api=api, vehicle_coordinators={"V": vehicle}),
     )
 
     assert await rivian.async_unload_entry(hass, entry)
 
     assert order == ["vehicle", "api"]
-    assert "entry" not in hass.data[DOMAIN]
 
 
 class _Client:
@@ -191,22 +179,17 @@ async def test_unload_stops_if_platforms_dont_unload() -> None:
     hass = SimpleNamespace(
         config_entries=SimpleNamespace(
             async_unload_platforms=AsyncMock(return_value=False)
-        ),
-        data={
-            DOMAIN: {
-                "entry": {
-                    ATTR_API: api,
-                    ATTR_COORDINATOR: {ATTR_VEHICLE: {"V": vehicle}},
-                }
-            }
-        },
+        )
+    )
+    entry = SimpleNamespace(
+        entry_id="entry",
+        runtime_data=SimpleNamespace(api=api, vehicle_coordinators={"V": vehicle}),
     )
 
-    assert not await rivian.async_unload_entry(hass, SimpleNamespace(entry_id="entry"))
+    assert not await rivian.async_unload_entry(hass, entry)
 
     vehicle.async_shutdown.assert_not_awaited()
     api.close.assert_not_awaited()
-    assert "entry" in hass.data[DOMAIN]
 
 
 async def test_one_vehicle_failing_to_stop_still_closes_the_client() -> None:
@@ -222,18 +205,16 @@ async def test_one_vehicle_failing_to_stop_still_closes_the_client() -> None:
     hass = SimpleNamespace(
         config_entries=SimpleNamespace(
             async_unload_platforms=AsyncMock(return_value=True)
+        )
+    )
+    entry = SimpleNamespace(
+        entry_id="entry",
+        runtime_data=SimpleNamespace(
+            api=api, vehicle_coordinators={"V1": failing, "V2": other}
         ),
-        data={
-            DOMAIN: {
-                "entry": {
-                    ATTR_API: api,
-                    ATTR_COORDINATOR: {ATTR_VEHICLE: {"V1": failing, "V2": other}},
-                }
-            }
-        },
     )
 
-    assert await rivian.async_unload_entry(hass, SimpleNamespace(entry_id="entry"))
+    assert await rivian.async_unload_entry(hass, entry)
 
     assert order == ["V2", "api"]
 

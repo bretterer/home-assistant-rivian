@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import platform
-from typing import Any, Final
+from typing import Final
 from uuid import UUID
 
 from bleak import BLEDevice
@@ -20,13 +20,11 @@ from homeassistant.components.button import (
     ButtonEntity,
     ButtonEntityDescription,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, HomeAssistantError
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import ATTR_COORDINATOR, ATTR_USER, ATTR_VEHICLE, DOMAIN
-from .coordinator import UserCoordinator, VehicleCoordinator
+from .coordinator import RivianConfigEntry
 from .data_classes import RivianButtonEntityDescription
 from .entity import RivianVehicleControlEntity, RivianVehicleEntity
 from .helpers import async_remove_stale_entities
@@ -86,12 +84,13 @@ PRECONDITION_BUTTON: Final[RivianButtonEntityDescription] = (
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: RivianConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the button entities."""
-    data: dict[str, Any] = hass.data[DOMAIN][entry.entry_id]
-    vehicles: dict[str, dict[str, Any]] = data[ATTR_VEHICLE]
-    coordinators: dict[str, VehicleCoordinator] = data[ATTR_COORDINATOR][ATTR_VEHICLE]
+    vehicles = entry.runtime_data.vehicles
+    coordinators = entry.runtime_data.vehicle_coordinators
 
     entities = [
         RivianButtonEntity(coordinators[vehicle_id], entry, description, vehicle)
@@ -172,10 +171,9 @@ class RivianPairPhoneButtonEntity(RivianVehicleControlEntity, ButtonEntity):
 
         self._pairing = True
 
-        entry_data = self.hass.data[DOMAIN][self._config_entry.entry_id]
-        vehicle = entry_data[ATTR_VEHICLE][self.coordinator.vehicle_id]
-        user: UserCoordinator = entry_data[ATTR_COORDINATOR][ATTR_USER]
-        phone_info = user.get_enrolled_phone_data(
+        data = self.coordinator.config_entry.runtime_data
+        vehicle = data.vehicles[self.coordinator.vehicle_id]
+        phone_info = data.user_coordinator.get_enrolled_phone_data(
             self._config_entry.options.get("public_key")
         )
 

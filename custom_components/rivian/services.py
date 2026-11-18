@@ -24,8 +24,6 @@ from homeassistant.helpers import (
 from homeassistant.util.unit_conversion import TemperatureConverter
 
 from .const import (
-    ATTR_COORDINATOR,
-    ATTR_VEHICLE,
     DEFAULT_DEPARTURE_SCHEDULE,
     DEPARTURE_SCHEDULE_DEFROST_MODES,
     DEPARTURE_SCHEDULE_NAME_MAX_LENGTH,
@@ -40,7 +38,7 @@ from .const import (
     PRECONDITION_SCHEDULE_NAME,
     WEEK_DAYS_ORDERED,
 )
-from .coordinator import VehicleCoordinator, is_precondition_schedule
+from .coordinator import RivianConfigEntry, VehicleCoordinator, is_precondition_schedule
 from .helpers import deep_merge, schedule_cabin_temperature
 
 ATTR_DAYS: Final = "days"
@@ -138,13 +136,13 @@ def _get_coordinator(hass: HomeAssistant, device_id: str) -> VehicleCoordinator:
         if device
         else set()
     )
-    loaded = hass.data.get(DOMAIN, {})
-    for entry_data in loaded.values():
-        coordinators = entry_data[ATTR_COORDINATOR][ATTR_VEHICLE]
-        for vehicle_id, vehicle in entry_data[ATTR_VEHICLE].items():
+    loaded: list[RivianConfigEntry] = hass.config_entries.async_loaded_entries(DOMAIN)
+    for entry in loaded:
+        data = entry.runtime_data
+        for vehicle_id, vehicle in data.vehicles.items():
             if ids & {vehicle_id, vehicle["vin"]}:
-                return coordinators[vehicle_id]
-    if ids and device.config_entries.isdisjoint(loaded):
+                return data.vehicle_coordinators[vehicle_id]
+    if ids and device.config_entries.isdisjoint(entry.entry_id for entry in loaded):
         # a Rivian device whose config entry isn't set up; a loaded one that has no
         # vehicle coordinator is a wallbox
         raise ServiceValidationError(

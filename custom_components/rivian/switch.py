@@ -12,10 +12,10 @@ from homeassistant.components.switch import SwitchEntity, SwitchEntityDescriptio
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory, Platform
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import ACTIVE_CHARGING_STATES, ATTR_COORDINATOR, ATTR_VEHICLE, DOMAIN
-from .coordinator import VehicleCoordinator
+from .const import ACTIVE_CHARGING_STATES
+from .coordinator import RivianConfigEntry, VehicleCoordinator
 from .data_classes import RivianSwitchEntityDescription
 from .entity import RivianVehicleControlEntity, RivianVehicleEntity
 from .helpers import departure_schedule_summary, track_departure_schedule_entities
@@ -108,12 +108,13 @@ DEPARTURE_SCHEDULE_KEY: Final = "departure_schedule"
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: RivianConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the switch entities."""
-    data: dict[str, Any] = hass.data[DOMAIN][entry.entry_id]
-    vehicles: dict[str, dict[str, Any]] = data[ATTR_VEHICLE]
-    coordinators: dict[str, VehicleCoordinator] = data[ATTR_COORDINATOR][ATTR_VEHICLE]
+    vehicles = entry.runtime_data.vehicles
+    coordinators = entry.runtime_data.vehicle_coordinators
 
     entities = [
         RivianSwitchEntity(coordinators[vehicle_id], entry, description, vehicle)

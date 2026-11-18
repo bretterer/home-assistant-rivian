@@ -4,24 +4,20 @@ from __future__ import annotations
 
 from datetime import time
 import logging
-from typing import Any, Final
+from typing import Final
 
 from homeassistant.components.time import TimeEntity
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import (
-    ATTR_COORDINATOR,
-    ATTR_VEHICLE,
     DEFAULT_CHARGING_SCHEDULE_DURATION,
     DEFAULT_CHARGING_SCHEDULE_START,
-    DOMAIN,
     MINUTES_PER_DAY,
     MINUTES_PER_HOUR,
 )
-from .coordinator import VehicleCoordinator
+from .coordinator import RivianConfigEntry, VehicleCoordinator
 from .data_classes import RivianTimeEntityDescription
 from .entity import RivianVehicleEntity
 
@@ -93,12 +89,13 @@ TIME_ENTITIES: Final[tuple[RivianTimeEntityDescription, ...]] = (
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: RivianConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the time entities."""
-    data: dict[str, Any] = hass.data[DOMAIN][entry.entry_id]
-    vehicles: dict[str, dict[str, Any]] = data[ATTR_VEHICLE]
-    coordinators: dict[str, VehicleCoordinator] = data[ATTR_COORDINATOR][ATTR_VEHICLE]
+    vehicles = entry.runtime_data.vehicles
+    coordinators = entry.runtime_data.vehicle_coordinators
 
     entities = []
     for vehicle_id, vehicle in vehicles.items():

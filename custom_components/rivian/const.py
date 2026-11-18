@@ -33,13 +33,6 @@ ISSUE_URL = "https://github.com/bretterer/home-assistant-rivian/issues"
 ISSUE_STATE_VALUES_CHANGED = "state_values_changed"
 ISSUE_RATE_LIMITED = "rate_limited"
 
-# Attributes
-ATTR_API = "api"
-ATTR_COORDINATOR = "coordinator"
-ATTR_USER = "user"
-ATTR_VEHICLE = "vehicle"
-ATTR_WALLBOX = "wallbox"
-
 # Config properties
 CONF_ACCESS_TOKEN = "access_token"
 CONF_MFA_VERIFIED = "mfa_verified"

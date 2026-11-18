@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 
 from custom_components.rivian import coordinator, number, switch
-from custom_components.rivian.const import ATTR_COORDINATOR, ATTR_VEHICLE, DOMAIN
 from custom_components.rivian.entity import RivianVehicleControlEntity
 
 DURATION = number.CLIMATE_HOLD_DURATION_NUMBER
@@ -46,18 +46,13 @@ async def test_duration_without_a_paired_phone() -> None:
         for v, f in features.items()
     }
     coordinators = {v: MagicMock(vehicle_id=v) for v in vehicles}
-    hass = MagicMock()
-    hass.data = {
-        DOMAIN: {
-            "entry": {
-                ATTR_VEHICLE: vehicles,
-                ATTR_COORDINATOR: {ATTR_VEHICLE: coordinators},
-            }
-        }
-    }
+    entry = MagicMock(entry_id="entry")
+    entry.runtime_data = SimpleNamespace(
+        vehicles=vehicles, vehicle_coordinators=coordinators
+    )
     added: list[Any] = []
     with patch.object(number, "RivianChargingScheduleAmperageEntity", MagicMock()):
-        await number.async_setup_entry(hass, MagicMock(entry_id="entry"), added.extend)
+        await number.async_setup_entry(MagicMock(), entry, added.extend)
     durations = [e for e in added if e.entity_description is DURATION]
     assert {e.coordinator.vehicle_id for e in durations} == {"keyless", "paired"}
     # Not a control entity: those look up the paired phone when added

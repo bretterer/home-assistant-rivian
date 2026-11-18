@@ -14,22 +14,23 @@ from homeassistant.components.binary_sensor import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import ATTR_COORDINATOR, ATTR_VEHICLE, BINARY_SENSORS, DOMAIN
-from .coordinator import VehicleCoordinator
+from .const import BINARY_SENSORS
+from .coordinator import RivianConfigEntry, VehicleCoordinator
 from .data_classes import RivianBinarySensorEntityDescription
 from .entity import RivianVehicleEntity, RivianVehicleFreshnessEntity
 from .helpers import async_remove_stale_entities
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: RivianConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the binary sensor entities."""
-    data: dict[str, Any] = hass.data[DOMAIN][entry.entry_id]
-    vehicles: dict[str, Any] = data[ATTR_VEHICLE]
-    coordinators: dict[str, VehicleCoordinator] = data[ATTR_COORDINATOR][ATTR_VEHICLE]
+    vehicles = entry.runtime_data.vehicles
+    coordinators = entry.runtime_data.vehicle_coordinators
 
     entities: list[BinarySensorEntity] = []
     for vehicle_id, vehicle in vehicles.items():
@@ -93,7 +94,7 @@ def _async_add_when_reported(
     coordinator: VehicleCoordinator,
     vehicle: dict[str, Any],
     descriptions: list[RivianBinarySensorEntityDescription],
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> list[RivianBinarySensorEntity]:
     """Return the entities the vehicle already reports, and add the rest later.
 

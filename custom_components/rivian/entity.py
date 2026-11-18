@@ -16,11 +16,10 @@ from homeassistant.helpers.event import async_call_later, async_track_time_inter
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
-from .const import ATTR_COORDINATOR, ATTR_USER, DOMAIN
+from .const import DOMAIN
 from .coordinator import (
     ChargingCoordinator,
     RivianDataUpdateCoordinator,
-    UserCoordinator,
     VehicleCoordinator,
     WallboxCoordinator,
 )
@@ -169,8 +168,7 @@ class RivianVehicleControlEntity(RivianVehicleEntity):
 
     def _handle_driver_update(self) -> None:
         """Handle driver update."""
-        entry_data = self.hass.data[DOMAIN][self._config_entry.entry_id]
-        user: UserCoordinator = entry_data[ATTR_COORDINATOR][ATTR_USER]
+        user = self.coordinator.config_entry.runtime_data.user_coordinator
         phone_info = user.get_enrolled_phone_data(
             self._config_entry.options.get("public_key")
         )

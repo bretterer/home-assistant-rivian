@@ -12,12 +12,6 @@ from unittest.mock import ANY, AsyncMock, MagicMock, patch
 import pytest
 
 from custom_components.rivian import coordinator
-from custom_components.rivian.const import (
-    ATTR_COORDINATOR,
-    ATTR_USER,
-    ATTR_VEHICLE,
-    DOMAIN,
-)
 from homeassistant.exceptions import HomeAssistantError
 
 # Plain strings stand in for VehicleCommand, which conftest mocks
@@ -45,22 +39,18 @@ def vehicle(
     user = MagicMock()
     user.get_enrolled_phone_data.return_value = ("phone", {})
     coor.hass = MagicMock()
-    coor.hass.data = {
-        DOMAIN: {
-            "entry": {
-                ATTR_VEHICLE: {
-                    "vehicle": {
-                        "name": "W4LT3R",
-                        "model": "R1S",
-                        "supported_features": features,
-                        "phone_identity_id": "identity",
-                        "public_key": "vehicle_key",
-                    }
-                },
-                ATTR_COORDINATOR: {ATTR_USER: user},
+    coor.config_entry.runtime_data = SimpleNamespace(
+        vehicles={
+            "vehicle": {
+                "name": "W4LT3R",
+                "model": "R1S",
+                "supported_features": features,
+                "phone_identity_id": "identity",
+                "public_key": "vehicle_key",
             }
-        }
-    }
+        },
+        user_coordinator=user,
+    )
     callbacks = []
 
     async def subscribe(vehicle_id: str, command_id: str, callback: Any) -> Any:
@@ -247,7 +237,7 @@ async def test_r1t_tailgate_with_the_real_client(real_parallax: ModuleType) -> N
     body_pb2 = importlib.import_module("rivian.parallax.proto.body_pb2")
     command = "OPEN_LIFTGATE_UNLATCH_TAILGATE"
     coor = vehicle(["PVS_BD_CMD"])
-    coor.hass.data[DOMAIN]["entry"][ATTR_VEHICLE]["vehicle"]["model"] = "R1T"
+    coor.config_entry.runtime_data.vehicles["vehicle"]["model"] = "R1T"
     with (
         patch.object(coordinator, "decode_command_state_message", lambda m: m),
         patch.object(

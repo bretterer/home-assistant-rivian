@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 from custom_components.rivian import binary_sensor
-from custom_components.rivian.const import ATTR_COORDINATOR, ATTR_VEHICLE, DOMAIN
 
 TONNEAU_KEYS = {"closure_tonneau_closed", "closure_tonneau_locked"}
 
@@ -47,15 +47,10 @@ def setup(
         "supported_features": features,
     }
     entry = MagicMock(entry_id="E")
+    entry.runtime_data = SimpleNamespace(
+        vehicles={"V": vehicle}, vehicle_coordinators={"V": coordinator}
+    )
     hass = MagicMock()
-    hass.data = {
-        DOMAIN: {
-            "E": {
-                ATTR_VEHICLE: {"V": vehicle},
-                ATTR_COORDINATOR: {ATTR_VEHICLE: {"V": coordinator}},
-            }
-        }
-    }
     added: list[Any] = []
     remove_stale = MagicMock()
     with patch.object(binary_sensor, "async_remove_stale_entities", remove_stale):
