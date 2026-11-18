@@ -429,23 +429,31 @@ def precondition_schedule_departure(
     minutes = occurrence.get("startsAtMin")
     if not days or minutes is None:
         return None
-    around = dt_util.as_local(dt_util.utc_from_timestamp(departure))
-    candidates: list[datetime] = []
-    for offset in range(-4, 12):
-        day = around.date() + timedelta(days=offset)
-        if WEEK_DAYS_ORDERED[day.weekday()] not in days:
-            continue
-        wall = datetime.combine(
-            day,
-            dt_time(minutes // MINUTES_PER_HOUR, minutes % MINUTES_PER_HOUR),
-            around.tzinfo,
-        )
-        # A wall time repeated as the clocks go back is two instants
-        for candidate in (wall, wall.replace(fold=1)):
-            if abs(candidate.timestamp() - departure) < 1:
-                return candidate
-            candidates.append(candidate)
-    upcoming = [c for c in candidates if c.timestamp() > now]
+
+    def occurrences(start: datetime, days_after: range) -> list[datetime]:
+        """Return the schedule's times on the days around start's date."""
+        times: list[datetime] = []
+        for offset in days_after:
+            day = start.date() + timedelta(days=offset)
+            if WEEK_DAYS_ORDERED[day.weekday()] not in days:
+                continue
+            wall = datetime.combine(
+                day,
+                dt_time(minutes // MINUTES_PER_HOUR, minutes % MINUTES_PER_HOUR),
+                start.tzinfo,
+            )
+            # A wall time repeated as the clocks go back is two instants
+            times.extend((wall, wall.replace(fold=1)))
+        return times
+
+    # Unchanged: it still departs at the recorded instant
+    recorded = dt_util.as_local(dt_util.utc_from_timestamp(departure))
+    for candidate in occurrences(recorded, range(-1, 2)):
+        if abs(candidate.timestamp() - departure) < 1:
+            return candidate
+    # Edited: its next occurrence after now, within a full week of it
+    current = dt_util.as_local(dt_util.utc_from_timestamp(now))
+    upcoming = [c for c in occurrences(current, range(9)) if c.timestamp() > now]
     return min(upcoming, key=lambda c: c.timestamp()) if upcoming else None
 
 
@@ -845,8 +853,11 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             self.async_update_listeners()
         if not schedules and previous and not self._expect_empty_schedules:
             # Rivian can send an empty list just before the full one, so it doesn't
-            # confirm the cache or end a mutation's wait; the full list, or another
-            # empty one if they're really all gone, will
+            # confirm the cache or end a mutation's wait, and reads until the next
+            # list refresh first; the full list, or another empty one if they're
+            # really all gone, confirms it
+            self._departure_stale = True
+            self._departure_refreshed.clear()
             _LOGGER.debug("Waiting for a schedule list after an empty one")
         else:
             # a delivered list is authoritative: let a waiting mutation proceed and
@@ -933,13 +944,17 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         await self._save_precondition_state()
         try:
             await self.create_departure_schedule(schedule)
-        except HomeAssistantError as err:
+        except BaseException as err:
             # Rivian rejected it, so there's no schedule to adopt, and the record
             # would refuse the next try. Keep it when the outcome is unknown, such
             # as after a timeout, as the schedule may still have been created
             if getattr(err, "translation_key", None) == "schedule_rejected":
                 self._precondition_pending.remove(record)
                 await self._save_precondition_state()
+            # A kept record is adopted by a later cleanup pass. Vehicle updates keep
+            # putting off the regular refresh, and a schedule list may not arrive,
+            # so arm the cleanup timer, which retries well before it's abandoned
+            self._arm_precondition_timer()
             raise
         # adopts the new id and arms the cleanup timer for its expiry, so the schedule is
         # deleted once it has departed and does not fire again next week; deleting does

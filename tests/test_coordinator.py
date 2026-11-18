@@ -70,8 +70,10 @@ def test_empty_schedule_list_confirms_only_when_real(
     Another empty list, the first list, or deleting the last schedule does.
     """
     coordinator = _schedule_coordinator()
-    coordinator._departure_stale = True
+    # confirmed by an earlier list, as before a resubscribe
+    coordinator._departure_stale = False
     coordinator._departure_refreshed = asyncio.Event()
+    coordinator._departure_refreshed.set()
     coordinator._departure_schedules = previous
     coordinator._expect_empty_schedules = expect_empty
     coordinator._precondition_pending = []
@@ -385,6 +387,22 @@ def test_unchanged_departed_schedule_keeps_its_departure(
     assert result == departure
 
 
+def test_edited_long_ago_schedule_takes_its_next_occurrence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The next occurrence is found from now, however old the recorded one is."""
+    zone = _denver(monkeypatch)
+    departure = datetime(2026, 10, 28, 12, 12, tzinfo=zone)  # three weeks back
+    now = datetime(2026, 11, 18, 9, 0, tzinfo=zone)  # a Wednesday
+    schedule = {"occurrence": {"days": ["Tuesday"], "startsAtMin": 13 * 60}}
+
+    result = coordinator_module.precondition_schedule_departure(
+        schedule, departure.timestamp(), now.timestamp()
+    )
+
+    assert result == datetime(2026, 11, 24, 13, 0, tzinfo=zone)
+
+
 def test_edited_schedule_takes_its_next_occurrence(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -479,12 +497,19 @@ async def test_unconfirmed_precondition_keeps_its_record(
     coordinator, _ = _precondition_coordinator()
     unconfirmed = HomeAssistantError("unconfirmed")
     unconfirmed.translation_key = "schedule_unconfirmed"
-    coordinator.create_departure_schedule = AsyncMock(side_effect=unconfirmed)
+
+    async def create(schedule: dict[str, Any]) -> None:
+        coordinator._arm_precondition_timer.reset_mock()
+        raise unconfirmed
+
+    coordinator.create_departure_schedule = AsyncMock(side_effect=create)
 
     with pytest.raises(HomeAssistantError):
         await coordinator.precondition_now()
 
     assert len(coordinator._precondition_pending) == 1
+    # retried on its own timer, as vehicle updates keep putting off a refresh
+    coordinator._arm_precondition_timer.assert_called_once()
 
 
 async def test_concurrent_preconditions_create_one_schedule(
