@@ -767,7 +767,8 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         ``PRECONDITION_LEAD_MINUTES_MINIMUM`` and the departure minute is rounded up,
         never down. There is no keyless way to stop it early: deleting the schedule
         does not stop a session that has started, so it runs until the departure time.
-        The schedule is deleted shortly after so it does not repeat weekly.
+        The schedule is deleted shortly after so it does not repeat weekly. Called
+        again before it departs, it moves that schedule instead of adding another.
 
         The departure minute and day are computed in Home Assistant's timezone. Rivian
         interprets them in the vehicle's local timezone, which the API does not expose
@@ -787,22 +788,24 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             min(DEPARTURE_SCHEDULE_TEMPERATURE_MAXIMUM, self.precondition_temperature),
         )
         depart = precondition_departure(dt_util.now(), lead)
+        expiry = depart.timestamp() + PRECONDITION_CLEANUP_GRACE_SECONDS
+        repeats_weekly = {
+            "days": [WEEK_DAYS_ORDERED[depart.weekday()]],
+            "startsAtMin": depart.hour * 60 + depart.minute,
+        }
+        comfort = {"cabinTempCelsius": temperature}
+        if await self._update_upcoming_precondition(expiry, repeats_weekly, comfort):
+            return
         # give the schedule a unique name so its id can be identified unambiguously and
         # no unrelated schedule that merely shares the base name is ever claimed as ours
         name = f"{PRECONDITION_SCHEDULE_NAME} {secrets.token_hex(3)}"
-        expiry = depart.timestamp() + PRECONDITION_CLEANUP_GRACE_SECONDS
         schedule = deep_merge(
             DEFAULT_DEPARTURE_SCHEDULE,
             {
                 "name": name,
                 "isEnabled": True,
-                "repeatsWeekly": {
-                    "days": [WEEK_DAYS_ORDERED[depart.weekday()]],
-                    "startsAtMin": depart.hour * 60 + depart.minute,
-                },
-                "departureSettings": {
-                    "comfortSettings": {"cabinTempCelsius": temperature}
-                },
+                "repeatsWeekly": repeats_weekly,
+                "departureSettings": {"comfortSettings": comfort},
             },
         )
         # persist the intent *before* the remote create so an interruption after Rivian
@@ -815,6 +818,60 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         # deleted once it has departed and does not fire again next week; deleting does
         # not stop preconditioning that has already started
         await self._reconcile_and_cleanup()
+
+    async def _update_upcoming_precondition(
+        self,
+        expiry: float,
+        repeats_weekly: dict[str, Any],
+        comfort: dict[str, Any],
+    ) -> bool:
+        """Move Home Assistant's own precondition schedule, if it hasn't departed.
+
+        Pressing the button again then changes that schedule's departure and
+        temperature, instead of adding a second one that conditions the cabin again
+        and can't be stopped. Returns False when there's no such schedule. Raises
+        while one is still being created, as it can't be updated before its id is
+        known.
+        """
+        async with self._precondition_cleanup_lock:
+            changed = self._reconcile_pending()
+            now = time.time()
+            upcoming = next(
+                (
+                    schedule_id
+                    for schedule_id, owned_expiry in self._precondition_ids.items()
+                    if owned_expiry - PRECONDITION_CLEANUP_GRACE_SECONDS > now
+                    and self.get_departure_schedule(schedule_id)
+                ),
+                None,
+            )
+            try:
+                if upcoming is None:
+                    if any(
+                        record["expiry"] - PRECONDITION_CLEANUP_GRACE_SECONDS > now
+                        for record in self._precondition_pending
+                    ):
+                        raise HomeAssistantError(
+                            translation_domain=DOMAIN,
+                            translation_key="precondition_already_scheduled",
+                        )
+                    return False
+                await self.update_departure_schedule(
+                    upcoming,
+                    {
+                        "isEnabled": True,
+                        "repeatsWeekly": repeats_weekly,
+                        "departureSettings": {"comfortSettings": comfort},
+                    },
+                )
+                # clean it up after its new departure instead
+                self._precondition_ids[upcoming] = expiry
+                changed = True
+                return True
+            finally:
+                if changed:
+                    await self._save_precondition_state()
+                self._arm_precondition_timer()
 
     def _reconcile_pending(self) -> bool:
         """Adopt the id of each pending creation by its unique name; drop stale records.

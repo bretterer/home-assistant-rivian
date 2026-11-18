@@ -211,7 +211,9 @@ class RivianDepartureSchedulesEntity(RivianVehicleEntity, SensorEntity):
         """Return the departure schedules."""
         return {
             "schedules": [
-                departure_schedule_summary(schedule)
+                departure_schedule_summary(
+                    schedule, self.hass.config.units.temperature_unit
+                )
                 for schedule in self.coordinator.departure_schedules or []
             ]
         }

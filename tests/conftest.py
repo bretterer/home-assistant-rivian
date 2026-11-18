@@ -900,6 +900,22 @@ def _setup_mock_environment() -> None:
         unit_conversion_mod = DynamicModule(
             "homeassistant.util.unit_conversion", is_package=False
         )
+
+        class TemperatureConverter:
+            """Converts between Celsius and Fahrenheit, by unit or enum name."""
+
+            @staticmethod
+            def convert(value: float, from_unit: str, to_unit: str) -> float:
+                def fahrenheit(unit: str) -> bool:
+                    return str(unit) in ("°F", "fahrenheit")
+
+                if fahrenheit(from_unit) == fahrenheit(to_unit):
+                    return value
+                if fahrenheit(to_unit):
+                    return value * 9 / 5 + 32
+                return (value - 32) * 5 / 9
+
+        unit_conversion_mod.TemperatureConverter = TemperatureConverter  # type: ignore[attr-defined]
         sys.modules["homeassistant.util.unit_conversion"] = unit_conversion_mod
         util_mod.unit_conversion = unit_conversion_mod  # type: ignore[attr-defined]
 

@@ -80,3 +80,20 @@ async def test_keyless_controls_removed_after_pairing(
     for key in keys:
         assert f"PAIRED-{key}" in possible - created
         assert f"KEYLESS-{key}" in created
+
+
+@pytest.mark.parametrize(
+    ("target", "expected"),
+    [(22.3, 22.5), (63.5, 29), (10.0, 16), (None, 21)],
+    ids=["set", "hi", "lo", "missing"],
+)
+def test_precondition_temperature_starts_at_the_set_temperature(
+    target: float | None, expected: float
+) -> None:
+    """Without a restored value, start at the driver's set temperature, clamped."""
+    coordinator = MagicMock()
+    coordinator.get = lambda key: target if key == "hvacTargetTemperature" else None
+    number.RivianPreconditionTemperatureEntity(
+        coordinator, MagicMock(), VEHICLES["keyless"]
+    )
+    assert coordinator.precondition_temperature == expected

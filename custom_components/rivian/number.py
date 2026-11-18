@@ -274,4 +274,14 @@ class RivianPreconditionTemperatureEntity(RivianPreconditionNumberEntity):
             translation_key=PRECONDITION_TEMPERATURE_KEY,
         )
         super().__init__(coordinator, config_entry, description, vehicle)
-        self.coordinator.precondition_temperature = DEFAULT_PRECONDITION_TEMPERATURE
+        # Without a restored value, start at the driver's set temperature, like the
+        # Rivian app. LO and HI fall outside the schedule limits, so it's clamped
+        target = self.coordinator.get("hvacTargetTemperature")
+        self.coordinator.precondition_temperature = (
+            max(
+                DEPARTURE_SCHEDULE_TEMPERATURE_MINIMUM,
+                min(DEPARTURE_SCHEDULE_TEMPERATURE_MAXIMUM, round(target * 2) / 2),
+            )
+            if isinstance(target, (int, float))
+            else DEFAULT_PRECONDITION_TEMPERATURE
+        )

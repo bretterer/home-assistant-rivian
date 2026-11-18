@@ -317,7 +317,7 @@ The departure time is local to the vehicle. The temperature is entered in your H
 
 On vehicles without a paired phone, the **Precondition cabin** button starts cabin preconditioning now by creating a short-lived departure schedule, which the vehicle preconditions for right away. It is created only for those vehicles, since paired vehicles already have the full Cabin Climate entity.
 
-Set the **Precondition lead time** and **Precondition temperature** numbers first, then press the button. The lead time (20–60 minutes, default 20) is how far out the schedule departs and roughly how long preconditioning runs. The vehicle may not precondition for a departure about 15 minutes or less away, which is why the minimum is 20. The temporary schedule is deleted automatically after it runs.
+Set the **Precondition lead time** and **Precondition temperature** numbers first, then press the button. The lead time (20–60 minutes, default 20) is how far out the schedule departs and roughly how long preconditioning runs. The vehicle may not precondition for a departure about 15 minutes or less away, which is why the minimum is 20. The temperature starts at the driver's set temperature, within the schedule limits. Pressing the button again before the temporary schedule departs moves that schedule to the new lead time and temperature, rather than adding another. The temporary schedule is deleted automatically after it runs.
 
 There is no keyless way to stop a session early — deleting the schedule does not stop preconditioning that has already started, so it runs until the departure time. Stop it from the Rivian app if needed.
 

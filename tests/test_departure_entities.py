@@ -166,3 +166,16 @@ def test_unload_cancels_pending_removal(monkeypatch: pytest.MonkeyPatch) -> None
         unload()
 
     harness.timers[-1][2].assert_called_once()
+
+
+@pytest.mark.parametrize(
+    ("unit", "temperature"), [("°C", 21), ("°F", 69.8)], ids=["celsius", "fahrenheit"]
+)
+def test_summary_temperature_in_the_users_unit(unit: str, temperature: float) -> None:
+    """Schedule temperatures are shown in the user's unit, as the actions take them."""
+    schedule = {
+        "id": "S1",
+        "departureSettings": {"comfortSettings": {"cabinTempCelsius": 21}},
+    }
+    summary = helpers.departure_schedule_summary(schedule, unit)
+    assert summary["temperature"] == temperature

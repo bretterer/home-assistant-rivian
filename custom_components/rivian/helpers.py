@@ -11,13 +11,20 @@ from rivian import Rivian
 
 from homeassistant.components.diagnostics.util import async_redact_data
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_EMAIL, CONF_LATITUDE, CONF_LONGITUDE, Platform
+from homeassistant.const import (
+    CONF_EMAIL,
+    CONF_LATITUDE,
+    CONF_LONGITUDE,
+    Platform,
+    UnitOfTemperature,
+)
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_call_later
+from homeassistant.util.unit_conversion import TemperatureConverter
 
 from .const import (
     CONF_ACCESS_TOKEN,
@@ -132,8 +139,14 @@ def departure_schedule_to_input(schedule: dict[str, Any]) -> dict[str, Any]:
     return data
 
 
-def departure_schedule_summary(schedule: dict[str, Any]) -> dict[str, Any]:
-    """Flatten a departure schedule for use in state attributes."""
+def departure_schedule_summary(
+    schedule: dict[str, Any], temperature_unit: str
+) -> dict[str, Any]:
+    """Flatten a departure schedule for use in state attributes.
+
+    The temperature is in ``temperature_unit``, the user's unit, as the actions
+    take it, so a value can be copied from here into an update.
+    """
     occurrence = schedule.get("occurrence") or {}
     settings = schedule.get("departureSettings") or {}
     comfort = settings.get("comfortSettings") or {}
@@ -142,7 +155,12 @@ def departure_schedule_summary(schedule: dict[str, Any]) -> dict[str, Any]:
     if (minutes := occurrence.get("startsAtMin")) is not None:
         time = f"{minutes // MINUTES_PER_HOUR:02d}:{minutes % MINUTES_PER_HOUR:02d}"
     if (temperature := comfort.get("cabinTempCelsius")) is not None:
-        temperature = round(temperature, 1)
+        temperature = round(
+            TemperatureConverter.convert(
+                temperature, UnitOfTemperature.CELSIUS, temperature_unit
+            ),
+            1,
+        )
     return {
         "schedule_id": schedule.get("id"),
         "name": schedule.get("name"),

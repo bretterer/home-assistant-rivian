@@ -191,7 +191,9 @@ class RivianDepartureScheduleSwitchEntity(RivianVehicleEntity, SwitchEntity):
         """Return the departure schedule."""
         if not (schedule := self._schedule):
             return None
-        return departure_schedule_summary(schedule)
+        return departure_schedule_summary(
+            schedule, self.hass.config.units.temperature_unit
+        )
 
     @callback
     def _handle_coordinator_update(self) -> None:
