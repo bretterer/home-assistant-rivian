@@ -145,6 +145,7 @@ def test_departure_across_a_dst_change() -> None:
         ("HA Precondition Now", True),
         ("ha precondition now ", True),
         ("HA Precondition 3fa9c1", False),
+        ("HA Precondition Nowhere", False),
         ("Weekdays", False),
         (None, False),
     ],

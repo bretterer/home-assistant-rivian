@@ -418,8 +418,9 @@ def is_precondition_schedule(schedule: dict[str, Any]) -> bool:
     Identified by the reserved name, which the actions don't let users take.
     """
     name = schedule.get("name")
-    return isinstance(name, str) and name.strip().casefold().startswith(
-        PRECONDITION_SCHEDULE_NAME.casefold()
+    return (
+        isinstance(name, str)
+        and name.strip().casefold() == PRECONDITION_SCHEDULE_NAME.casefold()
     )
 
 
@@ -1594,6 +1595,11 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
                 self._unsub_departure_handler,
                 None,
             )
+            # The feed has ended: a held empty list from it no longer counts, and
+            # the next read-modify-write gets a fresh list
+            self._departure_subscription += 1
+            self._cancel_empty_list_hold()
+            self._departure_stale = True
             if unsub_departure:
                 await unsub_departure()
         if close_monitor and (monitor := self.api._ws_monitor):

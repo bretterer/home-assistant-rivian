@@ -40,7 +40,7 @@ from .const import (
     PRECONDITION_SCHEDULE_NAME,
     WEEK_DAYS_ORDERED,
 )
-from .coordinator import VehicleCoordinator
+from .coordinator import VehicleCoordinator, is_precondition_schedule
 from .helpers import deep_merge, schedule_cabin_temperature
 
 ATTR_DAYS: Final = "days"
@@ -58,15 +58,14 @@ SERVICE_PRECONDITION_CABIN: Final = "precondition_cabin"
 
 
 def _not_reserved_name(value: str) -> str:
-    """Reject names Home Assistant uses for its temporary precondition schedules.
+    """Reject the name Home Assistant uses for its temporary precondition schedules.
 
-    They're recognized by this name and deleted once departed, so the whole prefix
-    is reserved, not just the exact name.
+    They're recognized by it and deleted once departed.
     """
-    if value.strip().casefold().startswith(PRECONDITION_SCHEDULE_NAME.casefold()):
+    if is_precondition_schedule({"name": value}):
         raise vol.Invalid(
-            f'Names starting with "{PRECONDITION_SCHEDULE_NAME}" are reserved for the '
-            "Precondition Cabin button"
+            f'"{PRECONDITION_SCHEDULE_NAME}" is reserved for the Precondition '
+            "Cabin button"
         )
     return value
 

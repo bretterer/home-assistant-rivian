@@ -207,13 +207,22 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
                 PRECONDITION_SCHEDULE_NAME,
             )
             return
-        for vehicle_id in coordinator.get_vehicles():
+
+        async def remove_preconditions(vehicle_id: str) -> None:
             try:
                 await _async_remove_preconditions(client, vehicle_id)
             except Exception:
                 _LOGGER.exception(
                     "Unable to delete vehicle %s's precondition schedules", vehicle_id
                 )
+
+        # at once, as each waits for its vehicle's schedule list
+        await asyncio.gather(
+            *(
+                remove_preconditions(vehicle_id)
+                for vehicle_id in coordinator.get_vehicles()
+            )
+        )
         if (public_key := entry.options.get("public_key")) and (
             enrolled_data := coordinator.get_enrolled_phone_data(public_key)
         ):

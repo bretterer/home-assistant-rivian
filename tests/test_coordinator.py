@@ -447,6 +447,30 @@ async def test_update_keeps_settings_it_doesnt_name() -> None:
     assert sent["name"] == "Weekdays"
 
 
+async def test_ending_the_feed_retires_its_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Once unsubscribed, a held empty list from it can't remove every switch.
+
+    And the next read-modify-write gets a fresh list, so it can't undo an edit
+    made in the app while the feed was down.
+    """
+    coordinator, timers = _held_coordinator(monkeypatch)
+    coordinator._departure_subscribe_lock = asyncio.Lock()
+    coordinator._unsub_departure_handler = AsyncMock()
+    for name in ("_unsub_parallax", "_unsub_handler", "_unsub_location"):
+        setattr(coordinator, name, None)
+    coordinator.api = MagicMock(_ws_monitor=None)
+
+    _received(coordinator, [])
+    await coordinator._unsubscribe()
+    timers.calls[0][1](None)  # the hold would have ended
+
+    timers.calls[0][2].assert_called_once()  # cancelled
+    assert coordinator._departure_schedules == [{"id": "a"}]
+    assert coordinator._departure_stale
+
+
 class _Drivers:
     def __init__(self, device: dict[str, Any] | None) -> None:
         self.device = device
