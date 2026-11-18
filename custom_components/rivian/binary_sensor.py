@@ -63,15 +63,19 @@ async def async_setup_entry(
         (
             f"{vehicle['vin']}-{description.key}"
             for vehicle in vehicles.values()
-            for descriptions in BINARY_SENSORS.values()
+            for models, descriptions in BINARY_SENSORS.items()
             for description in descriptions
             # Keep feature-gated entities if the features didn't load, and ones
-            # added once reported, which a sleeping vehicle may not report yet
+            # the vehicle's model adds once reported, which a sleeping vehicle
+            # may not report yet
             if (
                 description.supported_feature is None
                 or vehicle.get("supported_features")
             )
-            and not description.add_when_reported
+            and not (
+                description.add_when_reported
+                and any(model in vehicle["model"] for model in models)
+            )
         ),
         (entity.unique_id for entity in entities),
     )
@@ -95,12 +99,14 @@ def _async_add_when_reported(
 
     The rest are added the first time the vehicle reports a value for them. A
     vehicle without the part reports it with no state, so it never gets them.
+    Only a string counts: the client passes an unmapped enum value, such as an
+    unspecified state, through as its number.
     """
     pending = list(descriptions)
     unsubscribe: Callable[[], None] | None = None
 
     def take_reported() -> list[RivianBinarySensorEntity]:
-        reported = [d for d in pending if coordinator.get(d.field) is not None]
+        reported = [d for d in pending if isinstance(coordinator.get(d.field), str)]
         for description in reported:
             pending.remove(description)
         return [

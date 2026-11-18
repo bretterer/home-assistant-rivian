@@ -38,8 +38,9 @@ class RivianBinarySensorEntityDescription(BinarySensorEntityDescription):
     negate: bool = False
     # Only create for vehicles reporting this supported feature
     supported_feature: str | None = None
-    # Without supported_feature, still create it once the vehicle reports a value
-    # for field, which must be a single field
+    # For a vehicle without supported_feature, still create it once the vehicle
+    # reports a value for field, which must be a single field. Has no effect
+    # without a supported_feature
     add_when_reported: bool = False
 
 

@@ -36,14 +36,14 @@ class FakeCoordinator:
 
 
 def setup(
-    coordinator: FakeCoordinator, features: list[str]
+    coordinator: FakeCoordinator, features: list[str], model: str = "R1T"
 ) -> tuple[list[Any], MagicMock, MagicMock]:
-    """Set up the platform for one R1T; return the added entities and mocks."""
+    """Set up the platform for one vehicle; return the added entities and mocks."""
     vehicle = {
         "id": "V",
         "vin": "VIN1",
         "name": "Truck",
-        "model": "R1T",
+        "model": model,
         "supported_features": features,
     }
     entry = MagicMock(entry_id="E")
@@ -129,9 +129,25 @@ def test_never_added_without_a_tonneau() -> None:
     assert not coordinator.listeners
 
 
+def test_never_added_for_an_unspecified_state() -> None:
+    """An unspecified state, which the client passes on as 0, isn't a value."""
+    coordinator = FakeCoordinator({})
+    added, _, _ = setup(coordinator, [])
+    coordinator.update(closureTonneauClosed=0, closureTonneauLocked=0)
+    assert not tonneau_keys(added)
+    assert len(coordinator.listeners) == 1
+
+
 def test_not_removed_as_stale_before_reported() -> None:
     """A sleeping truck's registered tonneau sensors aren't deleted at setup."""
     _, _, remove_stale = setup(FakeCoordinator({}), [])
     possible = set(remove_stale.call_args.args[2])
     assert "VIN1-door_front_left_closed" in possible
     assert not {f"VIN1-{key}" for key in TONNEAU_KEYS} & possible
+
+
+def test_removed_as_stale_for_other_models() -> None:
+    """An R1S can never get the tonneau sensors, so leftovers are removed."""
+    _, _, remove_stale = setup(FakeCoordinator({}), ["PVS_BD_ST8"], model="R1S")
+    possible = set(remove_stale.call_args.args[2])
+    assert {f"VIN1-{key}" for key in TONNEAU_KEYS} <= possible
