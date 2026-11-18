@@ -1,0 +1,442 @@
+"""Tests for the departure schedule actions' permission checks."""
+
+from __future__ import annotations
+
+from types import SimpleNamespace
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+import voluptuous as vol
+
+from custom_components.rivian import services
+from homeassistant.exceptions import Unauthorized, UnknownUser
+
+DEVICE_ID = "vehicle-device"
+ENTITIES = {
+    DEVICE_ID: ["switch.r1t_departure_schedule_weekdays", "sensor.r1t_battery"],
+    "other-device": ["switch.other_vehicle_departure_schedule"],
+}
+
+
+def _user(
+    allowed: set[str] | None = None,
+    admin: bool = False,
+    policies: frozenset[str] = frozenset({"control"}),
+) -> SimpleNamespace:
+    """A user with the given policies on the allowed entities."""
+    allowed = allowed or set()
+    return SimpleNamespace(
+        is_admin=admin,
+        permissions=SimpleNamespace(
+            check_entity=lambda entity_id, policy: (
+                entity_id in allowed and policy in policies
+            )
+        ),
+    )
+
+
+def _call(user_id: str | None) -> SimpleNamespace:
+    # keyed by the module's own constants, which the test harness may mock
+    return SimpleNamespace(
+        context=SimpleNamespace(user_id=user_id),
+        data={
+            services.ATTR_DEVICE_ID: DEVICE_ID,
+            services.ATTR_SCHEDULE_ID: "schedule",
+        },
+    )
+
+
+@pytest.fixture
+def hass(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
+    """Home Assistant stand-in with the registries the checks use."""
+    monkeypatch.setattr(
+        services,
+        "er",
+        SimpleNamespace(
+            async_get=lambda hass: "registry",
+            async_entries_for_device=lambda registry, device_id: [
+                SimpleNamespace(entity_id=entity_id)
+                for entity_id in ENTITIES.get(device_id, [])
+            ],
+        ),
+        raising=False,
+    )
+    return SimpleNamespace(auth=SimpleNamespace(async_get_user=AsyncMock()))
+
+
+@pytest.fixture
+def coordinator(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
+    coordinator = MagicMock()
+    coordinator.delete_departure_schedule = AsyncMock()
+    monkeypatch.setattr(
+        services, "_get_coordinator", lambda hass, device_id: coordinator
+    )
+    return coordinator
+
+
+def _register(hass: SimpleNamespace) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Set up the actions; return their handlers and schemas by name."""
+    handlers: dict[str, Any] = {}
+    schemas: dict[str, Any] = {}
+
+    def register(domain: str, service: str, handler: Any, schema: Any) -> None:
+        handlers[service] = handler
+        schemas[service] = schema
+
+    hass.services = SimpleNamespace(async_register=register)
+    services.async_setup_services(hass)
+    return handlers, schemas
+
+
+def _handlers(hass: SimpleNamespace) -> dict[str, Any]:
+    return _register(hass)[0]
+
+
+async def test_user_without_vehicle_control_is_denied(
+    hass: SimpleNamespace, coordinator: MagicMock
+) -> None:
+    hass.auth.async_get_user.return_value = _user(
+        {"switch.other_vehicle_departure_schedule"}
+    )
+    delete = _handlers(hass)[services.SERVICE_DELETE_DEPARTURE_SCHEDULE]
+
+    with pytest.raises(Unauthorized):
+        await delete(_call("user"))
+    coordinator.delete_departure_schedule.assert_not_awaited()
+
+
+async def test_user_with_vehicle_control_is_allowed(
+    hass: SimpleNamespace, coordinator: MagicMock
+) -> None:
+    hass.auth.async_get_user.return_value = _user(
+        {"switch.r1t_departure_schedule_weekdays"}
+    )
+    delete = _handlers(hass)[services.SERVICE_DELETE_DEPARTURE_SCHEDULE]
+
+    await delete(_call("user"))
+    coordinator.delete_departure_schedule.assert_awaited_once_with("schedule")
+
+
+async def test_unknown_user_is_denied(
+    hass: SimpleNamespace, coordinator: MagicMock
+) -> None:
+    hass.auth.async_get_user.return_value = None
+    delete = _handlers(hass)[services.SERVICE_DELETE_DEPARTURE_SCHEDULE]
+
+    with pytest.raises(UnknownUser):
+        await delete(_call("missing"))
+    coordinator.delete_departure_schedule.assert_not_awaited()
+
+
+async def test_call_without_user_is_trusted(
+    hass: SimpleNamespace, coordinator: MagicMock
+) -> None:
+    """Automations and scripts call without a user and are not checked."""
+    delete = _handlers(hass)[services.SERVICE_DELETE_DEPARTURE_SCHEDULE]
+
+    await delete(_call(None))
+    hass.auth.async_get_user.assert_not_awaited()
+    coordinator.delete_departure_schedule.assert_awaited_once_with("schedule")
+
+
+async def test_user_who_can_only_read_the_vehicle_is_denied(
+    hass: SimpleNamespace, coordinator: MagicMock
+) -> None:
+    """Reading a vehicle's entities isn't controlling it."""
+    hass.auth.async_get_user.return_value = _user(
+        {"switch.r1t_departure_schedule_weekdays"}, policies=frozenset({"read"})
+    )
+    delete = _handlers(hass)[services.SERVICE_DELETE_DEPARTURE_SCHEDULE]
+
+    with pytest.raises(Unauthorized):
+        await delete(_call("reader"))
+    coordinator.delete_departure_schedule.assert_not_awaited()
+
+
+async def test_admin_is_allowed_without_entities(
+    hass: SimpleNamespace, coordinator: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An admin may act on a vehicle whose entities are all disabled."""
+    monkeypatch.setitem(ENTITIES, DEVICE_ID, [])
+    hass.auth.async_get_user.return_value = _user(admin=True)
+    delete = _handlers(hass)[services.SERVICE_DELETE_DEPARTURE_SCHEDULE]
+
+    await delete(_call("admin"))
+    coordinator.delete_departure_schedule.assert_awaited_once_with("schedule")
+
+
+@pytest.mark.parametrize(
+    "service",
+    [
+        services.SERVICE_CREATE_DEPARTURE_SCHEDULE,
+        services.SERVICE_UPDATE_DEPARTURE_SCHEDULE,
+        services.SERVICE_DELETE_DEPARTURE_SCHEDULE,
+        services.SERVICE_PRECONDITION_CABIN,
+    ],
+)
+async def test_every_schedule_action_checks_permission(
+    hass: SimpleNamespace, coordinator: MagicMock, service: str
+) -> None:
+    hass.auth.async_get_user.return_value = _user()
+    handler = _handlers(hass)[service]
+
+    with pytest.raises(Unauthorized):
+        await handler(_call("user"))
+    assert not coordinator.method_calls
+
+
+@pytest.mark.parametrize(
+    ("data", "expected"),
+    [({}, (None, None)), ({"lead_time": 30, "temperature": 72}, (30, 22))],
+    ids=["defaults", "lead_and_temperature"],
+)
+async def test_precondition_cabin(
+    monkeypatch: pytest.MonkeyPatch,
+    hass: SimpleNamespace,
+    coordinator: MagicMock,
+    data: dict[str, Any],
+    expected: tuple[Any, Any],
+) -> None:
+    """The lead time is passed on, and the temperature converted to Celsius."""
+    coordinator.precondition_now = AsyncMock()
+    hass.config = SimpleNamespace(units=SimpleNamespace(temperature_unit="°F"))
+    call = _call(None)
+    call.data = {services.ATTR_DEVICE_ID: DEVICE_ID}
+    if "lead_time" in data:
+        call.data[services.ATTR_LEAD_TIME] = data["lead_time"]
+    if "temperature" in data:
+        call.data[services.ATTR_TEMPERATURE] = data["temperature"]
+
+    await _handlers(hass)[services.SERVICE_PRECONDITION_CABIN](call)
+
+    coordinator.precondition_now.assert_awaited_once_with(*expected)
+
+
+@pytest.mark.parametrize(
+    ("service", "data"),
+    [
+        (services.SERVICE_PRECONDITION_CABIN, {"device_id": "d"}),
+        (
+            services.SERVICE_PRECONDITION_CABIN,
+            {"device_id": "d", "lead_time": "30", "temperature": "72"},
+        ),
+        (
+            services.SERVICE_CREATE_DEPARTURE_SCHEDULE,
+            {
+                "device_id": "d",
+                "name": "Weekdays",
+                "departure_time": "07:30:00",
+                "days": ["Monday", "Friday"],
+            },
+        ),
+        (
+            services.SERVICE_UPDATE_DEPARTURE_SCHEDULE,
+            {"device_id": "d", "schedule_id": "s", "enabled": False},
+        ),
+        (
+            services.SERVICE_DELETE_DEPARTURE_SCHEDULE,
+            {"device_id": "d", "schedule_id": "s"},
+        ),
+    ],
+)
+def test_action_schema_accepts(
+    hass: SimpleNamespace, service: str, data: dict[str, Any]
+) -> None:
+    schema = _register(hass)[1][service]
+    schema(data)
+
+
+@pytest.mark.parametrize(
+    ("service", "data"),
+    [
+        (services.SERVICE_PRECONDITION_CABIN, {}),
+        (services.SERVICE_PRECONDITION_CABIN, {"device_id": "d", "lead_time": 15}),
+        (services.SERVICE_PRECONDITION_CABIN, {"device_id": "d", "lead_time": 61}),
+        (
+            services.SERVICE_CREATE_DEPARTURE_SCHEDULE,
+            {
+                "device_id": "d",
+                "name": " ha precondition now",
+                "departure_time": "07:30:00",
+                "days": ["Monday"],
+            },
+        ),
+        (
+            services.SERVICE_CREATE_DEPARTURE_SCHEDULE,
+            {
+                "device_id": "d",
+                "name": "Weekdays",
+                "departure_time": "07:30:00",
+                "days": ["Someday"],
+            },
+        ),
+        (services.SERVICE_UPDATE_DEPARTURE_SCHEDULE, {"device_id": "d"}),
+        (
+            services.SERVICE_UPDATE_DEPARTURE_SCHEDULE,
+            {"device_id": "d", "schedule_id": "s", "time": "07:30:00"},
+        ),
+    ],
+    ids=[
+        "precondition-no-vehicle",
+        "precondition-lead-too-short",
+        "precondition-lead-too-long",
+        "create-reserved-name",
+        "create-unknown-day",
+        "update-no-schedule",
+        "update-old-time-field",
+    ],
+)
+def test_action_schema_rejects(
+    hass: SimpleNamespace, service: str, data: dict[str, Any]
+) -> None:
+    schema = _register(hass)[1][service]
+    with pytest.raises(vol.Invalid):
+        schema(data)
+
+
+@pytest.mark.parametrize(
+    ("temperature", "celsius"),
+    [(60.8, 16), (84.2, 29), (72, 22)],
+    ids=["minimum", "maximum", "middle"],
+)
+def test_fahrenheit_limits_are_accepted(temperature: float, celsius: float) -> None:
+    """The limits as shown in °F aren't rejected for a conversion rounding error."""
+    hass = SimpleNamespace(
+        config=SimpleNamespace(units=SimpleNamespace(temperature_unit="°F"))
+    )
+    assert services._to_celsius(hass, temperature) == celsius
+
+
+@pytest.mark.parametrize("temperature", [60.7, 84.3])
+def test_fahrenheit_outside_the_limits_is_rejected(
+    monkeypatch: pytest.MonkeyPatch, temperature: float
+) -> None:
+    monkeypatch.setattr(services, "ServiceValidationError", _TranslatedError)
+    hass = SimpleNamespace(
+        config=SimpleNamespace(units=SimpleNamespace(temperature_unit="°F"))
+    )
+    with pytest.raises(_TranslatedError) as err:
+        services._to_celsius(hass, temperature)
+    assert err.value.translation_key == "temperature_out_of_range"
+
+
+async def test_precondition_cabin_from_validated_data(
+    hass: SimpleNamespace, coordinator: MagicMock
+) -> None:
+    """Strings from the UI are coerced by the schema before the handler runs."""
+    coordinator.precondition_now = AsyncMock()
+    hass.config = SimpleNamespace(units=SimpleNamespace(temperature_unit="°F"))
+    handlers, schemas = _register(hass)
+    call = _call(None)
+    call.data = schemas[services.SERVICE_PRECONDITION_CABIN](
+        {"device_id": DEVICE_ID, "lead_time": "30", "temperature": "72"}
+    )
+
+    await handlers[services.SERVICE_PRECONDITION_CABIN](call)
+
+    coordinator.precondition_now.assert_awaited_once_with(30, 22)
+
+
+@pytest.mark.parametrize(
+    ("departure_time", "valid"),
+    [("7:30", True), ("07:30:00", True), ("T07:30:00", False), ("7", False)],
+)
+def test_departure_time_formats(
+    hass: SimpleNamespace, departure_time: str, valid: bool
+) -> None:
+    """Departure times are parsed as Home Assistant parses times."""
+    schema = _register(hass)[1][services.SERVICE_UPDATE_DEPARTURE_SCHEDULE]
+    data = {"device_id": "d", "schedule_id": "s", "departure_time": departure_time}
+    if valid:
+        schema(data)
+    else:
+        with pytest.raises(vol.Invalid):
+            schema(data)
+
+
+class _TranslatedError(Exception):
+    """Stands in for Home Assistant's errors, keeping their translation."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(kwargs.get("translation_key"))
+        self.translation_key = kwargs.get("translation_key")
+        self.translation_placeholders = kwargs.get("translation_placeholders")
+
+
+@pytest.fixture
+def devices(monkeypatch: pytest.MonkeyPatch) -> dict[str, SimpleNamespace]:
+    """Device registry stand-in; tests add devices by id."""
+    registry: dict[str, SimpleNamespace] = {}
+    monkeypatch.setattr(
+        services,
+        "dr",
+        SimpleNamespace(async_get=lambda hass: SimpleNamespace(async_get=registry.get)),
+        raising=False,
+    )
+    monkeypatch.setattr(services, "ServiceValidationError", _TranslatedError)
+    return registry
+
+
+def _loaded(hass: SimpleNamespace, coordinator: MagicMock) -> None:
+    hass.data = {
+        services.DOMAIN: {
+            "entry": {
+                services.ATTR_COORDINATOR: {
+                    services.ATTR_VEHICLE: {"vid": coordinator}
+                },
+                services.ATTR_VEHICLE: {"vid": {"vin": "VIN"}},
+            }
+        }
+    }
+
+
+@pytest.mark.parametrize("identifier", ["vid", "VIN"])
+def test_vehicle_found_by_id_or_vin(
+    hass: SimpleNamespace, devices: dict[str, SimpleNamespace], identifier: str
+) -> None:
+    coordinator = MagicMock()
+    _loaded(hass, coordinator)
+    devices["device"] = SimpleNamespace(
+        identifiers={(services.DOMAIN, identifier)}, config_entries={"entry"}
+    )
+    assert services._get_coordinator(hass, "device") is coordinator
+
+
+async def test_unknown_device_is_invalid_not_unauthorized(
+    hass: SimpleNamespace, devices: dict[str, SimpleNamespace]
+) -> None:
+    """The vehicle lookup runs before the permission check."""
+    _loaded(hass, MagicMock())
+    hass.auth.async_get_user.return_value = _user()
+    delete = _handlers(hass)[services.SERVICE_DELETE_DEPARTURE_SCHEDULE]
+
+    with pytest.raises(_TranslatedError) as err:
+        await delete(_call("user"))
+    assert err.value.translation_key == "invalid_device"
+    assert err.value.translation_placeholders == {"device_id": DEVICE_ID}
+
+
+def test_wallbox_device_is_invalid(
+    hass: SimpleNamespace, devices: dict[str, SimpleNamespace]
+) -> None:
+    """A device of a loaded entry that isn't a vehicle is a wallbox."""
+    _loaded(hass, MagicMock())
+    devices["wallbox"] = SimpleNamespace(
+        identifiers={(services.DOMAIN, "serial")}, config_entries={"entry"}
+    )
+    with pytest.raises(_TranslatedError) as err:
+        services._get_coordinator(hass, "wallbox")
+    assert err.value.translation_key == "invalid_device"
+
+
+def test_vehicle_of_unloaded_entry(
+    hass: SimpleNamespace, devices: dict[str, SimpleNamespace]
+) -> None:
+    _loaded(hass, MagicMock())
+    devices["device"] = SimpleNamespace(
+        identifiers={(services.DOMAIN, "other")}, config_entries={"unloaded"}
+    )
+    with pytest.raises(_TranslatedError) as err:
+        services._get_coordinator(hass, "device")
+    assert err.value.translation_key == "vehicle_not_loaded"

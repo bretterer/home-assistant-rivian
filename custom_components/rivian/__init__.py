@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+from typing import Any
 
 from rivian import Rivian
 
@@ -25,11 +27,23 @@ from .const import (
     DOMAIN,
     ISSUE_STATE_VALUES_CHANGED,
     ISSUE_URL,
+    PRECONDITION_SCHEDULE_NAME,
     VERSION,
 )
-from .coordinator import UserCoordinator, VehicleCoordinator, WallboxCoordinator
+from .coordinator import (
+    DEPARTURE_EMPTY_LIST_HOLD,
+    UserCoordinator,
+    VehicleCoordinator,
+    WallboxCoordinator,
+    is_precondition_schedule,
+)
 from .frontend import async_register_cards
-from .helpers import get_rivian_api_from_entry
+from .helpers import (
+    departure_mutation_succeeded,
+    departure_schedules_from_message,
+    get_rivian_api_from_entry,
+)
+from .services import async_setup_services
 
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS: list[Platform] = [
@@ -48,13 +62,14 @@ PLATFORMS: list[Platform] = [
     Platform.TIME,
     Platform.UPDATE,
 ]
-
-
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+# How long to wait for a vehicle's departure schedules when removing the entry
+DEPARTURE_SCHEDULES_WAIT = 10
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the Rivian integration."""
+    async_setup_services(hass)
     try:
         await async_register_cards(hass)
     except Exception:  # the vehicles still set up without the dashboard cards
@@ -153,37 +168,161 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
-    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if not await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
+        return False
 
-    api: Rivian = hass.data[DOMAIN][entry.entry_id][ATTR_API]
+    # Stop the vehicles' background work, such as a precondition cleanup, before
+    # closing the client it uses. Home Assistant shuts them down again after this
+    # returns, which does nothing more
+    data = hass.data[DOMAIN].pop(entry.entry_id)
+    for coordinator in data[ATTR_COORDINATOR][ATTR_VEHICLE].values():
+        try:
+            await coordinator.async_shutdown()
+        except Exception:
+            # the others still stop, and the client still closes
+            _LOGGER.exception("Error stopping vehicle %s", coordinator.vehicle_id)
+    api: Rivian = data[ATTR_API]
     await api.close()
-
-    if unload_ok:
-        hass.data[DOMAIN].pop(entry.entry_id)
-
-    return unload_ok
+    return True
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Handle removal of an entry."""
-    if public_key := entry.options.get("public_key"):
-        client = get_rivian_api_from_entry(hass, entry)
-        coordinator = UserCoordinator(
-            hass=hass, config_entry=entry, client=client, include_phones=True
-        )
+    """Handle removal of an entry.
+
+    Deletes HA's temporary precondition schedules, which nothing would delete once
+    the integration is gone, so they'd precondition again every week, then
+    disenrolls the phone.
+    """
+    client = get_rivian_api_from_entry(hass, entry)
+    coordinator = UserCoordinator(
+        hass=hass, config_entry=entry, client=client, include_phones=True
+    )
+    try:
+        # The entry is no longer in setup, so first_refresh isn't allowed here
+        await coordinator.async_refresh()
+        if not coordinator.last_update_success:
+            _LOGGER.warning(
+                "Unable to fetch user data to clean up; delete any departure "
+                "schedules named %s in the Rivian app",
+                PRECONDITION_SCHEDULE_NAME,
+            )
+            return
+
+        async def remove_preconditions(vehicle_id: str) -> None:
+            try:
+                await _async_remove_preconditions(client, vehicle_id)
+            except Exception:
+                _LOGGER.exception(
+                    "Unable to delete vehicle %s's precondition schedules", vehicle_id
+                )
+
         try:
-            # The entry is no longer in setup, so first_refresh isn't allowed here
-            await coordinator.async_refresh()
-            if not coordinator.last_update_success:
-                _LOGGER.warning("Unable to disenroll phone: could not fetch user data")
-                return
-            if enrolled_data := coordinator.get_enrolled_phone_data(public_key):
-                for identity_id in enrolled_data[1].values():
-                    await client.disenroll_phone(identity_id=identity_id)
+            # schedule changes need it; disenrolling the phone doesn't
+            await client.create_csrf_token()
         except Exception as err:  # noqa: BLE001
-            _LOGGER.warning("Unable to disenroll phone: %s", err)
-        finally:
-            await client.close()
+            _LOGGER.warning(
+                "Unable to delete precondition schedules; delete any named %s in the "
+                "Rivian app: %s",
+                PRECONDITION_SCHEDULE_NAME,
+                type(err).__name__,
+            )
+        else:
+            # at once, as each waits for its vehicle's schedule list
+            await asyncio.gather(
+                *(
+                    remove_preconditions(vehicle_id)
+                    for vehicle_id in coordinator.get_vehicles()
+                )
+            )
+        if (public_key := entry.options.get("public_key")) and (
+            enrolled_data := coordinator.get_enrolled_phone_data(public_key)
+        ):
+            for identity_id in enrolled_data[1].values():
+                await client.disenroll_phone(identity_id=identity_id)
+    except Exception as err:  # noqa: BLE001
+        _LOGGER.warning("Unable to clean up after removal: %s", err)
+    finally:
+        await client.close()
+
+
+async def _async_remove_preconditions(client: Rivian, vehicle_id: str) -> None:
+    """Delete a vehicle's temporary precondition schedules."""
+    if (schedules := await _async_departure_schedules(client, vehicle_id)) is None:
+        _LOGGER.warning(
+            "Unable to get vehicle %s's departure schedules; delete any named %s "
+            "in the Rivian app",
+            vehicle_id,
+            PRECONDITION_SCHEDULE_NAME,
+        )
+        return
+    for schedule in schedules:
+        if not is_precondition_schedule(schedule):
+            continue
+        try:
+            response = await client.delete_departure_schedule(
+                vehicle_id, schedule["id"]
+            )
+            if not departure_mutation_succeeded(
+                await response.json(), "deleteDepartureSchedule"
+            ):
+                raise ValueError("not deleted")
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning(
+                "Unable to delete vehicle %s's precondition schedule; delete it in "
+                "the Rivian app: %s",
+                vehicle_id,
+                type(err).__name__,
+            )
+
+
+async def _async_departure_schedules(
+    client: Rivian, vehicle_id: str
+) -> list[dict[str, Any]] | None:
+    """Return a vehicle's departure schedules, which are only sent by subscription.
+
+    Rivian can send an empty list just before the full one, so like the
+    coordinator, an empty list only counts if no other list follows within
+    DEPARTURE_EMPTY_LIST_HOLD. Returns None if no list arrived within
+    DEPARTURE_SCHEDULES_WAIT, or subscribing failed.
+    """
+    received: asyncio.Future[list[dict[str, Any]]] = (
+        asyncio.get_running_loop().create_future()
+    )
+    empty = asyncio.Event()
+
+    def on_schedules(data: dict[str, Any]) -> None:
+        if (schedules := departure_schedules_from_message(data)) is None:
+            return
+        if schedules and not received.done():
+            received.set_result(schedules)
+        elif not schedules:
+            empty.set()
+
+    unsubscribe = await client.subscribe_for_departure_schedules(
+        vehicle_id, on_schedules
+    )
+    if not unsubscribe:
+        return None
+    try:
+        async with asyncio.timeout(DEPARTURE_SCHEDULES_WAIT):
+            # a full list, or an empty one that nothing follows within the hold
+            empty_wait = asyncio.ensure_future(empty.wait())
+            try:
+                await asyncio.wait(
+                    (received, empty_wait), return_when=asyncio.FIRST_COMPLETED
+                )
+            finally:
+                empty_wait.cancel()
+        if received.done():
+            return received.result()
+        try:
+            return await asyncio.wait_for(received, DEPARTURE_EMPTY_LIST_HOLD)
+        except TimeoutError:
+            return []
+    except TimeoutError:
+        return None
+    finally:
+        await unsubscribe()
 
 
 async def update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:

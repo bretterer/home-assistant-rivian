@@ -174,10 +174,9 @@ class RivianVehicleControlEntity(RivianVehicleEntity):
         phone_info = user.get_enrolled_phone_data(
             self._config_entry.options.get("public_key")
         )
-        device = self.coordinator.drivers_coordinator.get_device_details(
+        self._available = self.coordinator.has_paired_phone(
             phone_info[1].get(self.coordinator.vehicle_id)
         )
-        self._available = device["isPaired"]
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""

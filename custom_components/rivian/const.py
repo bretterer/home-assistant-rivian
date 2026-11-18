@@ -1648,3 +1648,67 @@ DEFAULT_CHARGING_SCHEDULE: Final[dict[str, Any]] = {
     "enabled": True,
     "weekDays": list(WEEK_DAYS_ORDERED),
 }
+
+DEPARTURE_SCHEDULE_TEMPERATURE_MINIMUM: Final[int] = 16
+DEPARTURE_SCHEDULE_TEMPERATURE_MAXIMUM: Final[int] = 29
+DEPARTURE_SCHEDULE_OFF: Final[str] = "Off"
+DEPARTURE_SCHEDULE_DEFROST_MODES: Final[tuple[str, ...]] = (
+    DEPARTURE_SCHEDULE_OFF,
+    "Defrost",
+    "Defog",
+)
+DEPARTURE_SCHEDULE_HEAT_LEVELS: Final[tuple[str, ...]] = (
+    DEPARTURE_SCHEDULE_OFF,
+    "Heat1",
+    "Heat2",
+    "Heat3",
+)
+DEPARTURE_SCHEDULE_HEAT_VENT_LEVELS: Final[tuple[str, ...]] = (
+    *DEPARTURE_SCHEDULE_HEAT_LEVELS,
+    "Vent1",
+    "Vent2",
+    "Vent3",
+)
+# The API accepts every level for every surface, but drops the ones a surface lacks
+DEPARTURE_SCHEDULE_SURFACE_LEVELS: Final[dict[str, tuple[str, ...]]] = {
+    "front_left_seat": DEPARTURE_SCHEDULE_HEAT_VENT_LEVELS,
+    "front_right_seat": DEPARTURE_SCHEDULE_HEAT_VENT_LEVELS,
+    "rear_left_seat": DEPARTURE_SCHEDULE_HEAT_LEVELS,
+    "rear_right_seat": DEPARTURE_SCHEDULE_HEAT_LEVELS,
+    "steering_wheel": DEPARTURE_SCHEDULE_HEAT_LEVELS[:2],
+}
+# Maps the action field name to the API name of the heated surface
+DEPARTURE_SCHEDULE_SURFACES: Final[dict[str, str]] = {
+    "front_left_seat": "frontLeftSeat",
+    "front_right_seat": "frontRightSeat",
+    "rear_left_seat": "rearLeftSeat",
+    "rear_right_seat": "rearRightSeat",
+    "steering_wheel": "steeringWheel",
+}
+# Rivian rejects a departure schedule name longer than this ("Bad user input")
+DEPARTURE_SCHEDULE_NAME_MAX_LENGTH: Final[int] = 24
+PRECONDITION_SCHEDULE_NAME: Final[str] = "HA Precondition Now"
+# Keyless "precondition now": a temporary departure schedule this many minutes out
+# starts cabin preconditioning right away and runs until the departure time. The
+# vehicle may not precondition for a departure about 15 minutes or less away: on a
+# 2025 R1T two leads of about 14.6 minutes never started it, while 16 and 20 minutes
+# started it within seconds, asleep or awake. Hence a 20 minute minimum.
+PRECONDITION_LEAD_MINUTES_MINIMUM: Final[int] = 20
+PRECONDITION_LEAD_MINUTES_MAXIMUM: Final[int] = 60
+DEFAULT_PRECONDITION_LEAD_MINUTES: Final[int] = 20
+DEFAULT_PRECONDITION_TEMPERATURE: Final[int] = 21
+
+DEFAULT_DEPARTURE_SCHEDULE: Final[dict[str, Any]] = {
+    "isEnabled": True,
+    "repeatsWeekly": {"days": [], "startsAtMin": 0, "skippedOn": []},
+    "departureSettings": {
+        "shouldOverrideChargeSchedule": False,
+        "comfortSettings": {
+            "cabinTempCelsius": 21,
+            "frontDefogDefrost": DEPARTURE_SCHEDULE_OFF,
+            "surfaceHeatVentLevels": dict.fromkeys(
+                DEPARTURE_SCHEDULE_SURFACES.values(), DEPARTURE_SCHEDULE_OFF
+            ),
+        },
+    },
+}

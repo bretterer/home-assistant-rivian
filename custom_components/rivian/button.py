@@ -15,7 +15,11 @@ import rivian.ble as rivian_ble
 
 from homeassistant.components import bluetooth
 from homeassistant.components.bluetooth import BluetoothScanningMode
-from homeassistant.components.button import ButtonEntity, ButtonEntityDescription
+from homeassistant.components.button import (
+    DOMAIN as BUTTON_DOMAIN,
+    ButtonEntity,
+    ButtonEntityDescription,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, HomeAssistantError
@@ -24,7 +28,8 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import ATTR_COORDINATOR, ATTR_USER, ATTR_VEHICLE, DOMAIN
 from .coordinator import UserCoordinator, VehicleCoordinator
 from .data_classes import RivianButtonEntityDescription
-from .entity import RivianVehicleControlEntity
+from .entity import RivianVehicleControlEntity, RivianVehicleEntity
+from .helpers import async_remove_stale_entities
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -71,6 +76,15 @@ BUTTONS: Final[dict[str | None, tuple[RivianButtonEntityDescription, ...]]] = {
 }
 
 
+PRECONDITION_BUTTON: Final[RivianButtonEntityDescription] = (
+    RivianButtonEntityDescription(
+        key="precondition_cabin",
+        translation_key="precondition_cabin",
+        press_fn=lambda coordinator: coordinator.precondition_now(),
+    )
+)
+
+
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
@@ -106,6 +120,31 @@ async def async_setup_entry(
         )
         and not device["isPaired"]
     )
+    precondition_buttons = [
+        RivianPreconditionButtonEntity(
+            coordinators[vehicle_id],
+            entry,
+            PRECONDITION_BUTTON,
+            vehicle,
+        )
+        for vehicle_id, vehicle in vehicles.items()
+        if not coordinators[vehicle_id].has_paired_phone(
+            vehicle.get("phone_identity_id")
+        )
+    ]
+    # the keyless button is only for vehicles without a paired phone; remove it from
+    # a vehicle that has since been paired, so it doesn't linger as unavailable
+    async_remove_stale_entities(
+        hass,
+        BUTTON_DOMAIN,
+        (
+            f"{vehicle['vin']}-{PRECONDITION_BUTTON.key}"
+            for vehicle in vehicles.values()
+        ),
+        (entity.unique_id for entity in precondition_buttons),
+    )
+    async_add_entities(precondition_buttons)
+
     async_add_entities(entities)
 
 
@@ -216,3 +255,23 @@ class RivianPairPhoneButtonEntity(RivianVehicleControlEntity, ButtonEntity):
     def _handle_driver_update(self) -> None:
         """Handle driver update."""
         # This is purposefully blank to keep from disabling the entity pending BLE pairing
+
+
+class RivianPreconditionButtonEntity(RivianVehicleEntity, ButtonEntity):
+    """Keyless cabin preconditioning button.
+
+    Unlike the other vehicle controls this does not need a paired phone, so it is
+    created for vehicles without one. It starts preconditioning through a temporary
+    departure schedule; see ``VehicleCoordinator.precondition_now``.
+    """
+
+    entity_description: RivianButtonEntityDescription
+
+    @property
+    def available(self) -> bool:
+        """Return availability."""
+        return self._available and self.coordinator.departure_schedules is not None
+
+    async def async_press(self) -> None:
+        """Press the button."""
+        await self.entity_description.press_fn(self.coordinator)

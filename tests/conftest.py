@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from datetime import UTC
+from datetime import UTC, time
 from enum import IntFlag, StrEnum
 import inspect
 import os
@@ -237,7 +237,12 @@ def _setup_mock_environment() -> None:
         const_mod.DEGREE = "°"  # type: ignore[attr-defined]
         const_mod.PERCENTAGE = "%"  # type: ignore[attr-defined]
         const_mod.SIGNAL_STRENGTH_DECIBELS_MILLIWATT = "dBm"  # type: ignore[attr-defined]
+        # Real values, as the actions' schemas are keyed by them
+        const_mod.ATTR_DEVICE_ID = "device_id"  # type: ignore[attr-defined]
+        const_mod.ATTR_NAME = "name"  # type: ignore[attr-defined]
+        const_mod.ATTR_TEMPERATURE = "temperature"  # type: ignore[attr-defined]
         const_mod.CONF_EMAIL = "email"  # type: ignore[attr-defined]
+        const_mod.CONF_USERNAME = "username"  # type: ignore[attr-defined]
         const_mod.CONF_LATITUDE = "latitude"  # type: ignore[attr-defined]
         const_mod.CONF_LONGITUDE = "longitude"  # type: ignore[attr-defined]
         const_mod.CONF_ZONE = "zone"  # type: ignore[attr-defined]
@@ -252,7 +257,13 @@ def _setup_mock_environment() -> None:
         const_mod.UnitOfPower = DynamicEnum  # type: ignore[attr-defined]
         const_mod.UnitOfPressure = DynamicEnum  # type: ignore[attr-defined]
         const_mod.UnitOfSpeed = DynamicEnum  # type: ignore[attr-defined]
-        const_mod.UnitOfTemperature = DynamicEnum  # type: ignore[attr-defined]
+
+        class UnitOfTemperature(StrEnum):
+            CELSIUS = "°C"
+            FAHRENHEIT = "°F"
+            KELVIN = "K"
+
+        const_mod.UnitOfTemperature = UnitOfTemperature  # type: ignore[attr-defined]
         const_mod.UnitOfTime = DynamicEnum  # type: ignore[attr-defined]
         sys.modules["homeassistant.const"] = const_mod
         ha_mod.const = const_mod  # type: ignore[attr-defined]
@@ -261,8 +272,46 @@ def _setup_mock_environment() -> None:
         exc_mod = DynamicExceptionModule("homeassistant.exceptions", is_package=False)
         exc_mod.ConfigEntryNotReady = type("ConfigEntryNotReady", (Exception,), {})  # type: ignore[attr-defined]
         exc_mod.ConfigEntryAuthFailed = type("ConfigEntryAuthFailed", (Exception,), {})  # type: ignore[attr-defined]
+
+        class Unauthorized(Exception):
+            """Mirror HA's Unauthorized, which takes keyword-only details."""
+
+            def __init__(
+                self,
+                context: Any = None,
+                user_id: str | None = None,
+                entity_id: str | None = None,
+                config_entry_id: str | None = None,
+                perm_category: str | None = None,
+                permission: str | None = None,
+            ) -> None:
+                super().__init__(self.__class__.__name__)
+                self.context = context
+                self.user_id = user_id
+                self.perm_category = perm_category
+                self.permission = permission
+
+        exc_mod.Unauthorized = Unauthorized  # type: ignore[attr-defined]
+        exc_mod.UnknownUser = type("UnknownUser", (Unauthorized,), {})  # type: ignore[attr-defined]
         sys.modules["homeassistant.exceptions"] = exc_mod
         ha_mod.exceptions = exc_mod  # type: ignore[attr-defined]
+
+        # auth permission constants used by service permission checks
+        auth_mod = DynamicModule("homeassistant.auth", is_package=True)
+        permissions_mod = DynamicModule(
+            "homeassistant.auth.permissions", is_package=True
+        )
+        permissions_const_mod = DynamicModule(
+            "homeassistant.auth.permissions.const", is_package=False
+        )
+        permissions_const_mod.CAT_ENTITIES = "entities"  # type: ignore[attr-defined]
+        permissions_const_mod.POLICY_CONTROL = "control"  # type: ignore[attr-defined]
+        permissions_mod.const = permissions_const_mod  # type: ignore[attr-defined]
+        auth_mod.permissions = permissions_mod  # type: ignore[attr-defined]
+        ha_mod.auth = auth_mod  # type: ignore[attr-defined]
+        sys.modules["homeassistant.auth"] = auth_mod
+        sys.modules["homeassistant.auth.permissions"] = permissions_mod
+        sys.modules["homeassistant.auth.permissions.const"] = permissions_const_mod
 
         # config_entries
         config_entries_mod = DynamicModule(
@@ -457,6 +506,26 @@ def _setup_mock_environment() -> None:
         cv_mod.ensure_list = lambda x: x if isinstance(x, list) else [x]  # type: ignore[attr-defined]
         cv_mod.positive_int = int  # type: ignore[attr-defined]
         cv_mod.url = str  # type: ignore[attr-defined]
+
+        def cv_time(value: Any) -> time:
+            """Like Home Assistant's cv.time and dt_util.parse_time."""
+            import voluptuous as vol
+
+            if isinstance(value, time):
+                return value
+            parts = str(value).split(":")
+            if len(parts) >= 2:
+                try:
+                    return time(
+                        int(parts[0]),
+                        int(parts[1]),
+                        int(parts[2]) if len(parts) > 2 else 0,
+                    )
+                except (ValueError, OverflowError):
+                    pass
+            raise vol.Invalid(f"Invalid time specified: {value}")
+
+        cv_mod.time = cv_time  # type: ignore[attr-defined]
         sys.modules["homeassistant.helpers.config_validation"] = cv_mod
         helpers_mod.config_validation = cv_mod
 
@@ -738,6 +807,9 @@ def _setup_mock_environment() -> None:
             setattr(comp_mod, comp_name, submod)
         sys.modules["homeassistant.components.camera"].CameraEntityFeature = DynamicEnum  # type: ignore[attr-defined]
 
+        # number: the precondition entities set their display mode at import
+        sys.modules["homeassistant.components.number"].NumberMode = DynamicEnum  # type: ignore[attr-defined]
+
         # cover: the feature flags RivianCoverEntity combines at import
         class CoverEntityFeature(IntFlag):
             """Mock CoverEntityFeature."""
@@ -805,6 +877,12 @@ def _setup_mock_environment() -> None:
         sys.modules["homeassistant.components.zone"] = zone_mod
         comp_mod.zone = zone_mod  # type: ignore[attr-defined]
 
+        # button.py imports bluetooth for phone pairing
+        bluetooth_mod = DynamicModule(
+            "homeassistant.components.bluetooth", is_package=False
+        )
+        sys.modules["homeassistant.components.bluetooth"] = bluetooth_mod
+        comp_mod.bluetooth = bluetooth_mod  # type: ignore[attr-defined]
         # frontend/http: the integration serves its dashboard cards
         for comp_name in ("frontend", "http"):
             comp_submod = DynamicModule(
@@ -847,6 +925,33 @@ def _setup_mock_environment() -> None:
         dt_mod.utcnow = _utcnow  # type: ignore[attr-defined]
         sys.modules["homeassistant.util.dt"] = dt_mod
         util_mod.dt = dt_mod  # type: ignore[attr-defined]
+
+        # homeassistant.util.unit_conversion: services.py converts action
+        # temperatures; only needs to import cleanly here.
+        unit_conversion_mod = DynamicModule(
+            "homeassistant.util.unit_conversion", is_package=False
+        )
+
+        class TemperatureConverter:
+            """Converts between °C and °F with Home Assistant's formulas.
+
+            Including their rounding errors. Other units are rejected.
+            """
+
+            @staticmethod
+            def convert(value: float, from_unit: str, to_unit: str) -> float:
+                units = {"°C", "°F"}
+                if str(from_unit) not in units or str(to_unit) not in units:
+                    raise ValueError(f"{from_unit} to {to_unit} isn't supported")
+                if str(from_unit) == str(to_unit):
+                    return value
+                if str(to_unit) == "°F":
+                    return (value * 1.8) + 32.0
+                return (value - 32.0) / 1.8
+
+        unit_conversion_mod.TemperatureConverter = TemperatureConverter  # type: ignore[attr-defined]
+        sys.modules["homeassistant.util.unit_conversion"] = unit_conversion_mod
+        util_mod.unit_conversion = unit_conversion_mod  # type: ignore[attr-defined]
 
         # homeassistant.components.recorder: backs statistics.py similarly.
         recorder_pkg_mod = DynamicModule(
@@ -915,6 +1020,11 @@ def _setup_mock_environment() -> None:
         parallax_submod.decode_parallax_message = MagicMock(return_value=None)  # type: ignore[attr-defined]
         rivian_mod.parallax = parallax_submod  # type: ignore[attr-defined]
         sys.modules["rivian.parallax"] = parallax_submod
+
+        # button.py imports the BLE pairing helpers
+        ble_submod = DynamicModule("rivian.ble", is_package=False)
+        rivian_mod.ble = ble_submod  # type: ignore[attr-defined]
+        sys.modules["rivian.ble"] = ble_submod
 
 
 _setup_mock_environment()

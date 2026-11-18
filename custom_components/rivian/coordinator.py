@@ -4,15 +4,16 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 import asyncio
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Coroutine
 import contextlib
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time as dt_time, timedelta
+from functools import partial
 import logging
 import time
 from typing import Any, Generic, TypeVar
 import uuid
 
-from aiohttp import ClientResponse
+from aiohttp import ClientError, ClientResponse
 from rivian import Rivian, VehicleCommand
 from rivian.exceptions import (
     RivianApiException,
@@ -30,8 +31,12 @@ from rivian.parallax import (
 )
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
-from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
+from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
+from homeassistant.exceptions import (
+    ConfigEntryAuthFailed,
+    HomeAssistantError,
+    ServiceValidationError,
+)
 from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.issue_registry import (
     IssueSeverity,
@@ -47,18 +52,34 @@ from .const import (
     ATTR_VEHICLE,
     CHARGING_STATE_KEYS,
     DEFAULT_CHARGING_SCHEDULE,
+    DEFAULT_DEPARTURE_SCHEDULE,
+    DEFAULT_PRECONDITION_LEAD_MINUTES,
+    DEFAULT_PRECONDITION_TEMPERATURE,
     DEFAULT_VEHICLE_STATE,
     DOMAIN,
     INVALID_SENSOR_STATES,
     ISSUE_RATE_LIMITED,
+    MINUTES_PER_DAY,
+    MINUTES_PER_HOUR,
     PARALLAX_IGNORED_RVMS,
     PARALLAX_NONE_CLEARS,
     PARALLAX_NONE_VALUES,
     PARALLAX_RVM_DEFAULTS,
     PARALLAX_UNDEFINED_IS_VALID,
+    PRECONDITION_LEAD_MINUTES_MAXIMUM,
+    PRECONDITION_LEAD_MINUTES_MINIMUM,
+    PRECONDITION_SCHEDULE_NAME,
     VEHICLE_STATE_API_FIELDS,
+    WEEK_DAYS_ORDERED,
 )
-from .helpers import redact
+from .helpers import (
+    deep_merge,
+    departure_mutation_succeeded,
+    departure_schedule_to_input,
+    departure_schedules_from_message,
+    redact,
+    schedule_cabin_temperature,
+)
 
 _LOGGER = logging.getLogger(__name__)
 T = TypeVar("T", bound=dict[str, Any] | list[dict[str, Any]])
@@ -94,6 +115,17 @@ SIDE_BIN_COMMANDS = {
 }
 CHARGING_SCHEDULE_COOL_OFF = 10
 CHARGING_SCHEDULE_REFRESH_INTERVAL = 900
+# How long to wait for the subscription to deliver the refreshed schedule list
+# after a mutation before letting the next action proceed.
+DEPARTURE_REFRESH_TIMEOUT = 10
+# How long an empty schedule list after schedules is held back, as Rivian can send
+# one just before the full list; it's used if no other list arrives by then
+DEPARTURE_EMPTY_LIST_HOLD = 5
+# How long after its departure a temporary precondition schedule counts as current,
+# before it's deleted so its next weekly occurrence never fires
+PRECONDITION_CLEANUP_GRACE_SECONDS = 2 * 60
+# How soon cleanup runs again after a deletion failed
+PRECONDITION_RETRY_SECONDS = 5 * 60
 # Max age of a navigation location fix to use (trip_progress resends its last
 # fix long after navigation ends)
 NAVIGATION_FIX_MAX_AGE = timedelta(minutes=5)
@@ -365,6 +397,71 @@ class UserCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         }
 
 
+def precondition_departure(now: datetime, lead_minutes: int) -> datetime:
+    """Return the departure for a temporary precondition schedule.
+
+    Schedules depart on a whole minute. Rounding up keeps the departure at least
+    ``lead_minutes`` away: rounding down would shorten the lead by up to a minute,
+    and the vehicle may not precondition for a departure about 15 minutes away.
+    """
+    # Add in UTC, so a DST change in between doesn't shorten or stretch the lead
+    # or land on a local time that doesn't exist
+    zone = now.tzinfo
+    depart = (now.astimezone(UTC) if zone else now) + timedelta(minutes=lead_minutes)
+    if depart.second or depart.microsecond:
+        depart = depart.replace(second=0, microsecond=0) + timedelta(minutes=1)
+    return depart.astimezone(zone) if zone else depart
+
+
+def is_precondition_schedule(schedule: dict[str, Any]) -> bool:
+    """Return whether a schedule is one of HA's temporary precondition schedules.
+
+    Identified by the reserved name, which the actions don't let users take.
+    """
+    name = schedule.get("name")
+    return (
+        isinstance(name, str)
+        and name.strip().casefold() == PRECONDITION_SCHEDULE_NAME.casefold()
+    )
+
+
+def precondition_current_departure(
+    schedule: dict[str, Any], now: float
+) -> datetime | None:
+    """Return a temporary precondition schedule's departure, if it's current.
+
+    Current means departing within the longest lead time, or having departed less
+    than PRECONDITION_CLEANUP_GRACE_SECONDS ago. A temporary schedule is created
+    to depart within the longest lead, and repeats weekly like any schedule, so one
+    that isn't current has departed, or was moved further out in the Rivian app,
+    and is deleted. In Home Assistant's timezone, like ``precondition_departure``.
+    """
+    occurrence = schedule.get("occurrence") or {}
+    days = occurrence.get("days") or []
+    minutes = occurrence.get("startsAtMin")
+    if not days or not isinstance(minutes, int):
+        return None
+    minutes %= MINUTES_PER_DAY
+    earliest = now - PRECONDITION_CLEANUP_GRACE_SECONDS
+    # the departure minute is rounded up, so allow a minute more than the lead
+    latest = now + (PRECONDITION_LEAD_MINUTES_MAXIMUM + 1) * 60
+    today = dt_util.as_local(dt_util.utc_from_timestamp(now))
+    for offset in (-1, 0, 1):
+        day = today.date() + timedelta(days=offset)
+        if WEEK_DAYS_ORDERED[day.weekday()] not in days:
+            continue
+        wall = datetime.combine(
+            day,
+            dt_time(minutes // MINUTES_PER_HOUR, minutes % MINUTES_PER_HOUR),
+            today.tzinfo,
+        )
+        # A wall time repeated as the clocks go back is two instants
+        for departure in (wall, wall.replace(fold=1)):
+            if earliest <= departure.timestamp() <= latest:
+                return departure
+    return None
+
+
 class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
     """Vehicle data update coordinator for Rivian."""
 
@@ -411,6 +508,38 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         # None until fetched successfully
         self._charging_schedules: list[dict[str, Any]] | None = None
         self._last_schedule_fetch: float = 0.0
+        self._departure_schedules: list[dict[str, Any]] | None = None
+        self._unsub_departure_handler: Callable[[], Awaitable[None]] | None = None
+        # serialize schedule mutations and wait for the refreshed list between them;
+        # _departure_stale marks the cache unconfirmed after a write whose refresh we
+        # never saw, so the next read forces a fresh list before merging
+        self._departure_lock = asyncio.Lock()
+        self._departure_refreshed = asyncio.Event()
+        self._departure_stale = False
+        self._precondition_cleanup_lock = asyncio.Lock()
+        # set when a deletion failed, so cleanup retries soon
+        self._precondition_cleanup_failed = False
+        # Serializes precondition_now, so two calls can't each create a schedule.
+        # Taken before the cleanup lock, which is taken before _departure_lock
+        self._precondition_lock = asyncio.Lock()
+        # Serializes (re)subscribing to the departure schedules, so overlapping
+        # calls don't each open a subscription and lose one's handle
+        self._departure_subscribe_lock = asyncio.Lock()
+        # Set while deleting the last schedule, so the empty list that follows
+        # confirms the cache rather than being taken for a brief one
+        self._expect_empty_schedules = False
+        self._empty_list_hold: CALLBACK_TYPE | None = None
+        self._departure_subscription = 0
+        self._departure_failure_logged = False
+        # the in-flight reconcile task, tracked so overlapping schedules collapse into one
+        # and a pending pass can be cancelled cleanly on shutdown
+        self._reconcile_task: asyncio.Task[None] | None = None
+        # cancels the timer for the next cleanup pass; independent of the refresh timer,
+        # which every vehicle payload restarts and so cannot be relied on to fire
+        self._precondition_timer: CALLBACK_TYPE | None = None
+        # set on unload/reload (when hass.is_stopping is still False) so a cancelled
+        # cleanup pass cannot re-arm its timer or start another pass afterwards
+        self._shutting_down = False
 
     @property
     def charging_schedule(self) -> dict[str, Any]:
@@ -495,6 +624,521 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         self._last_schedule_fetch = time.time()
         self.async_update_listeners()
 
+    @property
+    def departure_schedules(self) -> list[dict[str, Any]] | None:
+        """Return the departure schedules, or None if not yet received."""
+        return self._departure_schedules
+
+    def get_departure_schedule(self, schedule_id: str) -> dict[str, Any] | None:
+        """Get a departure schedule by id."""
+        return next(
+            (
+                schedule
+                for schedule in self._departure_schedules or []
+                if schedule.get("id") == schedule_id
+            ),
+            None,
+        )
+
+    async def create_departure_schedule(self, schedule: dict[str, Any]) -> None:
+        """Create a departure schedule via Rivian API mutation."""
+        async with self._departure_lock:
+            await self._departure_schedule_mutation(
+                "createDepartureSchedule",
+                self.api.create_departure_schedule(self.vehicle_id, schedule),
+            )
+
+    async def update_departure_schedule(
+        self, schedule_id: str, changes: dict[str, Any]
+    ) -> None:
+        """Update a departure schedule via Rivian API mutation."""
+        # hold the lock across read, merge and send so a concurrent mutation cannot
+        # merge its own changes against a now-stale cached schedule
+        async with self._departure_lock:
+            await self._ensure_fresh_departure_schedules()
+            self._require_departure_schedules()
+            if not (current := self.get_departure_schedule(schedule_id)):
+                raise ServiceValidationError(
+                    translation_domain=DOMAIN,
+                    translation_key="schedule_not_found",
+                    translation_placeholders={"schedule_id": schedule_id},
+                )
+            schedule = deep_merge(departure_schedule_to_input(current), changes)
+            await self._departure_schedule_mutation(
+                "updateDepartureSchedule",
+                self.api.update_departure_schedule(
+                    self.vehicle_id, schedule_id, schedule
+                ),
+            )
+
+    async def delete_departure_schedule(
+        self,
+        schedule_id: str,
+        keep: Callable[[dict[str, Any]], bool] | None = None,
+    ) -> bool:
+        """Delete a departure schedule via Rivian API mutation.
+
+        ``keep`` is checked against the schedule as it stands just before, under the
+        lock; if it returns True, the schedule isn't deleted. Returns whether it was.
+        """
+        async with self._departure_lock:
+            await self._ensure_fresh_departure_schedules()
+            self._require_departure_schedules()
+            if not (schedule := self.get_departure_schedule(schedule_id)):
+                raise ServiceValidationError(
+                    translation_domain=DOMAIN,
+                    translation_key="schedule_not_found",
+                    translation_placeholders={"schedule_id": schedule_id},
+                )
+            if keep and keep(schedule):
+                return False
+            # deleting the last schedule leaves an empty list, which is then real
+            self._expect_empty_schedules = self._departure_schedules == [schedule]
+            try:
+                await self._departure_schedule_mutation(
+                    "deleteDepartureSchedule",
+                    self.api.delete_departure_schedule(self.vehicle_id, schedule_id),
+                )
+            finally:
+                self._expect_empty_schedules = False
+            return True
+
+    async def _departure_schedule_mutation(
+        self, key: str, request: Coroutine[Any, Any, ClientResponse]
+    ) -> None:
+        """Run a departure schedule mutation and refresh the schedules."""
+        try:
+            response = await request
+            data = await response.json()
+        except (ClientError, TimeoutError, ValueError) as err:
+            # Such as an error page instead of JSON, after which Rivian may still
+            # have applied it
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="schedule_unconfirmed",
+                translation_placeholders={"action": key, "reason": type(err).__name__},
+            ) from None
+        except RivianApiException as err:
+            # the exception holds the request with its session tokens, keep those out
+            errors = next(
+                (
+                    arg["errors"]
+                    for arg in err.args
+                    if isinstance(arg, dict) and arg.get("errors")
+                ),
+                [],
+            )
+            if not errors:
+                # Such as a timeout, after which Rivian may still have applied it
+                raise HomeAssistantError(
+                    translation_domain=DOMAIN,
+                    translation_key="schedule_unconfirmed",
+                    translation_placeholders={
+                        "action": key,
+                        "reason": type(err).__name__,
+                    },
+                ) from None
+            reason = ", ".join(str(error.get("message")) for error in errors)
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="schedule_rejected",
+                translation_placeholders={"action": key, "reason": reason},
+            ) from None
+        finally:
+            # whatever the outcome (success, error, timeout, cancellation) Rivian may
+            # have applied the write, and a payload that arrived mid-request may predate
+            # it, so mark the cache unconfirmed: the next read refreshes rather than
+            # merging stale data. Only an authoritative payload (in
+            # _process_departure_schedules) clears the flag.
+            self._departure_stale = True
+        if (succeeded := departure_mutation_succeeded(data, key)) is not True:
+            # Only an explicit failure means nothing was written; no result, such
+            # as partial data with an error, may follow a write that took effect
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key=(
+                    "schedule_rejected"
+                    if succeeded is False
+                    else "schedule_unconfirmed"
+                ),
+                translation_placeholders={"action": key, "reason": str(redact(data))},
+            )
+        # clear before resubscribing: the refreshed list often arrives during the
+        # resubscribe itself, and clearing afterwards would discard that signal
+        self._departure_refreshed.clear()
+        # Rivian accepted the write, so a failed refresh isn't reported as it
+        # failing, which a retry would then repeat. The cache stays unconfirmed, so
+        # the next read refreshes it
+        try:
+            await self._subscribe_departure_schedules(force=True)
+            await asyncio.wait_for(
+                self._departure_refreshed.wait(), DEPARTURE_REFRESH_TIMEOUT
+            )
+        except TimeoutError:
+            _LOGGER.debug("Timed out waiting for refreshed schedules after %s", key)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("Unable to refresh schedules after %s: %s", key, err)
+
+    def _require_departure_schedules(self) -> None:
+        """Raise if the schedules haven't arrived, as none can be found then."""
+        if self._departure_schedules is None:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN, translation_key="schedules_out_of_sync"
+            )
+
+    async def _ensure_fresh_departure_schedules(self) -> None:
+        """Refresh the cached schedules before a read if a prior write went unconfirmed.
+
+        Called while holding ``_departure_lock``. Raises if a coherent list cannot be
+        obtained, so a mutation never merges its changes onto a schedule that may be
+        out of date with Rivian. ``_departure_stale`` is cleared only by an authoritative
+        payload, so a cancellation here leaves the cache marked unconfirmed.
+        """
+        if not self._departure_stale:
+            return
+        await self._subscribe_departure_schedules(force=True)
+        if not self._departure_stale:  # a payload already refreshed during subscribe
+            return
+        self._departure_refreshed.clear()
+        try:
+            await asyncio.wait_for(
+                self._departure_refreshed.wait(), DEPARTURE_REFRESH_TIMEOUT
+            )
+        except TimeoutError as err:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN, translation_key="schedules_out_of_sync"
+            ) from err
+
+    async def _subscribe_departure_schedules(self, force: bool = False) -> None:
+        """Subscribe to departure schedules, retrying if not currently subscribed.
+
+        ``force`` tears down and re-establishes an existing subscription to pull a
+        fresh list (used after a mutation); otherwise an active subscription is left
+        in place and only a missing one is (re)established.
+        """
+        async with self._departure_subscribe_lock:
+            if self._unsub_departure_handler and not force:
+                return
+            if unsub := self._unsub_departure_handler:
+                self._unsub_departure_handler = None
+                await unsub()
+            # an empty list held from the previous subscription isn't this one's
+            self._cancel_empty_list_hold()
+            if self._shutting_down:
+                return
+            # Numbered, so an error from an earlier subscription can't end this one
+            self._departure_subscription += 1
+            self._unsub_departure_handler = (
+                await self.api.subscribe_for_departure_schedules(
+                    self.vehicle_id,
+                    self._process_departure_schedules,
+                    on_error=partial(
+                        self._departure_subscription_failed,
+                        self._departure_subscription,
+                    ),
+                )
+            )
+            if not self._unsub_departure_handler:
+                # the client has already logged why
+                _LOGGER.debug(
+                    "Unable to subscribe to departure schedules for %s",
+                    self.vehicle_id,
+                )
+
+    @callback
+    def _departure_subscription_failed(
+        self, subscription: int, message: dict[str, Any]
+    ) -> None:
+        """End a departure schedule subscription that failed, to retry it later.
+
+        Such as Rivian rejecting the query. The subscription has ended without
+        data but its handle remains, which would keep the next refresh from
+        subscribing again, so it's ended here and retried on the next refresh.
+        Warns once until schedules arrive again, rather than on every retry.
+        """
+        log = _LOGGER.debug if self._departure_failure_logged else _LOGGER.warning
+        self._departure_failure_logged = True
+        log(
+            "Rivian ended vehicle %s departure schedule updates (%s); retrying later",
+            self.vehicle_id,
+            redact(message.get("payload") or message),
+        )
+        self.config_entry.async_create_task(
+            self.hass, self._end_departure_subscription(subscription), eager_start=True
+        )
+
+    async def _end_departure_subscription(self, subscription: int) -> None:
+        """Unsubscribe from a failed subscription, so a refresh subscribes again."""
+        async with self._departure_subscribe_lock:
+            if subscription != self._departure_subscription:
+                return  # a newer subscription has replaced it
+            unsub, self._unsub_departure_handler = self._unsub_departure_handler, None
+            self._cancel_empty_list_hold()
+            # no more updates, so the next read-modify-write gets a fresh list
+            self._departure_stale = True
+            if unsub:
+                await unsub()
+
+    @callback
+    def _process_departure_schedules(self, data: dict[str, Any]) -> None:
+        """Process departure schedules.
+
+        Rivian can send an empty list just before the full one, such as after
+        subscribing or creating the first schedule. So an empty list is held back
+        for DEPARTURE_EMPTY_LIST_HOLD, unless it's expected after deleting the
+        last schedule, and only used if no other list arrives in the meantime.
+        Until then the cache isn't confirmed. This is the one place the quirk is
+        handled; everything else sees only confirmed lists.
+        """
+        if (schedules := departure_schedules_from_message(data)) is None:
+            _LOGGER.debug("Received an unknown departure schedule update: %s", data)
+            return
+        _LOGGER.debug(
+            "Vehicle %s departure schedules: %s", self.vehicle_id, redact(schedules)
+        )
+        self._departure_failure_logged = False
+        if not schedules and not self._expect_empty_schedules:
+            self._departure_stale = True
+            self._departure_refreshed.clear()
+            if self._empty_list_hold is None:
+                self._empty_list_hold = async_call_later(
+                    self.hass,
+                    DEPARTURE_EMPTY_LIST_HOLD,
+                    partial(self._accept_empty_list, self._departure_subscription),
+                )
+            return
+        self._cancel_empty_list_hold()
+        self._apply_departure_schedules(schedules)
+
+    @callback
+    def _accept_empty_list(self, subscription: int, _now: datetime) -> None:
+        """Use an empty list no other list followed: they're really all gone.
+
+        Only from the subscription that's still current.
+        """
+        self._empty_list_hold = None
+        if subscription == self._departure_subscription:
+            self._apply_departure_schedules([])
+
+    @callback
+    def _cancel_empty_list_hold(self) -> None:
+        if self._empty_list_hold:
+            self._empty_list_hold()
+            self._empty_list_hold = None
+
+    @callback
+    def _apply_departure_schedules(self, schedules: list[dict[str, Any]]) -> None:
+        """Use a schedule list as the current one."""
+        if schedules != self._departure_schedules:
+            self._departure_schedules = schedules
+            self.async_update_listeners()
+        # a delivered list is authoritative: let a waiting mutation proceed and clear
+        # the stale marker so reads no longer need to force a refresh
+        self._departure_refreshed.set()
+        self._departure_stale = False
+        # delete HA's departed temporary schedules, or wait for the current one
+        if self._precondition_schedules():
+            self._schedule_reconcile()
+
+    def has_paired_phone(self, identity_id: str | None) -> bool:
+        """Return whether the enrolled phone has completed Bluetooth pairing.
+
+        Enrollment alone (an identity id) cannot sign vehicle commands, so keyless
+        controls stay available until pairing completes.
+        """
+        if not identity_id:
+            return False
+        device = self.drivers_coordinator.get_device_details(identity_id)
+        # A disabled key can't sign commands either
+        return bool(
+            device and device["isPaired"] and device.get("isEnabled") is not False
+        )
+
+    async def precondition_now(
+        self, lead_minutes: int | None = None, temperature: float | None = None
+    ) -> None:
+        """Start cabin preconditioning without a paired phone.
+
+        Creates a temporary departure schedule named PRECONDITION_SCHEDULE_NAME,
+        departing ``lead_minutes`` from now (20 by default), which the vehicle
+        preconditions for right away, at ``temperature`` in °C (by default the
+        driver's set temperature). The vehicle may not precondition for a departure
+        about 15 minutes or less away, so the lead is at least
+        ``PRECONDITION_LEAD_MINUTES_MINIMUM`` and the departure minute is rounded
+        up, never down. If HA's temporary schedule is still current, it's moved
+        instead of adding another. Turning it off or deleting it stops
+        preconditioning early. It's deleted once it has departed, so it doesn't
+        repeat weekly.
+
+        The departure minute and day are computed in Home Assistant's timezone.
+        Rivian interprets them in the vehicle's local timezone, which the API does
+        not expose here, so this assumes the two match. They usually do (the
+        vehicle is near home); if they differ, the schedule fires at the wrong
+        wall-clock time and may not precondition.
+        """
+        async with self._precondition_lock:
+            # without the list, HA's current schedule can't be found to move, so
+            # another would be created
+            self._require_departure_schedules()
+            if self._departure_stale:
+                # one predating HA's own change could also create a second
+                async with self._departure_lock:
+                    await self._ensure_fresh_departure_schedules()
+            repeats_weekly, comfort = self._precondition_request(
+                lead_minutes, temperature
+            )
+            changes = {
+                "isEnabled": True,
+                "repeatsWeekly": repeats_weekly,
+                "departureSettings": {"comfortSettings": comfort},
+            }
+            # under the cleanup lock, so cleanup can't delete the schedule this
+            # picks as current before it's moved
+            async with self._precondition_cleanup_lock:
+                now = time.time()
+                if current := next(
+                    (
+                        schedule
+                        for schedule in self._precondition_schedules()
+                        if precondition_current_departure(schedule, now)
+                    ),
+                    None,
+                ):
+                    await self.update_departure_schedule(current["id"], changes)
+                else:
+                    await self.create_departure_schedule(
+                        deep_merge(
+                            DEFAULT_DEPARTURE_SCHEDULE,
+                            {"name": PRECONDITION_SCHEDULE_NAME, **changes},
+                        )
+                    )
+        # the refreshed list arms the cleanup for its departure
+
+    def _precondition_request(
+        self, lead_minutes: int | None, temperature: float | None
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Return a precondition schedule's occurrence and comfort settings.
+
+        Departing ``lead_minutes`` from now, at ``temperature`` in °C, each clamped
+        to what a schedule allows. Without a temperature, the driver's set
+        temperature is used, like the Rivian app.
+        """
+        lead = max(
+            PRECONDITION_LEAD_MINUTES_MINIMUM,
+            min(
+                PRECONDITION_LEAD_MINUTES_MAXIMUM,
+                int(lead_minutes or DEFAULT_PRECONDITION_LEAD_MINUTES),
+            ),
+        )
+        if temperature is None:
+            target = self.get("hvacTargetTemperature")
+            temperature = (
+                target
+                if isinstance(target, (int, float))
+                else DEFAULT_PRECONDITION_TEMPERATURE
+            )
+        depart = precondition_departure(dt_util.now(), lead)
+        repeats_weekly = {
+            "days": [WEEK_DAYS_ORDERED[depart.weekday()]],
+            "startsAtMin": depart.hour * MINUTES_PER_HOUR + depart.minute,
+            # a skip set in the app would stop a moved schedule from firing
+            "skippedOn": [],
+        }
+        return repeats_weekly, {
+            "cabinTempCelsius": schedule_cabin_temperature(temperature)
+        }
+
+    def _precondition_schedules(self) -> list[dict[str, Any]]:
+        """Return HA's temporary precondition schedules."""
+        return [
+            schedule
+            for schedule in self._departure_schedules or []
+            if is_precondition_schedule(schedule)
+        ]
+
+    @callback
+    def _schedule_reconcile(self) -> None:
+        """Queue a background cleanup pass.
+
+        Skipped while Home Assistant is stopping, and collapsed into one already
+        in flight (each pass reads the current list, so dropping a redundant one
+        is safe).
+        """
+        if self._shutting_down or self.hass.is_stopping:
+            return
+        if self._reconcile_task and not self._reconcile_task.done():
+            return
+        self._reconcile_task = self.config_entry.async_create_task(
+            self.hass,
+            self._reconcile_and_cleanup(),
+            name=f"rivian precondition cleanup {self.vehicle_id}",
+            eager_start=False,
+        )
+
+    async def _reconcile_and_cleanup(self) -> None:
+        """Delete HA's departed temporary schedules, then arm the next pass."""
+        async with self._precondition_cleanup_lock:
+            try:
+                await self._cleanup_precondition_schedules()
+            finally:
+                self._arm_precondition_timer()
+
+    async def _cleanup_precondition_schedules(self) -> None:
+        """Run one cleanup pass; called under the cleanup lock."""
+        if self._departure_schedules is None:
+            return  # a later list or the retry timer covers it
+        self._precondition_cleanup_failed = False
+
+        def still_current(schedule: dict[str, Any]) -> bool:
+            # rechecked as it stands just before deleting, such as moved in the app
+            return precondition_current_departure(schedule, time.time()) is not None
+
+        for schedule in self._precondition_schedules():
+            if still_current(schedule):
+                continue
+            try:
+                await self.delete_departure_schedule(schedule["id"], keep=still_current)
+            except Exception as err:  # noqa: BLE001
+                # Retried soon; if it's gone, the next list won't have it
+                self._precondition_cleanup_failed = True
+                _LOGGER.debug("Could not delete precondition schedule: %s", err)
+
+    @callback
+    def _arm_precondition_timer(self) -> None:
+        """Schedule the next cleanup pass, if HA's temporary schedules need one.
+
+        At the current one's departure plus the grace period, or soon if a
+        deletion failed. Independent of the refresh timer, which every vehicle
+        payload restarts.
+        """
+        if self._precondition_timer:
+            self._precondition_timer()
+            self._precondition_timer = None
+        if self._shutting_down or self.hass.is_stopping:
+            return
+        now = time.time()
+        schedules = self._precondition_schedules()
+        delays = [
+            departure.timestamp() + PRECONDITION_CLEANUP_GRACE_SECONDS - now
+            for schedule in schedules
+            if (departure := precondition_current_departure(schedule, now))
+        ]
+        if self._precondition_cleanup_failed or len(delays) < len(schedules):
+            # a deletion failed, or a departed one arrived while the pass ran
+            delays.append(PRECONDITION_RETRY_SECONDS)
+        if not delays:
+            return
+        delay = min(delays)
+        self._precondition_timer = async_call_later(
+            self.hass, max(delay, 1), self._precondition_timer_fired
+        )
+
+    @callback
+    def _precondition_timer_fired(self, _now: datetime) -> None:
+        """Run the cleanup pass the timer was armed for."""
+        self._precondition_timer = None
+        self._schedule_reconcile()
+
     async def _async_update_data(self) -> dict[str, Any]:
         """Get the latest data from Rivian."""
         await self.get_charging_schedule_data()
@@ -542,11 +1186,23 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
                     f"{INITIAL_UPDATE_TIMEOUT}s"
                 ) from err
             await self._subscribe_location()
-        elif self._unsub_handler and not self._unsub_location:
-            # Subscribing to the position fixes can fail on its own, e.g. if the web
-            # socket dropped in between, and the client only resubscribes what it
-            # has, so try again on the regular refresh
-            await self._subscribe_location()
+
+            # the websocket was just (re)established; refresh the departure feed too
+            await self._subscribe_departure_schedules(force=True)
+        else:
+            if self._unsub_handler and not self._unsub_location:
+                # Subscribing to the position fixes can fail on its own, e.g. if the
+                # web socket dropped in between, and the client only resubscribes
+                # what it has, so try again on the regular refresh
+                await self._subscribe_location()
+            # retry a previously failed departure subscription on this refresh without
+            # disturbing a healthy one (the vehicle-state subscription may be fine)
+            await self._subscribe_departure_schedules()
+
+        # run on every cycle so a precondition schedule whose one-shot timer was lost to
+        # a restart is still cleaned up after it expires, and failed deletions are retried
+        if self._precondition_schedules():
+            self._schedule_reconcile()
 
         return self.data
 
@@ -676,6 +1332,17 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
     async def async_shutdown(self) -> None:
         # Raised again if the rate limit outlasts a reload
         async_delete_issue(self.hass, DOMAIN, self._rate_limited_issue_id)
+        # mark first: a cancelled cleanup pass unwinds through code that would
+        # otherwise re-arm its timer or schedule another pass
+        self._shutting_down = True
+        if (task := self._reconcile_task) and not task.done():
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+        if self._precondition_timer:
+            self._precondition_timer()
+            self._precondition_timer = None
+        self._cancel_empty_list_hold()
         await self._unsubscribe(True)
         return await super().async_shutdown()
 
@@ -931,6 +1598,20 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             await unsub_parallax()
         if unsub_handler:
             await unsub_handler()
+        # Under the lock, so a mutation's resubscribe in progress finishes first and
+        # its new subscription is the one that's ended
+        async with self._departure_subscribe_lock:
+            unsub_departure, self._unsub_departure_handler = (
+                self._unsub_departure_handler,
+                None,
+            )
+            # The feed has ended: a held empty list from it no longer counts, and
+            # the next read-modify-write gets a fresh list
+            self._departure_subscription += 1
+            self._cancel_empty_list_hold()
+            self._departure_stale = True
+            if unsub_departure:
+                await unsub_departure()
         if close_monitor and (monitor := self.api._ws_monitor):
             await monitor.close()
 

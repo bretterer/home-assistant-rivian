@@ -131,6 +131,7 @@ Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
 | Closure state                                       | Binary sensor  | Open/closed status of all closures                                                                                             |
 | Cold range notification                             | Sensor         | Whether cold weather is reducing range                                                                                         |
 | Defrost/defog                                       | Binary sensor  | Running/not running status                                                                                                     |
+| Departure schedule _name_                           | Switch         | One per schedule, to enable or disable it (see [Departure Schedules](#departure-schedules))                                    |
 | Destination                                         | Sensor         | Final stop of the active navigation trip                                                                                       |
 | Destination ETA                                     | Sensor         | Estimated arrival at the destination                                                                                           |
 | Door front left                                     | Binary sensor  | Open/closed status                                                                                                             |
@@ -284,6 +285,53 @@ These controls need a phone key paired over Bluetooth (see [Remote Vehicle Contr
 | Tonneau                    | Cover   | Open/close tonneau, R1T with a powered tonneau only                                                                                                      |
 | Wake                       | Button  | Wake vehicle                                                                                                                                             |
 | Windows                    | Cover   | Vent/close all windows                                                                                                                                   |
+
+### Departure Schedules
+
+Departure schedules precondition the cabin ahead of a departure time. They do not need vehicle control to be enabled or a paired phone.
+
+Each schedule gets its own Departure schedule _name_ switch to enable or disable it. Its attributes show the schedule's settings, including the `schedule_id` the update and delete actions take. The remaining settings, including the departure time and days, are changed with the update action (Home Assistant has no multi-day selector entity, and a per-schedule time entity crowds the controls card). Schedules are created, changed and removed with actions:
+
+| Action                             | Description                                                                |
+| ---------------------------------- | -------------------------------------------------------------------------- |
+| `rivian.create_departure_schedule` | Create a schedule                                                          |
+| `rivian.update_departure_schedule` | Change a schedule, fields that are left out keep their current value       |
+| `rivian.delete_departure_schedule` | Delete a schedule, which also stops preconditioning it has started         |
+
+```yaml
+action: rivian.create_departure_schedule
+data:
+  device_id: <your vehicle>
+  name: Weekdays
+  departure_time: "07:30:00"
+  days: [Monday, Tuesday, Wednesday, Thursday, Friday]
+  temperature: 21 # in your HA unit system; use e.g. 70 if that is °F
+  front_defrost: Defrost
+  front_left_seat: Heat2
+  steering_wheel: Heat1
+```
+
+The departure time is local to the vehicle. The temperature is entered in your Home Assistant unit system — 16–29 °C, or about 61–84 °F — and converted to °C for Rivian. Seats take `Off`, `Heat1`, `Heat2` or `Heat3`, the front seats also take `Vent1`, `Vent2` or `Vent3`, and the steering wheel takes `Off` or `Heat1`. Front defrost takes `Off`, `Defrost` or `Defog`. Schedule names are limited to 24 characters.
+
+### Precondition Cabin (keyless)
+
+On vehicles without a paired phone, the **Precondition cabin** button starts cabin preconditioning now by creating a short-lived departure schedule, which the vehicle preconditions for right away. It is created only for those vehicles, since paired vehicles already have the full Cabin Climate entity.
+
+The button departs in 20 minutes, at the driver's set temperature (within the 16–29 °C schedule limits). The vehicle may not precondition for a departure about 15 minutes or less away, which is why it's 20. For a different lead time or temperature, use the `rivian.precondition_cabin` action, which works for any vehicle:
+
+```yaml
+action: rivian.precondition_cabin
+data:
+  device_id: <your vehicle>
+  lead_time: 30 # minutes, 20–60; optional, defaults to 20
+  temperature: 72 # in your HA unit system; optional, defaults to the driver's set temperature
+```
+
+The temporary schedule is a departure schedule named `HA Precondition Now`, with its own Departure schedule switch showing its departure time and temperature. Pressing the button or running the action again before it departs changes that schedule rather than adding another. Home Assistant deletes it once it has departed, so it doesn't repeat weekly, and when the integration is removed. If it can't, such as when Rivian can't be reached, the log says to delete it in the Rivian app.
+
+Preconditioning runs until the departure time. To stop it early, turn off the schedule's switch or delete the schedule.
+
+The departure time is computed in Home Assistant's timezone and interpreted by Rivian in the vehicle's local timezone, which the API does not expose. This assumes the two match (the vehicle is near home); if they differ, the button may precondition at the wrong time. Home Assistant recognizes its temporary schedules by their name, which the departure schedule actions don't let you use. Since one always departs within the hour, any schedule named `HA Precondition Now` that doesn't, including one you move further out in the Rivian app, is treated as departed and deleted. Don't give your own schedules that name in the app.
 
 ## Trip Route Card
 

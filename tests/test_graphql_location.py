@@ -210,6 +210,8 @@ def subscribing_vehicle(
     coor.data = None
     coor.last_update_success = True
     coor.get_charging_schedule_data = AsyncMock()
+    coor._ensure_precondition_loaded = AsyncMock()
+    coor._subscribe_departure_schedules = AsyncMock()
     coor.hass = MagicMock()
     coor.config_entry = MagicMock()
     coor.config_entry.async_create_task = lambda hass, coro, eager_start=True: (

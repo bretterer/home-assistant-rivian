@@ -242,6 +242,9 @@
       },
       "pair": {
         "name": "Pair"
+      },
+      "precondition_cabin": {
+        "name": "Precondition cabin"
       }
     },
     "climate": {
@@ -1095,6 +1098,9 @@
       },
       "steering_wheel_heat": {
         "name": "Steering wheel heat"
+      },
+      "departure_schedule": {
+        "name": "Departure schedule {name}"
       }
     },
     "time": {
@@ -1135,7 +1141,182 @@
       }
     }
   },
+  "services": {
+    "create_departure_schedule": {
+      "name": "Create departure schedule",
+      "description": "Creates a departure schedule that preconditions the cabin ahead of each departure.",
+      "fields": {
+        "device_id": {
+          "name": "Vehicle",
+          "description": "The Rivian vehicle."
+        },
+        "name": {
+          "name": "Name",
+          "description": "The name of the schedule."
+        },
+        "departure_time": {
+          "name": "Departure time",
+          "description": "The departure time, local to the vehicle."
+        },
+        "days": {
+          "name": "Days",
+          "description": "The days the schedule repeats on."
+        },
+        "enabled": {
+          "name": "Enabled",
+          "description": "Whether the schedule is enabled."
+        },
+        "temperature": {
+          "name": "Cabin temperature",
+          "description": "The cabin temperature to reach by the departure time, in your unit system (16–29 °C / about 61–84 °F)."
+        },
+        "front_defrost": {
+          "name": "Front defrost",
+          "description": "Whether to defrost or defog the windshield."
+        },
+        "front_left_seat": {
+          "name": "Front left seat",
+          "description": "Heats or ventilates the seat."
+        },
+        "front_right_seat": {
+          "name": "Front right seat",
+          "description": "Heats or ventilates the seat."
+        },
+        "rear_left_seat": {
+          "name": "Rear left seat",
+          "description": "Heats the seat."
+        },
+        "rear_right_seat": {
+          "name": "Rear right seat",
+          "description": "Heats the seat."
+        },
+        "steering_wheel": {
+          "name": "Steering wheel",
+          "description": "Heats the steering wheel."
+        },
+        "override_charge_schedule": {
+          "name": "Override charging schedule",
+          "description": "Whether preconditioning may charge outside of the charging schedule."
+        }
+      }
+    },
+    "update_departure_schedule": {
+      "name": "Update departure schedule",
+      "description": "Updates a departure schedule. Fields that are left out keep their current value.",
+      "fields": {
+        "device_id": {
+          "name": "Vehicle",
+          "description": "The Rivian vehicle."
+        },
+        "schedule_id": {
+          "name": "Schedule ID",
+          "description": "The schedule to update, from the schedule's switch."
+        },
+        "name": {
+          "name": "Name",
+          "description": "The name of the schedule."
+        },
+        "departure_time": {
+          "name": "Departure time",
+          "description": "The departure time, local to the vehicle."
+        },
+        "days": {
+          "name": "Days",
+          "description": "The days the schedule repeats on."
+        },
+        "enabled": {
+          "name": "Enabled",
+          "description": "Whether the schedule is enabled."
+        },
+        "temperature": {
+          "name": "Cabin temperature",
+          "description": "The cabin temperature to reach by the departure time, in your unit system (16–29 °C / about 61–84 °F)."
+        },
+        "front_defrost": {
+          "name": "Front defrost",
+          "description": "Whether to defrost or defog the windshield."
+        },
+        "front_left_seat": {
+          "name": "Front left seat",
+          "description": "Heats or ventilates the seat."
+        },
+        "front_right_seat": {
+          "name": "Front right seat",
+          "description": "Heats or ventilates the seat."
+        },
+        "rear_left_seat": {
+          "name": "Rear left seat",
+          "description": "Heats the seat."
+        },
+        "rear_right_seat": {
+          "name": "Rear right seat",
+          "description": "Heats the seat."
+        },
+        "steering_wheel": {
+          "name": "Steering wheel",
+          "description": "Heats the steering wheel."
+        },
+        "override_charge_schedule": {
+          "name": "Override charging schedule",
+          "description": "Whether preconditioning may charge outside of the charging schedule."
+        }
+      }
+    },
+    "delete_departure_schedule": {
+      "name": "Delete departure schedule",
+      "description": "Deletes a departure schedule.",
+      "fields": {
+        "device_id": {
+          "name": "Vehicle",
+          "description": "The Rivian vehicle."
+        },
+        "schedule_id": {
+          "name": "Schedule ID",
+          "description": "The schedule to delete, from the schedule's switch."
+        }
+      }
+    },
+    "precondition_cabin": {
+      "name": "Precondition cabin",
+      "description": "Starts preconditioning the cabin now, through a temporary departure schedule that Home Assistant deletes after it departs; if one named \"HA Precondition Now\" remains, delete it in the Rivian app. Run again before it departs to change it.",
+      "fields": {
+        "device_id": {
+          "name": "Vehicle",
+          "description": "The Rivian vehicle."
+        },
+        "lead_time": {
+          "name": "Lead time",
+          "description": "How many minutes from now the schedule departs, which is roughly how long preconditioning runs (20–60). Defaults to 20."
+        },
+        "temperature": {
+          "name": "Cabin temperature",
+          "description": "The cabin temperature to reach, in your unit system (16–29 °C / about 61–84 °F). Defaults to the driver's set temperature."
+        }
+      }
+    }
+  },
   "exceptions": {
+    "invalid_device": {
+      "message": "{device_id} is not a Rivian vehicle"
+    },
+    "schedule_not_found": {
+      "message": "Departure schedule {schedule_id} not found"
+    },
+    "schedule_rejected": {
+      "message": "Rivian rejected {action}: {reason}"
+    },
+    "schedule_unconfirmed": {
+      "message": "Rivian didn't confirm {action} ({reason}); it may still have been applied"
+    },
+    "schedules_out_of_sync": {
+      "message": "Departure schedules are out of sync with Rivian; please try again"
+    },
+    "temperature_out_of_range": {
+      "message": "Cabin temperature must be between {min} and {max} {unit}"
+    },
+    "vehicle_not_loaded": {
+      "message": "The Rivian integration for this vehicle isn't loaded"
+    },
     "command_rejected": {
       "message": "Rivian didn't accept {rvm}"
     },

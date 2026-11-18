@@ -95,6 +95,9 @@
             }
         },
         "button": {
+            "precondition_cabin": {
+                "default": "mdi:car-seat-heater"
+            },
             "wake": {
                 "default": "mdi:weather-night"
             }
@@ -451,6 +454,9 @@
             "charging_schedule_enabled": {
                 "default": "mdi:calendar-clock"
             },
+            "departure_schedule": {
+                "default": "mdi:car-clock"
+            },
             "alarm": {
                 "default": "mdi:alarm-light"
             },
@@ -477,6 +483,20 @@
             "charging_schedule_end": {
                 "default": "mdi:clock-end"
             }
+        }
+    },
+    "services": {
+        "create_departure_schedule": {
+            "service": "mdi:calendar-plus"
+        },
+        "update_departure_schedule": {
+            "service": "mdi:calendar-edit"
+        },
+        "delete_departure_schedule": {
+            "service": "mdi:calendar-remove"
+        },
+        "precondition_cabin": {
+            "service": "mdi:car-seat-heater"
         }
     }
 }
