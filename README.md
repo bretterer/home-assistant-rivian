@@ -288,7 +288,7 @@ These controls need a phone key paired over Bluetooth (see [Remote Vehicle Contr
 
 ### Departure Schedules
 
-Departure schedules precondition the cabin ahead of a departure time. They do not need vehicle control to be enabled or a paired phone, so they also work for Gen 2 vehicles.
+Departure schedules precondition the cabin ahead of a departure time. They do not need vehicle control to be enabled or a paired phone.
 
 Each schedule gets its own Departure schedule _name_ switch to enable or disable it. Its attributes show the schedule's settings, including the `schedule_id` the update and delete actions take. The remaining settings, including the departure time and days, are changed with the update action (Home Assistant has no multi-day selector entity, and a per-schedule time entity crowds the controls card). Schedules are created, changed and removed with actions:
 
