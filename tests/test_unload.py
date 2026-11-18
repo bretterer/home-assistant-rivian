@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock
@@ -60,8 +61,11 @@ class _Client:
         self.disenrolled: list[str] = []
         self.closed = False
 
+    csrf_fails = False
+
     async def create_csrf_token(self) -> None:
-        pass
+        if self.csrf_fails:
+            raise RuntimeError("csrf")
 
     async def delete_departure_schedule(self, vehicle_id: str, schedule_id: str) -> Any:
         self.deleted.append(schedule_id)
@@ -95,7 +99,8 @@ def _removal(
     public_key: str | None = None,
 ) -> tuple[SimpleNamespace, SimpleNamespace]:
     """Remove an entry whose account has the client's vehicles."""
-    monkeypatch.setattr(rivian, "DEPARTURE_SCHEDULES_WAIT", 0.01)
+    monkeypatch.setattr(rivian, "DEPARTURE_SCHEDULES_WAIT", 0.5)
+    monkeypatch.setattr(rivian, "DEPARTURE_EMPTY_LIST_HOLD", 0.01)
     monkeypatch.setattr(rivian, "get_rivian_api_from_entry", lambda hass, entry: client)
 
     class _User:
@@ -231,3 +236,30 @@ async def test_one_vehicle_failing_to_stop_still_closes_the_client() -> None:
     assert await rivian.async_unload_entry(hass, SimpleNamespace(entry_id="entry"))
 
     assert order == ["V2", "api"]
+
+
+async def test_vehicle_without_schedules_needs_no_warning(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """An empty list nothing follows counts after the hold, not the full wait."""
+    client = _Client({"V1": []})
+    hass, entry = _removal(monkeypatch, client)
+
+    await asyncio.wait_for(rivian.async_remove_entry(hass, entry), 0.4)
+
+    assert client.deleted == []
+    assert "Unable" not in caplog.text
+
+
+async def test_phone_disenrolled_without_a_csrf_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only schedule changes need the token, so a failure skips just those."""
+    client = _Client({"V1": [{"id": "S1", "name": "HA Precondition Now"}]})
+    client.csrf_fails = True
+    hass, entry = _removal(monkeypatch, client, public_key="key")
+
+    await rivian.async_remove_entry(hass, entry)
+
+    assert client.deleted == []
+    assert client.disenrolled == ["identity"]

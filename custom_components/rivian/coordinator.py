@@ -59,6 +59,7 @@ from .const import (
     DOMAIN,
     INVALID_SENSOR_STATES,
     ISSUE_RATE_LIMITED,
+    MINUTES_PER_DAY,
     MINUTES_PER_HOUR,
     PARALLAX_IGNORED_RVMS,
     PARALLAX_NONE_CLEARS,
@@ -438,8 +439,9 @@ def precondition_current_departure(
     occurrence = schedule.get("occurrence") or {}
     days = occurrence.get("days") or []
     minutes = occurrence.get("startsAtMin")
-    if not days or minutes is None:
+    if not days or not isinstance(minutes, int):
         return None
+    minutes %= MINUTES_PER_DAY
     earliest = now - PRECONDITION_CLEANUP_GRACE_SECONDS
     # the departure minute is rounded up, so allow a minute more than the lead
     latest = now + (PRECONDITION_LEAD_MINUTES_MAXIMUM + 1) * 60
@@ -518,7 +520,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         # set when a deletion failed, so cleanup retries soon
         self._precondition_cleanup_failed = False
         # Serializes precondition_now, so two calls can't each create a schedule.
-        # Taken before _departure_lock, as is the cleanup lock
+        # Taken before the cleanup lock, which is taken before _departure_lock
         self._precondition_lock = asyncio.Lock()
         # Serializes (re)subscribing to the departure schedules, so overlapping
         # calls don't each open a subscription and lose one's handle
@@ -989,23 +991,26 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
                 "repeatsWeekly": repeats_weekly,
                 "departureSettings": {"comfortSettings": comfort},
             }
-            now = time.time()
-            if current := next(
-                (
-                    schedule
-                    for schedule in self._precondition_schedules()
-                    if precondition_current_departure(schedule, now)
-                ),
-                None,
-            ):
-                await self.update_departure_schedule(current["id"], changes)
-            else:
-                await self.create_departure_schedule(
-                    deep_merge(
-                        DEFAULT_DEPARTURE_SCHEDULE,
-                        {"name": PRECONDITION_SCHEDULE_NAME, **changes},
+            # under the cleanup lock, so cleanup can't delete the schedule this
+            # picks as current before it's moved
+            async with self._precondition_cleanup_lock:
+                now = time.time()
+                if current := next(
+                    (
+                        schedule
+                        for schedule in self._precondition_schedules()
+                        if precondition_current_departure(schedule, now)
+                    ),
+                    None,
+                ):
+                    await self.update_departure_schedule(current["id"], changes)
+                else:
+                    await self.create_departure_schedule(
+                        deep_merge(
+                            DEFAULT_DEPARTURE_SCHEDULE,
+                            {"name": PRECONDITION_SCHEDULE_NAME, **changes},
+                        )
                     )
-                )
         # the refreshed list arms the cleanup for its departure
 
     def _precondition_request(
@@ -1035,6 +1040,8 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         repeats_weekly = {
             "days": [WEEK_DAYS_ORDERED[depart.weekday()]],
             "startsAtMin": depart.hour * MINUTES_PER_HOUR + depart.minute,
+            # a skip set in the app would stop a moved schedule from firing
+            "skippedOn": [],
         }
         return repeats_weekly, {
             "cabinTempCelsius": schedule_cabin_temperature(temperature)

@@ -259,6 +259,8 @@ async def test_press_again_moves_the_current_schedule(clock: SimpleNamespace) ->
             "repeatsWeekly": {
                 "days": [WEEK_DAYS_ORDERED[depart.weekday()]],
                 "startsAtMin": depart.hour * 60 + depart.minute,
+                # a skip set in the app would stop the moved schedule firing
+                "skippedOn": [],
             },
             "departureSettings": {"comfortSettings": {"cabinTempCelsius": 22.5}},
         },
@@ -436,3 +438,30 @@ async def test_unload_during_cleanup_does_not_rearm(
     assert timers.calls == []
     coordinator._schedule_reconcile()
     coordinator.config_entry.async_create_task.assert_not_called()
+
+
+async def test_press_waits_for_cleanup(clock: SimpleNamespace) -> None:
+    """Cleanup can't delete the schedule a press picked as current before it moves.
+
+    Such as a press in the grace period after it departed, as cleanup's timer fires.
+    """
+    coordinator, _ = _coordinator([_schedule("S1", NOW - timedelta(minutes=1))])
+
+    async with coordinator._precondition_cleanup_lock:
+        press = asyncio.create_task(coordinator.precondition_now())
+        for _ in range(3):
+            await asyncio.sleep(0)
+        coordinator.update_departure_schedule.assert_not_awaited()
+    await press
+
+    coordinator.update_departure_schedule.assert_awaited_once()
+
+
+def test_out_of_range_time_doesnt_break_cleanup(clock: SimpleNamespace) -> None:
+    """A departure time past the end of the day wraps, as the charging times do."""
+    schedule = _schedule("S1", NOW + timedelta(minutes=10))
+    schedule["occurrence"]["startsAtMin"] += 1440
+
+    assert precondition_current_departure(schedule, NOW.timestamp()) == (
+        NOW + timedelta(minutes=10)
+    )

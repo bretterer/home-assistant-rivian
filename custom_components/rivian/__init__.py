@@ -31,6 +31,7 @@ from .const import (
     VERSION,
 )
 from .coordinator import (
+    DEPARTURE_EMPTY_LIST_HOLD,
     UserCoordinator,
     VehicleCoordinator,
     WallboxCoordinator,
@@ -197,7 +198,6 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
         hass=hass, config_entry=entry, client=client, include_phones=True
     )
     try:
-        await client.create_csrf_token()
         # The entry is no longer in setup, so first_refresh isn't allowed here
         await coordinator.async_refresh()
         if not coordinator.last_update_success:
@@ -216,13 +216,24 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
                     "Unable to delete vehicle %s's precondition schedules", vehicle_id
                 )
 
-        # at once, as each waits for its vehicle's schedule list
-        await asyncio.gather(
-            *(
-                remove_preconditions(vehicle_id)
-                for vehicle_id in coordinator.get_vehicles()
+        try:
+            # schedule changes need it; disenrolling the phone doesn't
+            await client.create_csrf_token()
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning(
+                "Unable to delete precondition schedules; delete any named %s in the "
+                "Rivian app: %s",
+                PRECONDITION_SCHEDULE_NAME,
+                type(err).__name__,
             )
-        )
+        else:
+            # at once, as each waits for its vehicle's schedule list
+            await asyncio.gather(
+                *(
+                    remove_preconditions(vehicle_id)
+                    for vehicle_id in coordinator.get_vehicles()
+                )
+            )
         if (public_key := entry.options.get("public_key")) and (
             enrolled_data := coordinator.get_enrolled_phone_data(public_key)
         ):
@@ -269,23 +280,23 @@ async def _async_departure_schedules(
 ) -> list[dict[str, Any]] | None:
     """Return a vehicle's departure schedules, which are only sent by subscription.
 
-    Rivian can send an empty list just before the full one, so an empty list only
-    counts if no other list follows within DEPARTURE_SCHEDULES_WAIT. Returns None
-    if no list arrived, or subscribing failed.
+    Rivian can send an empty list just before the full one, so like the
+    coordinator, an empty list only counts if no other list follows within
+    DEPARTURE_EMPTY_LIST_HOLD. Returns None if no list arrived within
+    DEPARTURE_SCHEDULES_WAIT, or subscribing failed.
     """
     received: asyncio.Future[list[dict[str, Any]]] = (
         asyncio.get_running_loop().create_future()
     )
-    empty = False
+    empty = asyncio.Event()
 
     def on_schedules(data: dict[str, Any]) -> None:
-        nonlocal empty
         if (schedules := departure_schedules_from_message(data)) is None:
             return
-        if not schedules:
-            empty = True
-        elif not received.done():
+        if schedules and not received.done():
             received.set_result(schedules)
+        elif not schedules:
+            empty.set()
 
     unsubscribe = await client.subscribe_for_departure_schedules(
         vehicle_id, on_schedules
@@ -293,9 +304,23 @@ async def _async_departure_schedules(
     if not unsubscribe:
         return None
     try:
-        return await asyncio.wait_for(received, DEPARTURE_SCHEDULES_WAIT)
+        async with asyncio.timeout(DEPARTURE_SCHEDULES_WAIT):
+            # a full list, or an empty one that nothing follows within the hold
+            empty_wait = asyncio.ensure_future(empty.wait())
+            try:
+                await asyncio.wait(
+                    (received, empty_wait), return_when=asyncio.FIRST_COMPLETED
+                )
+            finally:
+                empty_wait.cancel()
+        if received.done():
+            return received.result()
+        try:
+            return await asyncio.wait_for(received, DEPARTURE_EMPTY_LIST_HOLD)
+        except TimeoutError:
+            return []
     except TimeoutError:
-        return [] if empty else None
+        return None
     finally:
         await unsubscribe()
 
