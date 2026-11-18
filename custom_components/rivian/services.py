@@ -36,6 +36,8 @@ from .const import (
     DEPARTURE_SCHEDULE_TEMPERATURE_MINIMUM,
     DOMAIN,
     MINUTES_PER_HOUR,
+    PRECONDITION_LEAD_MINUTES_MAXIMUM,
+    PRECONDITION_LEAD_MINUTES_MINIMUM,
     PRECONDITION_SCHEDULE_NAME,
     WEEK_DAYS_ORDERED,
 )
@@ -45,12 +47,14 @@ from .helpers import deep_merge
 ATTR_DAYS: Final = "days"
 ATTR_ENABLED: Final = "enabled"
 ATTR_FRONT_DEFROST: Final = "front_defrost"
+ATTR_LEAD_TIME: Final = "lead_time"
 ATTR_OVERRIDE_CHARGE_SCHEDULE: Final = "override_charge_schedule"
 ATTR_SCHEDULE_ID: Final = "schedule_id"
 
 SERVICE_CREATE_DEPARTURE_SCHEDULE: Final = "create_departure_schedule"
 SERVICE_UPDATE_DEPARTURE_SCHEDULE: Final = "update_departure_schedule"
 SERVICE_DELETE_DEPARTURE_SCHEDULE: Final = "delete_departure_schedule"
+SERVICE_PRECONDITION_CABIN: Final = "precondition_cabin"
 
 
 def _not_reserved_name(value: str) -> str:
@@ -107,6 +111,22 @@ DELETE_DEPARTURE_SCHEDULE_SCHEMA: Final = vol.Schema(
     {
         vol.Required(ATTR_DEVICE_ID): cv.string,
         vol.Required(ATTR_SCHEDULE_ID): cv.string,
+    }
+)
+
+
+PRECONDITION_CABIN_SCHEMA: Final = vol.Schema(
+    {
+        vol.Required(ATTR_DEVICE_ID): cv.string,
+        vol.Optional(ATTR_LEAD_TIME): vol.All(
+            vol.Coerce(int),
+            vol.Range(
+                min=PRECONDITION_LEAD_MINUTES_MINIMUM,
+                max=PRECONDITION_LEAD_MINUTES_MAXIMUM,
+            ),
+        ),
+        # in the user's unit system; checked once converted to Celsius
+        vol.Optional(ATTR_TEMPERATURE): vol.Coerce(float),
     }
 )
 
@@ -173,12 +193,43 @@ async def _async_get_controlled_vehicle(
     return coordinator
 
 
+def _to_celsius(hass: HomeAssistant, temperature: float) -> float:
+    """Convert a cabin temperature in the user's unit to °C for a schedule.
+
+    Raises if it's outside what a schedule allows, with the limits in the user's
+    unit. Rounded to the Rivian app's 0.5 °C steps; whole values are ints.
+    """
+    unit = hass.config.units.temperature_unit
+    celsius = TemperatureConverter.convert(temperature, unit, UnitOfTemperature.CELSIUS)
+    if not (
+        DEPARTURE_SCHEDULE_TEMPERATURE_MINIMUM
+        <= celsius
+        <= DEPARTURE_SCHEDULE_TEMPERATURE_MAXIMUM
+    ):
+        low = TemperatureConverter.convert(
+            DEPARTURE_SCHEDULE_TEMPERATURE_MINIMUM, UnitOfTemperature.CELSIUS, unit
+        )
+        high = TemperatureConverter.convert(
+            DEPARTURE_SCHEDULE_TEMPERATURE_MAXIMUM, UnitOfTemperature.CELSIUS, unit
+        )
+        raise ServiceValidationError(
+            translation_domain=DOMAIN,
+            translation_key="temperature_out_of_range",
+            translation_placeholders={
+                "min": f"{low:g}",
+                "max": f"{high:g}",
+                "unit": unit,
+            },
+        )
+    celsius = round(celsius * 2) / 2
+    return int(celsius) if celsius.is_integer() else celsius
+
+
 def _get_schedule_changes(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, Any]:
     """Convert service data to departure schedule changes.
 
     The cabin temperature is entered in the user's configured unit system and
-    converted to Celsius here (the Rivian API only takes Celsius), mirroring how
-    the Precondition Temperature number entity localizes.
+    converted to Celsius here, as the Rivian API only takes Celsius.
     """
     changes: dict[str, Any] = {}
     weekly: dict[str, Any] = {}
@@ -195,33 +246,7 @@ def _get_schedule_changes(hass: HomeAssistant, data: dict[str, Any]) -> dict[str
         value: time = data[ATTR_TIME]
         weekly["startsAtMin"] = value.hour * MINUTES_PER_HOUR + value.minute
     if ATTR_TEMPERATURE in data:
-        unit = hass.config.units.temperature_unit
-        celsius = TemperatureConverter.convert(
-            data[ATTR_TEMPERATURE], unit, UnitOfTemperature.CELSIUS
-        )
-        if not (
-            DEPARTURE_SCHEDULE_TEMPERATURE_MINIMUM
-            <= celsius
-            <= DEPARTURE_SCHEDULE_TEMPERATURE_MAXIMUM
-        ):
-            low = TemperatureConverter.convert(
-                DEPARTURE_SCHEDULE_TEMPERATURE_MINIMUM, UnitOfTemperature.CELSIUS, unit
-            )
-            high = TemperatureConverter.convert(
-                DEPARTURE_SCHEDULE_TEMPERATURE_MAXIMUM, UnitOfTemperature.CELSIUS, unit
-            )
-            raise ServiceValidationError(
-                translation_domain=DOMAIN,
-                translation_key="temperature_out_of_range",
-                translation_placeholders={
-                    "min": f"{low:g}",
-                    "max": f"{high:g}",
-                    "unit": unit,
-                },
-            )
-        # the Rivian app uses 0.5 °C increments; keep whole values as ints
-        celsius = round(celsius * 2) / 2
-        comfort["cabinTempCelsius"] = int(celsius) if celsius.is_integer() else celsius
+        comfort["cabinTempCelsius"] = _to_celsius(hass, data[ATTR_TEMPERATURE])
     if ATTR_FRONT_DEFROST in data:
         comfort["frontDefogDefrost"] = data[ATTR_FRONT_DEFROST]
     if levels := {
@@ -267,6 +292,16 @@ def async_setup_services(hass: HomeAssistant) -> None:
         coordinator = await _async_get_controlled_vehicle(hass, call)
         await coordinator.delete_departure_schedule(call.data[ATTR_SCHEDULE_ID])
 
+    async def precondition_cabin(call: ServiceCall) -> None:
+        """Start cabin preconditioning through a temporary departure schedule."""
+        coordinator = await _async_get_controlled_vehicle(hass, call)
+        temperature = (
+            _to_celsius(hass, call.data[ATTR_TEMPERATURE])
+            if ATTR_TEMPERATURE in call.data
+            else None
+        )
+        await coordinator.precondition_now(call.data.get(ATTR_LEAD_TIME), temperature)
+
     hass.services.async_register(
         DOMAIN,
         SERVICE_CREATE_DEPARTURE_SCHEDULE,
@@ -284,4 +319,10 @@ def async_setup_services(hass: HomeAssistant) -> None:
         SERVICE_DELETE_DEPARTURE_SCHEDULE,
         delete_departure_schedule,
         schema=DELETE_DEPARTURE_SCHEDULE_SCHEMA,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_PRECONDITION_CABIN,
+        precondition_cabin,
+        schema=PRECONDITION_CABIN_SCHEMA,
     )

@@ -12,6 +12,7 @@ import time
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
+from zoneinfo import ZoneInfo
 
 import pytest
 from rivian.exceptions import RivianApiException
@@ -143,13 +144,11 @@ def test_precondition_departure_never_shortens_lead(
 
 
 def _precondition_coordinator(
-    lead: float,
     owned: dict[str, float] | None = None,
     pending: list[dict[str, Any]] | None = None,
+    data: dict[str, Any] | None = None,
 ) -> tuple[VehicleCoordinator, list]:
-    coordinator = _coordinator({})
-    coordinator.precondition_lead_minutes = lead
-    coordinator.precondition_temperature = 21
+    coordinator = _coordinator(data or {})
     coordinator._precondition_ids = dict(owned or {})
     coordinator._precondition_pending = list(pending or [])
     coordinator._precondition_cleanup_lock = asyncio.Lock()
@@ -171,9 +170,9 @@ async def test_precondition_now_enforces_minimum_lead(
     """A lead restored from before the minimum was raised is clamped up."""
     now = datetime(2026, 11, 14, 12, 51, 24, tzinfo=UTC)
     monkeypatch.setattr(coordinator_module.dt_util, "now", lambda: now)
-    coordinator, created = _precondition_coordinator(lead)
+    coordinator, created = _precondition_coordinator()
 
-    await coordinator.precondition_now()
+    await coordinator.precondition_now(lead)
 
     depart = precondition_departure(now, minutes)
     occurrence = created[0]["repeatsWeekly"]
@@ -193,10 +192,9 @@ async def test_precondition_again_moves_the_upcoming_schedule(
     monkeypatch.setattr(coordinator_module.dt_util, "now", lambda: now)
     monkeypatch.setattr(coordinator_module.time, "time", now.timestamp)
     departs_soon = now.timestamp() + 10 * 60 + PRECONDITION_CLEANUP_GRACE_SECONDS
-    coordinator, created = _precondition_coordinator(30, owned={"S1": departs_soon})
-    coordinator.precondition_temperature = 22.5
+    coordinator, created = _precondition_coordinator(owned={"S1": departs_soon})
 
-    await coordinator.precondition_now()
+    await coordinator.precondition_now(30, 22.5)
 
     assert not created
     depart = precondition_departure(now, 30)
@@ -218,41 +216,64 @@ async def test_precondition_again_moves_the_upcoming_schedule(
     coordinator._save_precondition_state.assert_awaited()
 
 
-async def test_changing_a_setting_moves_the_upcoming_schedule(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize(
+    ("target", "expected"),
+    [(22.3, 22.5), (63.5, 29), (10.0, 16), (None, 21)],
+    ids=["set", "hi", "lo", "missing"],
+)
+async def test_precondition_defaults_to_the_set_temperature(
+    monkeypatch: pytest.MonkeyPatch, target: float | None, expected: float
 ) -> None:
-    """A new lead time or temperature applies to HA's schedule right away."""
+    """Without a temperature, use the driver's set temperature, clamped, like the app."""
     now = datetime(2026, 11, 14, 12, 51, 24, tzinfo=UTC)
     monkeypatch.setattr(coordinator_module.dt_util, "now", lambda: now)
+    data = {} if target is None else {"hvacTargetTemperature": {"value": target}}
+    coordinator, created = _precondition_coordinator(data=data)
+
+    await coordinator.precondition_now()
+
+    comfort = created[0]["departureSettings"]["comfortSettings"]
+    assert comfort["cabinTempCelsius"] == expected
+    # and the default lead
+    depart = precondition_departure(now, 20)
+    occurrence = created[0]["repeatsWeekly"]
+    assert occurrence["startsAtMin"] == depart.hour * 60 + depart.minute
+
+
+async def test_cleanup_follows_a_departure_moved_in_the_app(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A schedule moved later in the app isn't deleted at its original time."""
+    zone = ZoneInfo("America/Denver")
+    monkeypatch.setattr(
+        coordinator_module.dt_util, "as_local", lambda value: value.astimezone(zone)
+    )
+    monkeypatch.setattr(
+        coordinator_module.dt_util,
+        "utc_from_timestamp",
+        lambda timestamp: datetime.fromtimestamp(timestamp, UTC),
+    )
+    # created to depart Wednesday 12:12, moved to 13:30 in the app
+    departure = datetime(2026, 11, 18, 12, 12, tzinfo=zone)
+    moved = datetime(2026, 11, 18, 13, 30, tzinfo=zone)
+    now = departure + timedelta(minutes=10)
     monkeypatch.setattr(coordinator_module.time, "time", now.timestamp)
-    departs_soon = now.timestamp() + 10 * 60 + PRECONDITION_CLEANUP_GRACE_SECONDS
-    coordinator, created = _precondition_coordinator(40, owned={"S1": departs_soon})
-
-    assert await coordinator.update_upcoming_precondition()
-
-    assert not created
-    depart = precondition_departure(now, 40)
-    changes = coordinator.update_departure_schedule.await_args.args[1]
-    assert changes["repeatsWeekly"]["startsAtMin"] == depart.hour * 60 + depart.minute
-    # a schedule that was turned off stays off
-    assert "isEnabled" not in changes
-    assert coordinator._precondition_ids["S1"] == (
-        depart.timestamp() + PRECONDITION_CLEANUP_GRACE_SECONDS
+    schedule = {
+        "id": "S1",
+        "occurrence": {"days": ["Wednesday"], "startsAtMin": 13 * 60 + 30},
+    }
+    coordinator = _cleanup_coordinator(
+        owned={"S1": departure.timestamp() + PRECONDITION_CLEANUP_GRACE_SECONDS},
+        schedules=[schedule],
     )
 
+    await coordinator._cleanup_precondition_schedules()
 
-async def test_changing_a_setting_without_a_schedule_changes_nothing(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """With no schedule of HA's, a new setting is only stored for the button."""
-    now = datetime(2026, 11, 14, 12, 51, 24, tzinfo=UTC)
-    monkeypatch.setattr(coordinator_module.dt_util, "now", lambda: now)
-    coordinator, created = _precondition_coordinator(30)
-
-    assert not await coordinator.update_upcoming_precondition()
-
-    assert not created
-    coordinator.update_departure_schedule.assert_not_awaited()
+    coordinator.delete_departure_schedule.assert_not_awaited()
+    assert coordinator._precondition_ids["S1"] == (
+        moved.timestamp() + PRECONDITION_CLEANUP_GRACE_SECONDS
+    )
+    coordinator._save_precondition_state.assert_awaited()
 
 
 async def test_precondition_after_departure_creates_a_new_schedule(
@@ -263,7 +284,7 @@ async def test_precondition_after_departure_creates_a_new_schedule(
     monkeypatch.setattr(coordinator_module.dt_util, "now", lambda: now)
     monkeypatch.setattr(coordinator_module.time, "time", now.timestamp)
     departed = now.timestamp() - 60 + PRECONDITION_CLEANUP_GRACE_SECONDS
-    coordinator, created = _precondition_coordinator(20, owned={"S1": departed})
+    coordinator, created = _precondition_coordinator(owned={"S1": departed})
 
     await coordinator.precondition_now()
 
@@ -280,7 +301,7 @@ async def test_precondition_while_one_is_being_created(
     monkeypatch.setattr(coordinator_module.time, "time", now.timestamp)
     expiry = now.timestamp() + 20 * 60 + PRECONDITION_CLEANUP_GRACE_SECONDS
     coordinator, created = _precondition_coordinator(
-        20, pending=[{"name": "Home Assistant abc123", "expiry": expiry}]
+        pending=[{"name": "Home Assistant abc123", "expiry": expiry}]
     )
 
     with pytest.raises(HomeAssistantError):

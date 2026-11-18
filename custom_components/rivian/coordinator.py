@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 import asyncio
 from collections.abc import Awaitable, Callable, Coroutine
 import contextlib
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time as dt_time, timedelta
 import logging
 import secrets
 import time
@@ -406,6 +406,34 @@ def precondition_departure(now: datetime, lead_minutes: int) -> datetime:
     return depart
 
 
+def precondition_schedule_departure(
+    schedule: dict[str, Any], near: float
+) -> datetime | None:
+    """Return a schedule's departure nearest the ``near`` timestamp.
+
+    From its days and time as they stand, which can be edited in the Rivian app.
+    Like ``precondition_departure``, it's in Home Assistant's timezone. Returns None
+    if the schedule has no days or time.
+    """
+    occurrence = schedule.get("occurrence") or {}
+    days = occurrence.get("days") or []
+    minutes = occurrence.get("startsAtMin")
+    if not days or minutes is None:
+        return None
+    around = dt_util.as_local(dt_util.utc_from_timestamp(near))
+    candidates = [
+        datetime.combine(
+            around.date() + timedelta(days=offset), dt_time(), around.tzinfo
+        )
+        + timedelta(minutes=minutes)
+        for offset in range(-4, 5)
+        if WEEK_DAYS_ORDERED[(around.weekday() + offset) % 7] in days
+    ]
+    if not candidates:
+        return None
+    return min(candidates, key=lambda candidate: abs(candidate - around))
+
+
 class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
     """Vehicle data update coordinator for Rivian."""
 
@@ -481,8 +509,6 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         # set on unload/reload (when hass.is_stopping is still False) so a cancelled
         # cleanup pass cannot re-arm its timer or start another pass afterwards
         self._shutting_down = False
-        self.precondition_lead_minutes: int = DEFAULT_PRECONDITION_LEAD_MINUTES
-        self.precondition_temperature: float = DEFAULT_PRECONDITION_TEMPERATURE
 
     @property
     def charging_schedule(self) -> dict[str, Any]:
@@ -758,11 +784,14 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         device = self.drivers_coordinator.get_device_details(identity_id)
         return bool(device and device["isPaired"])
 
-    async def precondition_now(self) -> None:
+    async def precondition_now(
+        self, lead_minutes: int | None = None, temperature: float | None = None
+    ) -> None:
         """Start cabin preconditioning without a paired phone.
 
-        Creates a temporary departure schedule a configurable number of minutes out,
-        which the vehicle preconditions for right away. The vehicle may not precondition
+        Creates a temporary departure schedule ``lead_minutes`` out (20 by default),
+        which the vehicle preconditions for right away, at ``temperature`` in °C (by
+        default the driver's set temperature). The vehicle may not precondition
         for a departure about 15 minutes or less away, so the lead is at least
         ``PRECONDITION_LEAD_MINUTES_MINIMUM`` and the departure minute is rounded up,
         never down. There is no keyless way to stop it early: deleting the schedule
@@ -778,10 +807,10 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         avoids the mismatch.
         """
         await self._ensure_precondition_loaded()
-        expiry, repeats_weekly, comfort = self._precondition_request()
-        if await self._update_upcoming_precondition(
-            expiry, repeats_weekly, comfort, enable=True
-        ):
+        expiry, repeats_weekly, comfort = self._precondition_request(
+            lead_minutes, temperature
+        )
+        if await self._update_upcoming_precondition(expiry, repeats_weekly, comfort):
             return
         # give the schedule a unique name so its id can be identified unambiguously and
         # no unrelated schedule that merely shares the base name is ever claimed as ours
@@ -807,20 +836,31 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         await self._reconcile_and_cleanup()
 
     def _precondition_request(
-        self,
+        self, lead_minutes: int | None, temperature: float | None
     ) -> tuple[float, dict[str, Any], dict[str, Any]]:
         """Return a precondition schedule's expiry, occurrence and comfort settings.
 
-        From the lead time and temperature numbers, departing the lead from now.
+        Departing ``lead_minutes`` from now, at ``temperature`` in °C, each clamped to
+        what a schedule allows. Without a temperature, the driver's set temperature is
+        used, like the Rivian app; LO and HI fall outside the limits, so it's clamped.
         """
-        # clamp: a value restored from before the minimum was raised may be too short
         lead = max(
             PRECONDITION_LEAD_MINUTES_MINIMUM,
-            min(PRECONDITION_LEAD_MINUTES_MAXIMUM, int(self.precondition_lead_minutes)),
+            min(
+                PRECONDITION_LEAD_MINUTES_MAXIMUM,
+                int(lead_minutes or DEFAULT_PRECONDITION_LEAD_MINUTES),
+            ),
         )
+        if temperature is None:
+            target = self.get("hvacTargetTemperature")
+            temperature = (
+                round(target * 2) / 2
+                if isinstance(target, (int, float))
+                else DEFAULT_PRECONDITION_TEMPERATURE
+            )
         temperature = max(
             DEPARTURE_SCHEDULE_TEMPERATURE_MINIMUM,
-            min(DEPARTURE_SCHEDULE_TEMPERATURE_MAXIMUM, self.precondition_temperature),
+            min(DEPARTURE_SCHEDULE_TEMPERATURE_MAXIMUM, temperature),
         )
         depart = precondition_departure(dt_util.now(), lead)
         expiry = depart.timestamp() + PRECONDITION_CLEANUP_GRACE_SECONDS
@@ -830,31 +870,13 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         }
         return expiry, repeats_weekly, {"cabinTempCelsius": temperature}
 
-    async def update_upcoming_precondition(self) -> bool:
-        """Apply the lead time and temperature to HA's schedule that hasn't departed.
-
-        So changing either number while preconditioning is scheduled or running
-        takes effect right away: the departure moves to the lead from now. A
-        schedule that was turned off stays off. Returns False, changing nothing,
-        when there's no such schedule.
-        """
-        await self._ensure_precondition_loaded()
-        return await self._update_upcoming_precondition(
-            *self._precondition_request(), enable=False
-        )
-
     async def _update_upcoming_precondition(
         self,
         expiry: float,
         repeats_weekly: dict[str, Any],
         comfort: dict[str, Any],
-        *,
-        enable: bool,
     ) -> bool:
         """Move Home Assistant's own precondition schedule, if it hasn't departed.
-
-        With ``enable``, also turn it on, as for the button, which asks to
-        precondition; otherwise it keeps its enabled state.
 
         Pressing the button again then changes that schedule's departure and
         temperature, instead of adding a second one that conditions the cabin again
@@ -864,6 +886,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         """
         async with self._precondition_cleanup_lock:
             changed = self._reconcile_pending()
+            changed |= self._sync_precondition_expiries()
             now = time.time()
             upcoming = next(
                 (
@@ -885,13 +908,14 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
                             translation_key="precondition_already_scheduled",
                         )
                     return False
-                changes: dict[str, Any] = {
-                    "repeatsWeekly": repeats_weekly,
-                    "departureSettings": {"comfortSettings": comfort},
-                }
-                if enable:
-                    changes["isEnabled"] = True
-                await self.update_departure_schedule(upcoming, changes)
+                await self.update_departure_schedule(
+                    upcoming,
+                    {
+                        "isEnabled": True,
+                        "repeatsWeekly": repeats_weekly,
+                        "departureSettings": {"comfortSettings": comfort},
+                    },
+                )
                 # clean it up after its new departure instead
                 self._precondition_ids[upcoming] = expiry
                 changed = True
@@ -900,6 +924,28 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
                 if changed:
                     await self._save_precondition_state()
                 self._arm_precondition_timer()
+
+    def _sync_precondition_expiries(self) -> bool:
+        """Follow edits to our schedules' departure, e.g. made in the Rivian app.
+
+        Each owned schedule is cleaned up after its departure as it stands, not as
+        Home Assistant set it, so one moved later isn't deleted before it departs.
+        Returns True if an expiry changed.
+        """
+        changed = False
+        for schedule_id, expiry in self._precondition_ids.items():
+            if not (schedule := self.get_departure_schedule(schedule_id)):
+                continue
+            departure = precondition_schedule_departure(
+                schedule, expiry - PRECONDITION_CLEANUP_GRACE_SECONDS
+            )
+            if departure is None:
+                continue
+            new_expiry = departure.timestamp() + PRECONDITION_CLEANUP_GRACE_SECONDS
+            if new_expiry != expiry:
+                self._precondition_ids[schedule_id] = new_expiry
+                changed = True
+        return changed
 
     def _reconcile_pending(self) -> bool:
         """Adopt the id of each pending creation by its unique name; drop stale records.
@@ -976,6 +1022,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             # no authoritative list yet; the retry timer or a later payload covers it
             return
         changed = self._reconcile_pending()
+        changed |= self._sync_precondition_expiries()
         now = time.time()
         present_ids = {
             schedule.get("id") for schedule in self._departure_schedules or []

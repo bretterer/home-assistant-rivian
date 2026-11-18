@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -59,67 +59,28 @@ def _stale(module: Any, monkeypatch: pytest.MonkeyPatch) -> list[tuple[set, set]
     return calls
 
 
-@pytest.mark.parametrize(
-    ("module", "keys"),
-    [
-        (button, ["precondition_cabin"]),
-        (number, ["precondition_lead_time", "precondition_temperature"]),
-    ],
-    ids=["button", "number"],
-)
-async def test_keyless_controls_removed_after_pairing(
-    monkeypatch: pytest.MonkeyPatch, module: Any, keys: list[str]
+async def test_keyless_button_removed_after_pairing(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A paired vehicle's keyless controls are removed; an unpaired one's are kept."""
-    calls = _stale(module, monkeypatch)
+    """A paired vehicle's precondition button is removed; an unpaired one's kept."""
+    calls = _stale(button, monkeypatch)
     hass, entry = _hass()
 
-    await module.async_setup_entry(hass, entry, MagicMock())
+    await button.async_setup_entry(hass, entry, MagicMock())
 
     (possible, created) = calls[-1]
-    for key in keys:
-        assert f"PAIRED-{key}" in possible - created
-        assert f"KEYLESS-{key}" in created
+    assert "PAIRED-precondition_cabin" in possible - created
+    assert "KEYLESS-precondition_cabin" in created
 
 
-@pytest.mark.parametrize(
-    ("target", "expected"),
-    [(22.3, 22.5), (63.5, 29), (10.0, 16), (None, 21)],
-    ids=["set", "hi", "lo", "missing"],
-)
-def test_precondition_temperature_starts_at_the_set_temperature(
-    target: float | None, expected: float
-) -> None:
-    """Without a restored value, start at the driver's set temperature, clamped."""
-    coordinator = MagicMock()
-    coordinator.get = lambda key: target if key == "hvacTargetTemperature" else None
-    number.RivianPreconditionTemperatureEntity(
-        coordinator, MagicMock(), VEHICLES["keyless"]
-    )
-    assert coordinator.precondition_temperature == expected
+async def test_precondition_numbers_removed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The lead time and temperature numbers are removed from every vehicle."""
+    calls = _stale(number, monkeypatch)
+    hass, entry = _hass()
 
+    await number.async_setup_entry(hass, entry, MagicMock())
 
-@pytest.mark.parametrize(
-    ("entity_class", "attr", "value"),
-    [
-        (number.RivianPreconditionLeadTimeEntity, "precondition_lead_minutes", 45),
-        (number.RivianPreconditionTemperatureEntity, "precondition_temperature", 23),
-    ],
-    ids=["lead_time", "temperature"],
-)
-async def test_setting_a_number_applies_it_to_a_scheduled_precondition(
-    entity_class: Any, attr: str, value: float
-) -> None:
-    """A new value is stored, then applied to a schedule that hasn't departed."""
-    coordinator = MagicMock()
-    coordinator.get = lambda key: None
-    seen: list[float] = []
-    coordinator.update_upcoming_precondition = AsyncMock(
-        side_effect=lambda: seen.append(getattr(coordinator, attr))
-    )
-    entity = entity_class(coordinator, MagicMock(), VEHICLES["keyless"])
-    entity.async_write_ha_state = MagicMock()
-
-    await entity.async_set_native_value(value)
-
-    assert seen == [value]
+    (possible, created) = calls[-1]
+    for vin in ("PAIRED", "KEYLESS"):
+        for key in ("precondition_lead_time", "precondition_temperature"):
+            assert f"{vin}-{key}" in possible - created

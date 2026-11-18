@@ -317,7 +317,17 @@ The departure time is local to the vehicle. The temperature is entered in your H
 
 On vehicles without a paired phone, the **Precondition cabin** button starts cabin preconditioning now by creating a short-lived departure schedule, which the vehicle preconditions for right away. It is created only for those vehicles, since paired vehicles already have the full Cabin Climate entity.
 
-Set the **Precondition lead time** and **Precondition temperature** numbers first, then press the button. The lead time (20–60 minutes, default 20) is how far out the schedule departs and roughly how long preconditioning runs. The vehicle may not precondition for a departure about 15 minutes or less away, which is why the minimum is 20. The temperature starts at the driver's set temperature, within the schedule limits. Until the temporary schedule departs, changing either number applies it to that schedule right away, moving its departure to the new lead time from now, and pressing the button again does the same rather than adding another. The temporary schedule is deleted automatically after it runs.
+The button departs in 20 minutes, at the driver's set temperature (within the 16–29 °C schedule limits). The vehicle may not precondition for a departure about 15 minutes or less away, which is why it's 20. For a different lead time or temperature, use the `rivian.precondition_cabin` action, which works for any vehicle:
+
+```yaml
+action: rivian.precondition_cabin
+data:
+  device_id: <your vehicle>
+  lead_time: 30 # minutes, 20–60; optional, defaults to 20
+  temperature: 72 # in your HA unit system; optional, defaults to the driver's set temperature
+```
+
+The temporary schedule is a departure schedule like any other, with its own Departure schedule switch showing its departure time and temperature, and it can be edited in the Rivian app. Pressing the button or running the action again before it departs changes that schedule rather than adding another. It is deleted automatically after it departs, following any change made to its departure time.
 
 There is no keyless way to stop a session early — deleting the schedule does not stop preconditioning that has already started, so it runs until the departure time. Stop it from the Rivian app if needed.
 

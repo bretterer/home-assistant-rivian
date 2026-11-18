@@ -109,12 +109,6 @@
             "charging_schedule_amperage": {
                 "default": "mdi:current-ac"
             },
-            "precondition_lead_time": {
-                "default": "mdi:timer-outline"
-            },
-            "precondition_temperature": {
-                "default": "mdi:thermometer"
-            },
             "charge_limit": {
                 "default": "mdi:battery-charging",
                 "range": {
@@ -503,6 +497,9 @@
         },
         "delete_departure_schedule": {
             "service": "mdi:calendar-remove"
+        },
+        "precondition_cabin": {
+            "service": "mdi:car-seat-heater"
         }
     }
 }

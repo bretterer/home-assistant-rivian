@@ -175,3 +175,20 @@ delete_departure_schedule:
   fields:
     device_id: *device_id
     schedule_id: *schedule_id
+precondition_cabin:
+  fields:
+    device_id: *device_id
+    lead_time:
+      default: 20
+      selector:
+        number:
+          min: 20
+          max: 60
+          step: 5
+          unit_of_measurement: min
+          mode: slider
+    temperature:
+      selector:
+        number:
+          step: 0.5
+          mode: box

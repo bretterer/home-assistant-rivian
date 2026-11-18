@@ -130,6 +130,7 @@ async def test_call_without_user_is_trusted(
         services.SERVICE_CREATE_DEPARTURE_SCHEDULE,
         services.SERVICE_UPDATE_DEPARTURE_SCHEDULE,
         services.SERVICE_DELETE_DEPARTURE_SCHEDULE,
+        services.SERVICE_PRECONDITION_CABIN,
     ],
 )
 async def test_every_schedule_action_checks_permission(
@@ -141,6 +142,36 @@ async def test_every_schedule_action_checks_permission(
     with pytest.raises(Unauthorized):
         await handler(_call("user"))
     assert not coordinator.method_calls
+
+
+@pytest.mark.parametrize(
+    ("data", "expected"),
+    [({}, (None, None)), ({"lead_time": 30, "temperature": 72}, (30, 22))],
+    ids=["defaults", "lead_and_temperature"],
+)
+async def test_precondition_cabin(
+    monkeypatch: pytest.MonkeyPatch,
+    hass: SimpleNamespace,
+    coordinator: MagicMock,
+    data: dict[str, Any],
+    expected: tuple[Any, Any],
+) -> None:
+    """The lead time is passed on, and the temperature converted to Celsius."""
+    # the test harness mocks Home Assistant's constants as one shared stand-in
+    monkeypatch.setattr(services, "ATTR_DEVICE_ID", "device_id")
+    monkeypatch.setattr(services, "ATTR_TEMPERATURE", "temperature")
+    coordinator.precondition_now = AsyncMock()
+    hass.config = SimpleNamespace(units=SimpleNamespace(temperature_unit="°F"))
+    call = _call(None)
+    call.data = {services.ATTR_DEVICE_ID: DEVICE_ID}
+    if "lead_time" in data:
+        call.data[services.ATTR_LEAD_TIME] = data["lead_time"]
+    if "temperature" in data:
+        call.data[services.ATTR_TEMPERATURE] = data["temperature"]
+
+    await _handlers(hass)[services.SERVICE_PRECONDITION_CABIN](call)
+
+    coordinator.precondition_now.assert_awaited_once_with(*expected)
 
 
 class _TranslatedError(Exception):

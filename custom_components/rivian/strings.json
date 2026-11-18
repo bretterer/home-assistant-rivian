@@ -291,12 +291,6 @@
       },
       "charge_limit": {
         "name": "Charge limit"
-      },
-      "precondition_lead_time": {
-        "name": "Precondition lead time"
-      },
-      "precondition_temperature": {
-        "name": "Precondition temperature"
       }
     },
     "select": {
@@ -1282,6 +1276,24 @@
         "schedule_id": {
           "name": "Schedule ID",
           "description": "The schedule to delete, from the departure schedules sensor or the schedule's switch."
+        }
+      }
+    },
+    "precondition_cabin": {
+      "name": "Precondition cabin",
+      "description": "Starts preconditioning the cabin now, through a temporary departure schedule that's deleted after it departs. Run again before it departs to change it.",
+      "fields": {
+        "device_id": {
+          "name": "Vehicle",
+          "description": "The Rivian vehicle."
+        },
+        "lead_time": {
+          "name": "Lead time",
+          "description": "How many minutes from now the schedule departs, which is roughly how long preconditioning runs (20–60). Defaults to 20."
+        },
+        "temperature": {
+          "name": "Cabin temperature",
+          "description": "The cabin temperature to reach, in your unit system (16–29 °C / about 61–84 °F). Defaults to the driver's set temperature."
         }
       }
     }
