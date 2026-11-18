@@ -461,6 +461,13 @@ def precondition_schedule_departure(
     return min(upcoming, key=lambda c: c.timestamp()) if upcoming else None
 
 
+def precondition_store(hass: HomeAssistant, vehicle_id: str) -> Store[dict[str, Any]]:
+    """Return the store of a vehicle's temporary precondition schedules."""
+    return Store(
+        hass, PRECONDITION_STORE_VERSION, f"{DOMAIN}.{vehicle_id}.precondition"
+    )
+
+
 class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
     """Vehicle data update coordinator for Rivian."""
 
@@ -520,9 +527,7 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         # whose id has not been seen yet (each keeps the pre-existing same-named ids so a
         # user's/app's schedule is never adopted). Persisted so cleanup survives a
         # restart and only ever removes our own schedules.
-        self._precondition_store: Store[dict[str, Any]] = Store(
-            hass, PRECONDITION_STORE_VERSION, f"{DOMAIN}.{vehicle_id}.precondition"
-        )
+        self._precondition_store = precondition_store(hass, vehicle_id)
         self._precondition_ids: dict[str, float] = {}
         self._precondition_pending: list[dict[str, Any]] = []
         self._precondition_loaded = False

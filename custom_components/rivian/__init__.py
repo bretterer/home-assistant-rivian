@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+from typing import Any
 
 from rivian import Rivian
 
@@ -10,7 +12,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
-from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import config_validation as cv, device_registry as dr
 from homeassistant.helpers.device_registry import DeviceEntry
 from homeassistant.helpers.issue_registry import IssueSeverity, async_create_issue
 from homeassistant.helpers.typing import ConfigType
@@ -25,9 +27,15 @@ from .const import (
     DOMAIN,
     ISSUE_STATE_VALUES_CHANGED,
     ISSUE_URL,
+    PRECONDITION_SCHEDULE_NAME,
     VERSION,
 )
-from .coordinator import UserCoordinator, VehicleCoordinator, WallboxCoordinator
+from .coordinator import (
+    UserCoordinator,
+    VehicleCoordinator,
+    WallboxCoordinator,
+    precondition_store,
+)
 from .frontend import async_register_cards
 from .helpers import get_rivian_api_from_entry
 from .services import async_setup_services
@@ -50,6 +58,8 @@ PLATFORMS: list[Platform] = [
     Platform.UPDATE,
 ]
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+# How long to wait for a vehicle's departure schedules when removing the entry
+DEPARTURE_SCHEDULES_WAIT = 10
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
@@ -172,6 +182,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Handle removal of an entry."""
+    await _async_remove_preconditions(hass, entry)
     if public_key := entry.options.get("public_key"):
         client = get_rivian_api_from_entry(hass, entry)
         coordinator = UserCoordinator(
@@ -190,6 +201,102 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
             _LOGGER.warning("Unable to disenroll phone: %s", err)
         finally:
             await client.close()
+
+
+async def _async_remove_preconditions(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Delete the temporary precondition schedules Home Assistant still owns.
+
+    Nothing would delete them once the integration is gone, so each would
+    precondition again every week. A vehicle's store is removed once its schedules
+    are; if one can't be deleted, the store is kept, so setting the integration up
+    again picks the cleanup back up.
+    """
+    # The entry's devices are still registered here; their identifiers include
+    # the vehicle ids, and only vehicles have a precondition store
+    stores = {}
+    for device in dr.async_entries_for_config_entry(dr.async_get(hass), entry.entry_id):
+        for domain, identifier in device.identifiers:
+            if domain != DOMAIN:
+                continue
+            store = precondition_store(hass, identifier)
+            if (data := await store.async_load()) is not None:
+                stores[identifier] = (store, data)
+    if not stores:
+        return
+
+    client = get_rivian_api_from_entry(hass, entry)
+    try:
+        await client.create_csrf_token()
+        for vehicle_id, (store, data) in stores.items():
+            schedule_ids = set(data.get("owned") or {})
+            if pending := {
+                record.get("name")
+                for record in data.get("pending") or []
+                if isinstance(record, dict)
+            }:
+                # created without its id being recorded; found by their unique name
+                schedule_ids |= {
+                    schedule["id"]
+                    for schedule in await _async_departure_schedules(client, vehicle_id)
+                    if schedule.get("name") in pending
+                }
+            deleted_all = True
+            for schedule_id in schedule_ids:
+                try:
+                    response = await client.delete_departure_schedule(
+                        vehicle_id, schedule_id
+                    )
+                    result = (await response.json()).get("data") or {}
+                    if not (result.get("deleteDepartureSchedule") or {}).get("success"):
+                        raise ValueError(result)
+                except Exception as err:  # noqa: BLE001
+                    deleted_all = False
+                    _LOGGER.warning(
+                        "Unable to delete a precondition schedule from vehicle %s; "
+                        "delete it in the Rivian app: %s",
+                        vehicle_id,
+                        type(err).__name__,
+                    )
+            if deleted_all:
+                await store.async_remove()
+    except Exception as err:  # noqa: BLE001
+        _LOGGER.warning(
+            "Unable to delete precondition schedules; delete any named %s in the "
+            "Rivian app: %s",
+            PRECONDITION_SCHEDULE_NAME,
+            type(err).__name__,
+        )
+    finally:
+        await client.close()
+
+
+async def _async_departure_schedules(
+    client: Rivian, vehicle_id: str
+) -> list[dict[str, Any]]:
+    """Return a vehicle's departure schedules, which are only sent by subscription."""
+    received: asyncio.Future[list[dict[str, Any]]] = (
+        asyncio.get_running_loop().create_future()
+    )
+
+    def on_schedules(data: dict[str, Any]) -> None:
+        schedules = ((data.get("payload") or {}).get("data") or {}).get(
+            "vehicleDepartureSchedules"
+        )
+        # the first non-empty list, as Rivian can send an empty one just before it
+        if schedules and not received.done():
+            received.set_result(schedules)
+
+    unsubscribe = await client.subscribe_for_departure_schedules(
+        vehicle_id, on_schedules
+    )
+    if not unsubscribe:
+        return []
+    try:
+        return await asyncio.wait_for(received, DEPARTURE_SCHEDULES_WAIT)
+    except TimeoutError:
+        return []
+    finally:
+        await unsubscribe()
 
 
 async def update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
