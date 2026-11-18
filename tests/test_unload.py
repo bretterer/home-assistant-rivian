@@ -123,10 +123,10 @@ async def test_removal_deletes_precondition_schedules(
     client = _Client(
         {
             "V1": [
-                {"id": "S1", "name": "HA Precondition"},
+                {"id": "S1", "name": "HA Precondition Now"},
                 {"id": "U1", "name": "Weekdays"},
             ],
-            "V2": [{"id": "S2", "name": "HA Precondition"}],
+            "V2": [{"id": "S2", "name": "HA Precondition Now"}],
         }
     )
     hass, entry = _removal(monkeypatch, client)
@@ -144,7 +144,9 @@ async def test_one_vehicle_doesnt_stop_the_next(
     monkeypatch: pytest.MonkeyPatch, schedules: list[dict[str, Any]] | None
 ) -> None:
     """Whether its list can't be fetched or it has none of HA's schedules."""
-    client = _Client({"V1": schedules, "V2": [{"id": "S2", "name": "HA Precondition"}]})
+    client = _Client(
+        {"V1": schedules, "V2": [{"id": "S2", "name": "HA Precondition Now"}]}
+    )
     hass, entry = _removal(monkeypatch, client)
 
     await rivian.async_remove_entry(hass, entry)
@@ -155,7 +157,7 @@ async def test_one_vehicle_doesnt_stop_the_next(
 async def test_failed_deletion_is_logged_and_the_phone_still_disenrolled(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    client = _Client({"V1": [{"id": "S1", "name": "HA Precondition"}]}, fail={"S1"})
+    client = _Client({"V1": [{"id": "S1", "name": "HA Precondition Now"}]}, fail={"S1"})
     hass, entry = _removal(monkeypatch, client, public_key="key")
 
     await rivian.async_remove_entry(hass, entry)
@@ -167,13 +169,13 @@ async def test_failed_deletion_is_logged_and_the_phone_still_disenrolled(
 async def test_removal_without_user_data_says_what_to_delete(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    client = _Client({"V1": [{"id": "S1", "name": "HA Precondition"}]})
+    client = _Client({"V1": [{"id": "S1", "name": "HA Precondition Now"}]})
     hass, entry = _removal(monkeypatch, client, user_data=False)
 
     await rivian.async_remove_entry(hass, entry)
 
     assert client.deleted == []
-    assert "HA Precondition" in caplog.text
+    assert "HA Precondition Now" in caplog.text
     assert client.closed
 
 

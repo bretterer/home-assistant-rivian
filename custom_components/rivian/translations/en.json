@@ -1277,7 +1277,7 @@
     },
     "precondition_cabin": {
       "name": "Precondition cabin",
-      "description": "Starts preconditioning the cabin now, through a temporary departure schedule that Home Assistant deletes after it departs; if one named \"HA Precondition\" remains, delete it in the Rivian app. Run again before it departs to change it.",
+      "description": "Starts preconditioning the cabin now, through a temporary departure schedule that Home Assistant deletes after it departs; if one named \"HA Precondition Now\" remains, delete it in the Rivian app. Run again before it departs to change it.",
       "fields": {
         "device_id": {
           "name": "Vehicle",

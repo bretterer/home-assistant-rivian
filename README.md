@@ -327,11 +327,11 @@ data:
   temperature: 72 # in your HA unit system; optional, defaults to the driver's set temperature
 ```
 
-The temporary schedule is a departure schedule named `HA Precondition`, with its own Departure schedule switch showing its departure time and temperature. Pressing the button or running the action again before it departs changes that schedule rather than adding another. Home Assistant deletes it once it has departed, so it doesn't repeat weekly, and when the integration is removed. If it can't, such as when Rivian can't be reached, the log says to delete it in the Rivian app.
+The temporary schedule is a departure schedule named `HA Precondition Now`, with its own Departure schedule switch showing its departure time and temperature. Pressing the button or running the action again before it departs changes that schedule rather than adding another. Home Assistant deletes it once it has departed, so it doesn't repeat weekly, and when the integration is removed. If it can't, such as when Rivian can't be reached, the log says to delete it in the Rivian app.
 
 There is no keyless way to stop a session early — deleting the schedule does not stop preconditioning that has already started, so it runs until the departure time. Stop it from the Rivian app if needed.
 
-The departure time is computed in Home Assistant's timezone and interpreted by Rivian in the vehicle's local timezone, which the API does not expose. This assumes the two match (the vehicle is near home); if they differ, the button may precondition at the wrong time. Home Assistant recognizes its temporary schedules by their name, which the departure schedule actions don't let you use. Since one always departs within the hour, any schedule named `HA Precondition` that doesn't, including one you move further out in the Rivian app, is treated as departed and deleted. Don't give your own schedules that name in the app.
+The departure time is computed in Home Assistant's timezone and interpreted by Rivian in the vehicle's local timezone, which the API does not expose. This assumes the two match (the vehicle is near home); if they differ, the button may precondition at the wrong time. Home Assistant recognizes its temporary schedules by their name, which the departure schedule actions don't let you use. Since one always departs within the hour, any schedule named `HA Precondition Now` that doesn't, including one you move further out in the Rivian app, is treated as departed and deleted. Don't give your own schedules that name in the app.
 
 ## Trip Route Card
 

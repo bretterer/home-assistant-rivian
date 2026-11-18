@@ -142,8 +142,9 @@ def test_departure_across_a_dst_change() -> None:
 @pytest.mark.parametrize(
     ("name", "ours"),
     [
-        ("HA Precondition", True),
-        ("ha precondition 3fa9c1", True),
+        ("HA Precondition Now", True),
+        ("ha precondition now ", True),
+        ("HA Precondition 3fa9c1", False),
         ("Weekdays", False),
         (None, False),
     ],

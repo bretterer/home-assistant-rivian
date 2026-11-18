@@ -1692,7 +1692,7 @@ DEPARTURE_SCHEDULE_SURFACES: Final[dict[str, str]] = {
 # started it within seconds, asleep or awake. Hence a 20 minute minimum.
 # Rivian rejects a departure schedule name longer than this ("Bad user input")
 DEPARTURE_SCHEDULE_NAME_MAX_LENGTH: Final[int] = 24
-PRECONDITION_SCHEDULE_NAME: Final[str] = "HA Precondition"
+PRECONDITION_SCHEDULE_NAME: Final[str] = "HA Precondition Now"
 PRECONDITION_LEAD_MINUTES_MINIMUM: Final[int] = 20
 PRECONDITION_LEAD_MINUTES_MAXIMUM: Final[int] = 60
 DEFAULT_PRECONDITION_LEAD_MINUTES: Final[int] = 20

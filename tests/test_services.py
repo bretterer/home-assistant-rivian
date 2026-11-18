@@ -257,7 +257,7 @@ def test_action_schema_accepts(
             services.SERVICE_CREATE_DEPARTURE_SCHEDULE,
             {
                 "device_id": "d",
-                "name": "HA Precondition mine",
+                "name": "HA Precondition Now mine",
                 "departure_time": "07:30:00",
                 "days": ["Monday"],
             },
