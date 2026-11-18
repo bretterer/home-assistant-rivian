@@ -113,7 +113,7 @@ def _removal(
     monkeypatch.setattr(
         rivian,
         "precondition_store",
-        lambda hass, identifier: stores.get(identifier, _Store(None)),
+        lambda hass, entry_id, identifier: stores.get(identifier, _Store(None)),
     )
     get_client = MagicMock(return_value=client)
     monkeypatch.setattr(rivian, "get_rivian_api_from_entry", get_client)
@@ -173,19 +173,15 @@ async def test_removal_without_precondition_stores_needs_no_client(
     get_client.assert_not_called()
 
 
-@pytest.mark.parametrize(
-    ("schedules", "removed"),
-    [(None, False), ([], True)],
-    ids=["no-list", "really-none"],
-)
+@pytest.mark.parametrize("schedules", [None, []], ids=["no-list", "empty-list"])
 async def test_pending_schedule_needs_a_list_to_remove_the_store(
     monkeypatch: pytest.MonkeyPatch,
     schedules: list[dict[str, Any]] | None,
-    removed: bool,
 ) -> None:
     """Without a list, a pending schedule may exist, so its store is kept.
 
-    An empty list that nothing follows means it was never created.
+    An empty list doesn't count, as a timeout or disconnect can follow the brief
+    one Rivian sends before the full list.
     """
     monkeypatch.setattr(rivian, "DEPARTURE_SCHEDULES_WAIT", 0.01)
     store = _Store(
@@ -197,7 +193,7 @@ async def test_pending_schedule_needs_a_list_to_remove_the_store(
     await rivian.async_remove_entry(hass, entry)
 
     assert client.deleted == []
-    assert store.removed is removed
+    assert not store.removed
 
 
 async def test_schedule_already_deleted_in_the_app_is_skipped(
@@ -212,3 +208,102 @@ async def test_schedule_already_deleted_in_the_app_is_skipped(
 
     assert client.deleted == []
     assert store.removed
+
+
+async def test_store_with_nothing_left_is_removed_without_a_list(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A store everything was already cleaned up from needs no list."""
+    store = _Store({"owned": {}, "pending": []})
+    client = _Client(schedules=None, fail=set())
+    hass, entry, _ = _removal(monkeypatch, {"V1": store}, client)
+
+    await rivian.async_remove_entry(hass, entry)
+
+    assert store.removed
+
+
+async def test_unnamed_schedule_isnt_taken_for_a_pending_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A pending record without a name doesn't match a schedule without one."""
+    store = _Store({"owned": {}, "pending": [{"expiry": 1.0}]})
+    client = _Client(schedules=[{"id": "S9"}], fail=set())
+    hass, entry, _ = _removal(monkeypatch, {"V1": store}, client)
+
+    await rivian.async_remove_entry(hass, entry)
+
+    assert client.deleted == []
+
+
+async def test_unreadable_store_doesnt_stop_the_others(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One store failing to load still lets another vehicle's be cleaned up."""
+
+    class _Broken(_Store):
+        async def async_load(self) -> dict[str, Any] | None:
+            raise ValueError("corrupt")
+
+    good = _Store({"owned": {"S1": 100.0}, "pending": []})
+    client = _Client(schedules=[{"id": "S1", "name": "HA Precondition"}], fail=set())
+    hass, entry, _ = _removal(monkeypatch, {"V1": _Broken(None), "V2": good}, client)
+
+    await rivian.async_remove_entry(hass, entry)
+
+    assert client.deleted == ["S1"]
+    assert good.removed
+
+
+async def test_unload_stops_if_platforms_dont_unload() -> None:
+    """Nothing is shut down or closed if the platforms couldn't unload."""
+    vehicle = SimpleNamespace(async_shutdown=AsyncMock())
+    api = SimpleNamespace(close=AsyncMock())
+    hass = SimpleNamespace(
+        config_entries=SimpleNamespace(
+            async_unload_platforms=AsyncMock(return_value=False)
+        ),
+        data={
+            DOMAIN: {
+                "entry": {
+                    ATTR_API: api,
+                    ATTR_COORDINATOR: {ATTR_VEHICLE: {"V": vehicle}},
+                }
+            }
+        },
+    )
+
+    assert not await rivian.async_unload_entry(hass, SimpleNamespace(entry_id="entry"))
+
+    vehicle.async_shutdown.assert_not_awaited()
+    api.close.assert_not_awaited()
+    assert "entry" in hass.data[DOMAIN]
+
+
+async def test_one_vehicle_failing_to_stop_still_closes_the_client() -> None:
+    order: list[str] = []
+    failing = SimpleNamespace(
+        vehicle_id="V1", async_shutdown=AsyncMock(side_effect=RuntimeError("ws"))
+    )
+    other = SimpleNamespace(
+        vehicle_id="V2",
+        async_shutdown=AsyncMock(side_effect=lambda: order.append("V2")),
+    )
+    api = SimpleNamespace(close=AsyncMock(side_effect=lambda: order.append("api")))
+    hass = SimpleNamespace(
+        config_entries=SimpleNamespace(
+            async_unload_platforms=AsyncMock(return_value=True)
+        ),
+        data={
+            DOMAIN: {
+                "entry": {
+                    ATTR_API: api,
+                    ATTR_COORDINATOR: {ATTR_VEHICLE: {"V1": failing, "V2": other}},
+                }
+            }
+        },
+    )
+
+    assert await rivian.async_unload_entry(hass, SimpleNamespace(entry_id="entry"))
+
+    assert order == ["V2", "api"]

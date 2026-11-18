@@ -256,7 +256,13 @@ def _setup_mock_environment() -> None:
         const_mod.UnitOfPower = DynamicEnum  # type: ignore[attr-defined]
         const_mod.UnitOfPressure = DynamicEnum  # type: ignore[attr-defined]
         const_mod.UnitOfSpeed = DynamicEnum  # type: ignore[attr-defined]
-        const_mod.UnitOfTemperature = DynamicEnum  # type: ignore[attr-defined]
+
+        class UnitOfTemperature(StrEnum):
+            CELSIUS = "°C"
+            FAHRENHEIT = "°F"
+            KELVIN = "K"
+
+        const_mod.UnitOfTemperature = UnitOfTemperature  # type: ignore[attr-defined]
         const_mod.UnitOfTime = DynamicEnum  # type: ignore[attr-defined]
         sys.modules["homeassistant.const"] = const_mod
         ha_mod.const = const_mod  # type: ignore[attr-defined]
@@ -499,9 +505,26 @@ def _setup_mock_environment() -> None:
         cv_mod.ensure_list = lambda x: x if isinstance(x, list) else [x]  # type: ignore[attr-defined]
         cv_mod.positive_int = int  # type: ignore[attr-defined]
         cv_mod.url = str  # type: ignore[attr-defined]
-        cv_mod.time = lambda value: (  # type: ignore[attr-defined]
-            value if isinstance(value, time) else time.fromisoformat(value)
-        )
+
+        def cv_time(value: Any) -> time:
+            """Like Home Assistant's cv.time and dt_util.parse_time."""
+            import voluptuous as vol
+
+            if isinstance(value, time):
+                return value
+            parts = str(value).split(":")
+            if len(parts) >= 2:
+                try:
+                    return time(
+                        int(parts[0]),
+                        int(parts[1]),
+                        int(parts[2]) if len(parts) > 2 else 0,
+                    )
+                except (ValueError, OverflowError):
+                    pass
+            raise vol.Invalid(f"Invalid time specified: {value}")
+
+        cv_mod.time = cv_time  # type: ignore[attr-defined]
         sys.modules["homeassistant.helpers.config_validation"] = cv_mod
         helpers_mod.config_validation = cv_mod
 
@@ -909,17 +932,19 @@ def _setup_mock_environment() -> None:
         )
 
         class TemperatureConverter:
-            """Converts between Celsius and Fahrenheit, by unit or enum name."""
+            """Converts between °C and °F with Home Assistant's formulas.
+
+            Including their rounding errors. Other units are rejected.
+            """
 
             @staticmethod
             def convert(value: float, from_unit: str, to_unit: str) -> float:
-                def fahrenheit(unit: str) -> bool:
-                    return str(unit) in ("°F", "fahrenheit")
-
-                # Home Assistant's formulas, including their rounding errors
-                if fahrenheit(from_unit) == fahrenheit(to_unit):
+                units = {"°C", "°F"}
+                if str(from_unit) not in units or str(to_unit) not in units:
+                    raise ValueError(f"{from_unit} to {to_unit} isn't supported")
+                if str(from_unit) == str(to_unit):
                     return value
-                if fahrenheit(to_unit):
+                if str(to_unit) == "°F":
                     return (value * 1.8) + 32.0
                 return (value - 32.0) / 1.8
 

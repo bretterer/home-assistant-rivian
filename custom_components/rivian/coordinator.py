@@ -426,8 +426,8 @@ def precondition_schedule_departure(
 
     ``departure`` is the departure Home Assistant last knew. If the schedule still
     departs then, that's returned, so an unchanged schedule that has departed is
-    still cleaned up. If it was edited, such as in the Rivian app, its next
-    occurrence after ``now`` is returned. Like ``precondition_departure``, it's in
+    still cleaned up. If it was edited, such as in the Rivian app, its first
+    occurrence from then, or from ``now`` if that's earlier, is returned. Like ``precondition_departure``, it's in
     Home Assistant's timezone. Returns None if there's no such occurrence.
     """
     occurrence = schedule.get("occurrence") or {}
@@ -457,16 +457,32 @@ def precondition_schedule_departure(
     for candidate in occurrences(recorded, range(-1, 2)):
         if abs(candidate.timestamp() - departure) < 1:
             return candidate
-    # Edited: its next occurrence after now, within a full week of it
-    current = dt_util.as_local(dt_util.utc_from_timestamp(now))
-    upcoming = [c for c in occurrences(current, range(9)) if c.timestamp() > now]
+    # Edited: its first occurrence from the recorded departure, or from now if
+    # that's earlier. One that has passed since, such as while Home Assistant
+    # was down, has departed and is cleaned up, rather than kept another week
+    start = min(departure, now)
+    upcoming = [
+        c
+        for c in occurrences(
+            dt_util.as_local(dt_util.utc_from_timestamp(start)), range(9)
+        )
+        if c.timestamp() >= start
+    ]
     return min(upcoming, key=lambda c: c.timestamp()) if upcoming else None
 
 
-def precondition_store(hass: HomeAssistant, vehicle_id: str) -> Store[dict[str, Any]]:
-    """Return the store of a vehicle's temporary precondition schedules."""
+def precondition_store(
+    hass: HomeAssistant, entry_id: str, vehicle_id: str
+) -> Store[dict[str, Any]]:
+    """Return the store of a vehicle's temporary precondition schedules.
+
+    Per config entry, so two accounts with the same vehicle each track, and on
+    removal delete, only the schedules they created.
+    """
     return Store(
-        hass, PRECONDITION_STORE_VERSION, f"{DOMAIN}.{vehicle_id}.precondition"
+        hass,
+        PRECONDITION_STORE_VERSION,
+        f"{DOMAIN}.{entry_id}.{vehicle_id}.precondition",
     )
 
 
@@ -529,7 +545,9 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         # whose id has not been seen yet (each keeps the pre-existing same-named ids so a
         # user's/app's schedule is never adopted). Persisted so cleanup survives a
         # restart and only ever removes our own schedules.
-        self._precondition_store = precondition_store(hass, vehicle_id)
+        self._precondition_store = precondition_store(
+            hass, config_entry.entry_id, vehicle_id
+        )
         self._precondition_ids: dict[str, float] = {}
         self._precondition_pending: list[dict[str, Any]] = []
         self._precondition_loaded = False
@@ -767,10 +785,16 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             # merging stale data. Only an authoritative payload (in
             # _process_departure_schedules) clears the flag.
             self._departure_stale = True
-        if not departure_mutation_succeeded(data, key):
+        if (succeeded := departure_mutation_succeeded(data, key)) is not True:
+            # Only an explicit failure means nothing was written; no result, such
+            # as partial data with an error, may follow a write that took effect
             raise HomeAssistantError(
                 translation_domain=DOMAIN,
-                translation_key="schedule_rejected",
+                translation_key=(
+                    "schedule_rejected"
+                    if succeeded is False
+                    else "schedule_unconfirmed"
+                ),
                 translation_placeholders={"action": key, "reason": str(redact(data))},
             )
         # clear before resubscribing: the refreshed list often arrives during the
@@ -832,6 +856,8 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             if unsub := self._unsub_departure_handler:
                 self._unsub_departure_handler = None
                 await unsub()
+            # an empty list held from the previous subscription isn't this one's
+            self._cancel_empty_list_hold()
             if self._shutting_down:
                 return
             # Numbered, so an error from an earlier subscription can't end this one
@@ -880,6 +906,9 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             if subscription != self._departure_subscription:
                 return  # a newer subscription has replaced it
             unsub, self._unsub_departure_handler = self._unsub_departure_handler, None
+            self._cancel_empty_list_hold()
+            # no more updates, so the next read-modify-write gets a fresh list
+            self._departure_stale = True
             if unsub:
                 await unsub()
 
@@ -906,17 +935,23 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             self._departure_refreshed.clear()
             if self._empty_list_hold is None:
                 self._empty_list_hold = async_call_later(
-                    self.hass, DEPARTURE_EMPTY_LIST_HOLD, self._accept_empty_list
+                    self.hass,
+                    DEPARTURE_EMPTY_LIST_HOLD,
+                    partial(self._accept_empty_list, self._departure_subscription),
                 )
             return
         self._cancel_empty_list_hold()
         self._apply_departure_schedules(schedules)
 
     @callback
-    def _accept_empty_list(self, _now: datetime) -> None:
-        """Use an empty list no other list followed: they're really all gone."""
+    def _accept_empty_list(self, subscription: int, _now: datetime) -> None:
+        """Use an empty list no other list followed: they're really all gone.
+
+        Only from the subscription that's still current.
+        """
         self._empty_list_hold = None
-        self._apply_departure_schedules([])
+        if subscription == self._departure_subscription:
+            self._apply_departure_schedules([])
 
     @callback
     def _cancel_empty_list_hold(self) -> None:
@@ -1074,25 +1109,35 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
 
         A creation whose outcome was unknown, such as after a timeout, leaves a
         pending record. A fresh list then decides it: the schedule is adopted and
-        moved if Rivian created it, or the record is dropped if it didn't.
+        moved if Rivian created it. If not, the record is kept for a late
+        appearance but no longer stops a new one.
         """
         async with self._precondition_cleanup_lock:
-            changed = self._update_precondition_ownership()
+            changed = False
             try:
-                upcoming = self._upcoming_precondition()
                 now = time.time()
-                if upcoming is None and any(
-                    record["expiry"] - PRECONDITION_CLEANUP_GRACE_SECONDS > now
+                unchecked = [
+                    record
                     for record in self._precondition_pending
-                ):
+                    if record["expiry"] - PRECONDITION_CLEANUP_GRACE_SECONDS > now
+                    and not record.get("missing")
+                ]
+                if self._departure_stale or unchecked:
+                    # Decide from a fresh list: one predating HA's own change could
+                    # create a second schedule. Raises if there's none to be had
                     async with self._departure_lock:
                         self._departure_stale = True
                         await self._ensure_fresh_departure_schedules()
-                    changed |= self._update_precondition_ownership()
-                    if (upcoming := self._upcoming_precondition()) is None:
-                        # not in a confirmed list, so it was never created
-                        self._precondition_pending.clear()
-                        changed = True
+                changed = self._update_precondition_ownership()
+                upcoming = self._upcoming_precondition()
+                if upcoming is None:
+                    # Not in a fresh list, so it may never have been created. Kept,
+                    # so it's still adopted and cleaned up if it shows up later,
+                    # but it doesn't stop this one or prompt another refresh
+                    for record in unchecked:
+                        if record in self._precondition_pending:
+                            record["missing"] = True
+                            changed = True
                 if upcoming is None:
                     return False
                 await self.update_departure_schedule(
@@ -1269,11 +1314,12 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
         }
         # Forget expired ids that no longer exist (deleted in the app or already
         # removed). An empty list Rivian sends just before the full one is held
-        # back (see _process_departure_schedules), so this list is the real one
+        # back (see _process_departure_schedules), so this list is the real one,
+        # unless it may predate HA's own change, when the next pass decides
         for schedule_id in [
             sid
             for sid, expiry in self._precondition_ids.items()
-            if sid not in present_ids and expiry <= now
+            if sid not in present_ids and expiry <= now and not self._departure_stale
         ]:
             del self._precondition_ids[schedule_id]
             changed = True
@@ -1354,7 +1400,11 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             pending = stored.get("pending")
             if isinstance(pending, list):
                 self._precondition_pending.extend(
-                    {"name": record["name"], "expiry": float(record["expiry"])}
+                    {
+                        "name": record["name"],
+                        "expiry": float(record["expiry"]),
+                        "missing": bool(record.get("missing")),
+                    }
                     for record in pending
                     if isinstance(record, dict)
                     and isinstance(record.get("name"), str)

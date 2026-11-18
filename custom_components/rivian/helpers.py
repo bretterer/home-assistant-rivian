@@ -151,9 +151,14 @@ def departure_schedules_from_message(
     return schedules if isinstance(schedules, list) else None
 
 
-def departure_mutation_succeeded(data: dict[str, Any], key: str) -> bool:
-    """Return whether a departure schedule mutation's response reports success."""
-    return bool(((data.get("data") or {}).get(key) or {}).get("success"))
+def departure_mutation_succeeded(data: dict[str, Any], key: str) -> bool | None:
+    """Return a departure schedule mutation's reported success.
+
+    None if it reports neither, such as partial data with an error, after which
+    the write may still have taken effect.
+    """
+    success = ((data.get("data") or {}).get(key) or {}).get("success")
+    return success if isinstance(success, bool) else None
 
 
 def departure_schedule_to_input(schedule: dict[str, Any]) -> dict[str, Any]:

@@ -44,6 +44,7 @@ def _schedule_coordinator() -> VehicleCoordinator:
     coordinator._expect_empty_schedules = False
     coordinator._empty_list_hold = None
     coordinator._departure_failure_logged = False
+    coordinator._departure_subscription = 0
     return coordinator
 
 
@@ -285,7 +286,7 @@ async def test_schedule_refresh_during_resubscribe_is_not_lost(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A refreshed list that arrives while resubscribing ends the wait at once."""
-    monkeypatch.setattr(coordinator_module, "DEPARTURE_REFRESH_TIMEOUT", 0.5)
+    monkeypatch.setattr(coordinator_module, "DEPARTURE_REFRESH_TIMEOUT", 60)
     coordinator = _schedule_coordinator()
     coordinator._departure_refreshed = asyncio.Event()
     coordinator._departure_schedules = []
@@ -307,9 +308,12 @@ async def test_schedule_refresh_during_resubscribe_is_not_lost(
     async def request() -> MagicMock:
         return response
 
-    start = time.monotonic()
-    await coordinator._departure_schedule_mutation("updateDepartureSchedule", request())
-    assert time.monotonic() - start < 0.4
+    # a lost notification would wait until the timeout, which is far longer
+    await asyncio.wait_for(
+        coordinator._departure_schedule_mutation("updateDepartureSchedule", request()),
+        5,
+    )
+    assert coordinator._departure_refreshed.is_set()
     assert not coordinator._departure_stale
 
 
@@ -497,20 +501,24 @@ def test_unchanged_departed_schedule_keeps_its_departure(
     assert result == departure
 
 
-def test_edited_long_ago_schedule_takes_its_next_occurrence(
+def test_edited_schedule_that_has_passed_is_completed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The next occurrence is found from now, however old the recorded one is."""
+    """Edited to a time that has passed since, such as while HA was down.
+
+    It has departed, so it's cleaned up rather than kept for another week.
+    """
     zone = _denver(monkeypatch)
-    departure = datetime(2026, 10, 28, 12, 12, tzinfo=zone)  # three weeks back
-    now = datetime(2026, 11, 18, 9, 0, tzinfo=zone)  # a Wednesday
-    schedule = {"occurrence": {"days": ["Tuesday"], "startsAtMin": 13 * 60}}
+    departure = datetime(2026, 11, 18, 12, 12, tzinfo=zone)  # a Wednesday
+    now = datetime(2026, 11, 19, 9, 0, tzinfo=zone)  # the next day
+    schedule = {"occurrence": {"days": ["Wednesday"], "startsAtMin": 13 * 60}}
 
     result = coordinator_module.precondition_schedule_departure(
         schedule, departure.timestamp(), now.timestamp()
     )
 
-    assert result == datetime(2026, 11, 24, 13, 0, tzinfo=zone)
+    assert result == datetime(2026, 11, 18, 13, 0, tzinfo=zone)
+    assert result.timestamp() < now.timestamp()
 
 
 def test_edited_schedule_takes_its_next_occurrence(
@@ -570,14 +578,18 @@ async def test_schedule_moved_just_before_deletion_is_kept(
     assert not keep(unchanged)
 
 
-async def test_precondition_needs_the_schedule_list() -> None:
+async def test_precondition_needs_the_schedule_list(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Without the list, HA's upcoming schedule can't be found, so it's refused."""
+    monkeypatch.setattr(coordinator_module, "HomeAssistantError", _TranslatedError)
     coordinator, created = _precondition_coordinator()
     coordinator._departure_schedules = None
 
-    with pytest.raises(HomeAssistantError):
+    with pytest.raises(_TranslatedError) as err:
         await coordinator.precondition_now()
 
+    assert err.value.translation_key == "schedules_out_of_sync"
     assert not created
 
 
@@ -712,7 +724,7 @@ async def test_unreadable_stored_entries_are_skipped() -> None:
 
     assert coordinator._precondition_ids == {"good": 100.0}
     assert coordinator._precondition_pending == [
-        {"name": "HA Precondition ab12cd", "expiry": 200.0}
+        {"name": "HA Precondition ab12cd", "expiry": 200.0, "missing": False}
     ]
 
 
@@ -721,6 +733,8 @@ def _failing_subscription(subscription: int) -> tuple[VehicleCoordinator, AsyncM
     coordinator._departure_subscribe_lock = asyncio.Lock()
     coordinator._departure_subscription = subscription
     coordinator._departure_failure_logged = False
+    coordinator._empty_list_hold = None
+    coordinator._departure_stale = False
     unsubscribe = AsyncMock()
     coordinator._unsub_departure_handler = unsubscribe
     coordinator.hass = MagicMock()
@@ -821,6 +835,10 @@ async def test_unknown_creation_decided_by_a_fresh_list(
     else:
         assert len(created) == 1
         coordinator.update_departure_schedule.assert_not_awaited()
+        # kept, so a late appearance is still adopted and cleaned up, but marked,
+        # so it doesn't prompt another refresh
+        old = next(r for r in coordinator._precondition_pending if r["name"] == name)
+        assert old["missing"]
 
 
 @pytest.mark.parametrize(
@@ -843,6 +861,131 @@ async def test_button_sends_temperature_like_the_action(
     value = created[0]["departureSettings"]["comfortSettings"]["cabinTempCelsius"]
     assert value == sent
     assert type(value) is type(sent)
+
+
+async def test_precondition_refreshes_an_unconfirmed_list(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A list that may predate HA's own change is refreshed before deciding."""
+    now = datetime(2026, 11, 14, 12, 51, 24, tzinfo=UTC)
+    monkeypatch.setattr(coordinator_module.dt_util, "now", lambda: now)
+    monkeypatch.setattr(coordinator_module.time, "time", now.timestamp)
+    departs_soon = now.timestamp() + 10 * 60 + PRECONDITION_CLEANUP_GRACE_SECONDS
+    coordinator, created = _precondition_coordinator(owned={"S1": departs_soon})
+    coordinator._departure_lock = asyncio.Lock()
+    coordinator._departure_stale = True
+    coordinator._departure_schedules = []  # predates HA's schedule
+
+    async def fresh_list() -> None:
+        coordinator._departure_schedules = [{"id": "S1"}]
+        coordinator._departure_stale = False
+
+    coordinator._ensure_fresh_departure_schedules = AsyncMock(side_effect=fresh_list)
+
+    await coordinator.precondition_now()
+
+    assert not created
+    coordinator.update_departure_schedule.assert_awaited_once()
+
+
+def test_missing_id_not_forgotten_from_an_unconfirmed_list() -> None:
+    """A list that may predate HA's own change doesn't make it forget a schedule."""
+    coordinator = _cleanup_coordinator(
+        owned={"temp": time.time() - 1}, schedules=[{"id": "other"}]
+    )
+    coordinator._departure_stale = True
+
+    asyncio.run(coordinator._cleanup_precondition_schedules())
+
+    assert "temp" in coordinator._precondition_ids
+
+
+def test_hold_from_a_replaced_subscription_is_ignored(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only an empty list from the current subscription can confirm the cache."""
+    coordinator, timers = _held_coordinator(monkeypatch)
+
+    _received(coordinator, [])
+    coordinator._departure_subscription += 1  # resubscribed meanwhile
+    timers.calls[0][1](None)  # the old hold ends
+
+    assert coordinator._departure_schedules == [{"id": "a"}]
+    assert not coordinator._departure_refreshed.is_set()
+
+
+@pytest.mark.parametrize(
+    ("result", "key"),
+    [
+        (
+            {"data": {"createDepartureSchedule": {"success": False}}},
+            "schedule_rejected",
+        ),
+        ({"data": {"createDepartureSchedule": None}}, "schedule_unconfirmed"),
+        ({"data": None}, "schedule_unconfirmed"),
+    ],
+    ids=["failed", "no-result", "no-data"],
+)
+async def test_only_an_explicit_failure_is_rejected(
+    monkeypatch: pytest.MonkeyPatch, result: dict[str, Any], key: str
+) -> None:
+    """No result, such as partial data with an error, may follow a write."""
+    monkeypatch.setattr(coordinator_module, "HomeAssistantError", _TranslatedError)
+    coordinator = _schedule_coordinator()
+    response = MagicMock()
+    response.json = AsyncMock(return_value=result)
+
+    async def request() -> MagicMock:
+        return response
+
+    with pytest.raises(_TranslatedError) as err:
+        await coordinator._departure_schedule_mutation(
+            "createDepartureSchedule", request()
+        )
+    assert err.value.translation_key == key
+
+
+async def test_update_keeps_settings_it_doesnt_name() -> None:
+    """A temperature-only update sends the schedule's other settings unchanged."""
+    coordinator = _schedule_coordinator()
+    coordinator._departure_lock = asyncio.Lock()
+    coordinator._departure_schedules = [
+        {
+            "id": "S1",
+            "name": "Weekdays",
+            "isEnabled": True,
+            "occurrence": {
+                "__typename": "RepeatsWeekly",
+                "days": ["Monday"],
+                "startsAtMin": 450,
+            },
+            "departureSettings": {
+                "shouldOverrideChargeSchedule": False,
+                "comfortSettings": {
+                    "cabinTempCelsius": 21,
+                    "frontDefogDefrost": "Defrost",
+                    "surfaceHeatVentLevels": {"frontLeftSeat": "Heat2"},
+                },
+            },
+        }
+    ]
+    coordinator._ensure_fresh_departure_schedules = AsyncMock()
+    coordinator._departure_schedule_mutation = AsyncMock()
+    coordinator.api = MagicMock()
+
+    await coordinator.update_departure_schedule(
+        "S1", {"departureSettings": {"comfortSettings": {"cabinTempCelsius": 23}}}
+    )
+
+    sent = coordinator.api.update_departure_schedule.call_args.args[2]
+    comfort = sent["departureSettings"]["comfortSettings"]
+    assert comfort == {
+        "cabinTempCelsius": 23,
+        "frontDefogDefrost": "Defrost",
+        "surfaceHeatVentLevels": {"frontLeftSeat": "Heat2"},
+    }
+    assert sent["repeatsWeekly"] == {"days": ["Monday"], "startsAtMin": 450}
+    assert sent["name"] == "Weekdays"
 
 
 class _Drivers:
@@ -1091,6 +1234,7 @@ async def test_overlapping_departure_subscribes_open_one() -> None:
     coordinator._unsub_departure_handler = None
     coordinator._departure_subscribe_lock = asyncio.Lock()
     coordinator._departure_subscription = 0
+    coordinator._empty_list_hold = None
     coordinator._shutting_down = False
 
     async def subscribe(vehicle_id: str, callback: Any, **kwargs: Any) -> AsyncMock:

@@ -19,12 +19,19 @@ ENTITIES = {
 }
 
 
-def _user(allowed: set[str] | None = None, admin: bool = False) -> SimpleNamespace:
+def _user(
+    allowed: set[str] | None = None,
+    admin: bool = False,
+    policies: frozenset[str] = frozenset({"control"}),
+) -> SimpleNamespace:
+    """A user with the given policies on the allowed entities."""
     allowed = allowed or set()
     return SimpleNamespace(
         is_admin=admin,
         permissions=SimpleNamespace(
-            check_entity=lambda entity_id, policy: entity_id in allowed
+            check_entity=lambda entity_id, policy: (
+                entity_id in allowed and policy in policies
+            )
         ),
     )
 
@@ -131,6 +138,20 @@ async def test_call_without_user_is_trusted(
     await delete(_call(None))
     hass.auth.async_get_user.assert_not_awaited()
     coordinator.delete_departure_schedule.assert_awaited_once_with("schedule")
+
+
+async def test_user_who_can_only_read_the_vehicle_is_denied(
+    hass: SimpleNamespace, coordinator: MagicMock
+) -> None:
+    """Reading a vehicle's entities isn't controlling it."""
+    hass.auth.async_get_user.return_value = _user(
+        {"switch.r1t_departure_schedule_weekdays"}, policies=frozenset({"read"})
+    )
+    delete = _handlers(hass)[services.SERVICE_DELETE_DEPARTURE_SCHEDULE]
+
+    with pytest.raises(Unauthorized):
+        await delete(_call("reader"))
+    coordinator.delete_departure_schedule.assert_not_awaited()
 
 
 async def test_admin_is_allowed_without_entities(
@@ -298,6 +319,40 @@ def test_fahrenheit_outside_the_limits_is_rejected(
     with pytest.raises(_TranslatedError) as err:
         services._to_celsius(hass, temperature)
     assert err.value.translation_key == "temperature_out_of_range"
+
+
+async def test_precondition_cabin_from_validated_data(
+    hass: SimpleNamespace, coordinator: MagicMock
+) -> None:
+    """Strings from the UI are coerced by the schema before the handler runs."""
+    coordinator.precondition_now = AsyncMock()
+    hass.config = SimpleNamespace(units=SimpleNamespace(temperature_unit="°F"))
+    handlers, schemas = _register(hass)
+    call = _call(None)
+    call.data = schemas[services.SERVICE_PRECONDITION_CABIN](
+        {"device_id": DEVICE_ID, "lead_time": "30", "temperature": "72"}
+    )
+
+    await handlers[services.SERVICE_PRECONDITION_CABIN](call)
+
+    coordinator.precondition_now.assert_awaited_once_with(30, 22)
+
+
+@pytest.mark.parametrize(
+    ("departure_time", "valid"),
+    [("7:30", True), ("07:30:00", True), ("T07:30:00", False), ("7", False)],
+)
+def test_departure_time_formats(
+    hass: SimpleNamespace, departure_time: str, valid: bool
+) -> None:
+    """Departure times are parsed as Home Assistant parses times."""
+    schema = _register(hass)[1][services.SERVICE_UPDATE_DEPARTURE_SCHEDULE]
+    data = {"device_id": "d", "schedule_id": "s", "departure_time": departure_time}
+    if valid:
+        schema(data)
+    else:
+        with pytest.raises(vol.Invalid):
+            schema(data)
 
 
 class _TranslatedError(Exception):

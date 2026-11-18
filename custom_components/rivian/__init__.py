@@ -15,6 +15,7 @@ from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import config_validation as cv, device_registry as dr
 from homeassistant.helpers.device_registry import DeviceEntry
 from homeassistant.helpers.issue_registry import IssueSeverity, async_create_issue
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.typing import ConfigType
 
 from .const import (
@@ -167,26 +168,31 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
-    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if not await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
+        return False
 
     # Stop the vehicles' background work, such as a precondition cleanup, before
     # closing the client it uses. Home Assistant shuts them down again after this
     # returns, which does nothing more
-    data = hass.data[DOMAIN][entry.entry_id]
+    data = hass.data[DOMAIN].pop(entry.entry_id)
     for coordinator in data[ATTR_COORDINATOR][ATTR_VEHICLE].values():
-        await coordinator.async_shutdown()
+        try:
+            await coordinator.async_shutdown()
+        except Exception:
+            # the others still stop, and the client still closes
+            _LOGGER.exception("Error stopping vehicle %s", coordinator.vehicle_id)
     api: Rivian = data[ATTR_API]
     await api.close()
-
-    if unload_ok:
-        hass.data[DOMAIN].pop(entry.entry_id)
-
-    return unload_ok
+    return True
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Handle removal of an entry."""
-    await _async_remove_preconditions(hass, entry)
+    try:
+        await _async_remove_preconditions(hass, entry)
+    except Exception:
+        # the phone is still disenrolled
+        _LOGGER.exception("Error deleting precondition schedules")
     if public_key := entry.options.get("public_key"):
         client = get_rivian_api_from_entry(hass, entry)
         coordinator = UserCoordinator(
@@ -222,8 +228,15 @@ async def _async_remove_preconditions(hass: HomeAssistant, entry: ConfigEntry) -
         for domain, identifier in device.identifiers:
             if domain != DOMAIN:
                 continue
-            store = precondition_store(hass, identifier)
-            if (data := await store.async_load()) is not None:
+            store = precondition_store(hass, entry.entry_id, identifier)
+            try:
+                data = await store.async_load()
+            except Exception:
+                _LOGGER.exception(
+                    "Unable to read vehicle %s's precondition store", identifier
+                )
+                continue
+            if isinstance(data, dict):
                 stores[identifier] = (store, data)
     if not stores:
         return
@@ -232,47 +245,7 @@ async def _async_remove_preconditions(hass: HomeAssistant, entry: ConfigEntry) -
     try:
         await client.create_csrf_token()
         for vehicle_id, (store, data) in stores.items():
-            schedules = await _async_departure_schedules(client, vehicle_id)
-            if schedules is None:
-                # can't tell which still exist, so keep the store
-                _LOGGER.warning(
-                    "Unable to get vehicle %s departure schedules; delete any "
-                    "named %s in the Rivian app",
-                    vehicle_id,
-                    PRECONDITION_SCHEDULE_NAME,
-                )
-                continue
-            owned = set(data.get("owned") or {})
-            # created without its id being recorded; found by their unique name
-            pending = {
-                record.get("name")
-                for record in data.get("pending") or []
-                if isinstance(record, dict)
-            }
-            deleted_all = True
-            # ones no longer in the list were already deleted, such as in the app
-            for schedule in schedules:
-                if schedule["id"] not in owned and schedule.get("name") not in pending:
-                    continue
-                try:
-                    response = await client.delete_departure_schedule(
-                        vehicle_id, schedule["id"]
-                    )
-                    if not departure_mutation_succeeded(
-                        await response.json(), "deleteDepartureSchedule"
-                    ):
-                        raise ValueError("not deleted")
-                except Exception as err:  # noqa: BLE001
-                    deleted_all = False
-                    _LOGGER.warning(
-                        "Unable to delete precondition schedule %s from vehicle %s; "
-                        "delete it in the Rivian app: %s",
-                        schedule.get("name"),
-                        vehicle_id,
-                        type(err).__name__,
-                    )
-            if deleted_all:
-                await store.async_remove()
+            await _async_remove_vehicle_preconditions(client, vehicle_id, store, data)
     except Exception as err:  # noqa: BLE001
         _LOGGER.warning(
             "Unable to delete precondition schedules; delete any named %s in the "
@@ -284,27 +257,82 @@ async def _async_remove_preconditions(hass: HomeAssistant, entry: ConfigEntry) -
         await client.close()
 
 
+async def _async_remove_vehicle_preconditions(
+    client: Rivian, vehicle_id: str, store: Store[dict[str, Any]], data: dict[str, Any]
+) -> None:
+    """Delete a vehicle's temporary precondition schedules, then its store."""
+    if data.get("owned") or data.get("pending"):
+        schedules = await _async_departure_schedules(client, vehicle_id)
+    else:
+        schedules = []  # nothing to delete
+    if schedules is None:
+        # can't tell which still exist, so keep the store
+        _LOGGER.warning(
+            "Unable to confirm vehicle %s's departure schedules; if any named %s "
+            "remain, delete them in the Rivian app",
+            vehicle_id,
+            PRECONDITION_SCHEDULE_NAME,
+        )
+        return
+    owned = set(data.get("owned") or {})
+    # created without its id being recorded; found by their unique name
+    pending = {
+        name
+        for record in data.get("pending") or []
+        if isinstance(record, dict) and isinstance(name := record.get("name"), str)
+    }
+    deleted_all = True
+    # ones no longer in the list were already deleted, such as in the app
+    for schedule in schedules:
+        name = schedule.get("name")
+        if schedule.get("id") not in owned and not (
+            isinstance(name, str) and name in pending
+        ):
+            continue
+        try:
+            response = await client.delete_departure_schedule(
+                vehicle_id, schedule["id"]
+            )
+            if not departure_mutation_succeeded(
+                await response.json(), "deleteDepartureSchedule"
+            ):
+                raise ValueError("not deleted")
+        except Exception as err:  # noqa: BLE001
+            deleted_all = False
+            _LOGGER.warning(
+                "Unable to delete precondition schedule %s from vehicle %s; "
+                "delete it in the Rivian app: %s",
+                name,
+                vehicle_id,
+                type(err).__name__,
+            )
+    if deleted_all:
+        try:
+            await store.async_remove()
+        except Exception:
+            _LOGGER.exception(
+                "Unable to remove vehicle %s's precondition store", vehicle_id
+            )
+
+
 async def _async_departure_schedules(
     client: Rivian, vehicle_id: str
 ) -> list[dict[str, Any]] | None:
     """Return a vehicle's departure schedules, which are only sent by subscription.
 
-    Rivian can send an empty list just before the full one, so an empty list only
-    counts if no other list follows within DEPARTURE_SCHEDULES_WAIT. Returns None
-    if no list arrived, or subscribing failed.
+    Rivian can send an empty list just before the full one, and a timeout or
+    disconnect can follow that empty list too, so an empty list never counts:
+    removing the integration only removes a store once the list is confirmed.
+    Returns None if no schedules arrived, or subscribing failed.
     """
     received: asyncio.Future[list[dict[str, Any]]] = (
         asyncio.get_running_loop().create_future()
     )
-    empty = False
 
     def on_schedules(data: dict[str, Any]) -> None:
-        nonlocal empty
-        if (schedules := departure_schedules_from_message(data)) is None:
-            return
-        if not schedules:
-            empty = True
-        elif not received.done():
+        if (
+            schedules := departure_schedules_from_message(data)
+        ) and not received.done():
             received.set_result(schedules)
 
     unsubscribe = await client.subscribe_for_departure_schedules(
@@ -315,7 +343,7 @@ async def _async_departure_schedules(
     try:
         return await asyncio.wait_for(received, DEPARTURE_SCHEDULES_WAIT)
     except TimeoutError:
-        return [] if empty else None
+        return None
     finally:
         await unsubscribe()
 

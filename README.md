@@ -327,7 +327,7 @@ data:
   temperature: 72 # in your HA unit system; optional, defaults to the driver's set temperature
 ```
 
-The temporary schedule is a departure schedule like any other, with its own Departure schedule switch showing its departure time and temperature, and it can be edited in the Rivian app. Pressing the button or running the action again before it departs changes that schedule rather than adding another. It is deleted automatically after it departs, following any change made to its departure time, or when the integration is removed.
+The temporary schedule is a departure schedule like any other, with its own Departure schedule switch showing its departure time and temperature, and it can be edited in the Rivian app. Pressing the button or running the action again before it departs changes that schedule rather than adding another. Home Assistant deletes it after it departs, following any change made to its departure time, and when the integration is removed. If it can't, such as when Rivian can't be reached, the schedule stays active and repeats weekly until it's deleted, so the log says to delete any schedule named `HA Precondition …` in the Rivian app.
 
 There is no keyless way to stop a session early — deleting the schedule does not stop preconditioning that has already started, so it runs until the departure time. Stop it from the Rivian app if needed.
 
