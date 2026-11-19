@@ -92,7 +92,7 @@
         "name": "Door rear right lock"
       },
       "pet_mode_status": {
-        "name": "Pet mode"
+        "name": "Pet comfort"
       },
       "seat_front_left_heat": {
         "name": "Heated seat front left"
@@ -209,6 +209,26 @@
         "name": "Battery needs LFP calibration"
       }
     },
+    "camera": {
+      "gear_guard_front": {
+        "name": "Gear Guard front camera"
+      },
+      "gear_guard_rear": {
+        "name": "Gear Guard rear camera"
+      },
+      "gear_guard_left": {
+        "name": "Gear Guard left camera"
+      },
+      "gear_guard_right": {
+        "name": "Gear Guard right camera"
+      },
+      "gear_guard_interior": {
+        "name": "Gear Guard interior camera"
+      },
+      "gear_guard_bed": {
+        "name": "Gear Guard bed camera"
+      }
+    },
     "button": {
       "wake": {
         "name": "Wake"
@@ -224,11 +244,22 @@
       },
       "pair": {
         "name": "Pair"
+      },
+      "precondition_cabin": {
+        "name": "Precondition cabin"
       }
     },
     "climate": {
       "cabin_climate": {
-        "name": "Cabin climate"
+        "name": "Cabin climate",
+        "state_attributes": {
+          "preset_mode": {
+            "state": {
+              "pet_comfort": "Pet comfort",
+              "climate_hold": "Climate hold"
+            }
+          }
+        }
       }
     },
     "cover": {
@@ -254,6 +285,9 @@
       }
     },
     "number": {
+      "climate_hold_duration": {
+        "name": "Climate hold duration"
+      },
       "charging_schedule_amperage": {
         "name": "Charging schedule amperage"
       },
@@ -309,6 +343,24 @@
       },
       "seat_rear_right_heat": {
         "name": "Seat rear right heat",
+        "state": {
+          "off": "Off",
+          "level_1": "Low",
+          "level_2": "Medium",
+          "level_3": "High"
+        }
+      },
+      "seat_third_row_left_heat": {
+        "name": "Seat 3rd row left heat",
+        "state": {
+          "off": "Off",
+          "level_1": "Low",
+          "level_2": "Medium",
+          "level_3": "High"
+        }
+      },
+      "seat_third_row_right_heat": {
+        "name": "Seat 3rd row right heat",
         "state": {
           "off": "Off",
           "level_1": "Low",
@@ -549,7 +601,7 @@
         }
       },
       "pet_mode_temperature_status": {
-        "name": "Pet mode temperature status",
+        "name": "Pet comfort temperature status",
         "state": {
           "default": "Default",
           "cold": "Cold",
@@ -1073,11 +1125,20 @@
       "charging_enabled": {
         "name": "Charging enabled"
       },
+      "climate_hold": {
+        "name": "Climate hold"
+      },
       "gear_guard_video": {
         "name": "Gear Guard video"
       },
+      "pet_mode": {
+        "name": "Pet comfort"
+      },
       "steering_wheel_heat": {
         "name": "Steering wheel heat"
+      },
+      "departure_schedule": {
+        "name": "Departure schedule {name}"
       }
     },
     "time": {
@@ -1116,6 +1177,233 @@
           }
         }
       }
+    }
+  },
+  "services": {
+    "create_departure_schedule": {
+      "name": "Create departure schedule",
+      "description": "Creates a departure schedule that preconditions the cabin ahead of each departure.",
+      "fields": {
+        "device_id": {
+          "name": "Vehicle",
+          "description": "The Rivian vehicle."
+        },
+        "name": {
+          "name": "Name",
+          "description": "The name of the schedule."
+        },
+        "departure_time": {
+          "name": "Departure time",
+          "description": "The departure time, local to the vehicle."
+        },
+        "days": {
+          "name": "Days",
+          "description": "The days the schedule repeats on."
+        },
+        "enabled": {
+          "name": "Enabled",
+          "description": "Whether the schedule is enabled."
+        },
+        "temperature": {
+          "name": "Cabin temperature",
+          "description": "The cabin temperature to reach by the departure time, in your unit system (16–29 °C / about 61–84 °F)."
+        },
+        "front_defrost": {
+          "name": "Front defrost",
+          "description": "Whether to defrost or defog the windshield."
+        },
+        "front_left_seat": {
+          "name": "Front left seat",
+          "description": "Heats or ventilates the seat."
+        },
+        "front_right_seat": {
+          "name": "Front right seat",
+          "description": "Heats or ventilates the seat."
+        },
+        "rear_left_seat": {
+          "name": "Rear left seat",
+          "description": "Heats the seat."
+        },
+        "rear_right_seat": {
+          "name": "Rear right seat",
+          "description": "Heats the seat."
+        },
+        "steering_wheel": {
+          "name": "Steering wheel",
+          "description": "Heats the steering wheel."
+        },
+        "override_charge_schedule": {
+          "name": "Override charging schedule",
+          "description": "Whether preconditioning may charge outside of the charging schedule."
+        }
+      }
+    },
+    "update_departure_schedule": {
+      "name": "Update departure schedule",
+      "description": "Updates a departure schedule. Fields that are left out keep their current value.",
+      "fields": {
+        "device_id": {
+          "name": "Vehicle",
+          "description": "The Rivian vehicle."
+        },
+        "schedule_id": {
+          "name": "Schedule ID",
+          "description": "The schedule to update, from the schedule's switch."
+        },
+        "name": {
+          "name": "Name",
+          "description": "The name of the schedule."
+        },
+        "departure_time": {
+          "name": "Departure time",
+          "description": "The departure time, local to the vehicle."
+        },
+        "days": {
+          "name": "Days",
+          "description": "The days the schedule repeats on."
+        },
+        "enabled": {
+          "name": "Enabled",
+          "description": "Whether the schedule is enabled."
+        },
+        "temperature": {
+          "name": "Cabin temperature",
+          "description": "The cabin temperature to reach by the departure time, in your unit system (16–29 °C / about 61–84 °F)."
+        },
+        "front_defrost": {
+          "name": "Front defrost",
+          "description": "Whether to defrost or defog the windshield."
+        },
+        "front_left_seat": {
+          "name": "Front left seat",
+          "description": "Heats or ventilates the seat."
+        },
+        "front_right_seat": {
+          "name": "Front right seat",
+          "description": "Heats or ventilates the seat."
+        },
+        "rear_left_seat": {
+          "name": "Rear left seat",
+          "description": "Heats the seat."
+        },
+        "rear_right_seat": {
+          "name": "Rear right seat",
+          "description": "Heats the seat."
+        },
+        "steering_wheel": {
+          "name": "Steering wheel",
+          "description": "Heats the steering wheel."
+        },
+        "override_charge_schedule": {
+          "name": "Override charging schedule",
+          "description": "Whether preconditioning may charge outside of the charging schedule."
+        }
+      }
+    },
+    "delete_departure_schedule": {
+      "name": "Delete departure schedule",
+      "description": "Deletes a departure schedule.",
+      "fields": {
+        "device_id": {
+          "name": "Vehicle",
+          "description": "The Rivian vehicle."
+        },
+        "schedule_id": {
+          "name": "Schedule ID",
+          "description": "The schedule to delete, from the schedule's switch."
+        }
+      }
+    },
+    "precondition_cabin": {
+      "name": "Precondition cabin",
+      "description": "Starts preconditioning the cabin now, through a temporary departure schedule that Home Assistant deletes after it departs; if one named \"HA Precondition Now\" remains, delete it in the Rivian app. Run again before it departs to change it.",
+      "fields": {
+        "device_id": {
+          "name": "Vehicle",
+          "description": "The Rivian vehicle."
+        },
+        "lead_time": {
+          "name": "Lead time",
+          "description": "How many minutes from now the schedule departs, which is roughly how long preconditioning runs (20–60). Defaults to 20."
+        },
+        "temperature": {
+          "name": "Cabin temperature",
+          "description": "The cabin temperature to reach, in your unit system (16–29 °C / about 61–84 °F). Defaults to the driver's set temperature."
+        }
+      }
+    },
+    "send_location": {
+      "name": "Send location",
+      "description": "Sends a location to the vehicle's navigation. It starts navigating there, or adds it as a stop if it's already navigating.",
+      "fields": {
+        "device_id": {
+          "name": "Vehicle",
+          "description": "The vehicle to send the location to."
+        },
+        "location": {
+          "name": "Location",
+          "description": "The location to navigate to."
+        }
+      }
+    }
+  },
+  "exceptions": {
+    "invalid_device": {
+      "message": "{device_id} is not a Rivian vehicle"
+    },
+    "schedule_not_found": {
+      "message": "Departure schedule {schedule_id} not found"
+    },
+    "schedule_rejected": {
+      "message": "Rivian rejected {action}: {reason}"
+    },
+    "schedule_unconfirmed": {
+      "message": "Rivian didn't confirm {action} ({reason}); it may still have been applied"
+    },
+    "schedules_out_of_sync": {
+      "message": "Departure schedules are out of sync with Rivian; please try again"
+    },
+    "temperature_out_of_range": {
+      "message": "Cabin temperature must be between {min} and {max} {unit}"
+    },
+    "vehicle_not_loaded": {
+      "message": "The Rivian integration for this vehicle isn't loaded"
+    },
+    "command_rejected": {
+      "message": "Rivian didn't accept {rvm}"
+    },
+    "command_unconfirmed": {
+      "message": "The vehicle didn't confirm {rvm}; it may still carry it out"
+    },
+    "command_failed": {
+      "message": "The vehicle didn't carry out {rvm}: {reason}"
+    },
+    "live_stream_open": {
+      "message": "A live stream is already open"
+    },
+    "live_stream_failed": {
+      "message": "Couldn't start the live stream: {error}"
+    },
+    "live_stream_refused": {
+      "message": "The vehicle didn't start the stream; it streams one session at a time, up to an hour a day"
+    },
+    "live_stream_unreachable": {
+      "message": "Couldn't reach the live stream: {error}"
+    },
+    "climate_hold_duration_failed": {
+      "message": "Couldn't set the climate hold duration: {error}"
+    },
+    "climate_hold_duration_rejected": {
+      "message": "Rivian didn't accept the climate hold duration"
+    },
+    "pet_comfort_on": {
+      "message": "Pet comfort is on: make sure there are no pets inside, then turn it off with its switch"
+    },
+    "location_failed": {
+      "message": "Couldn't send the location to Rivian: {error}"
+    },
+    "location_rejected": {
+      "message": "Rivian didn't accept the location"
     }
   }
 }

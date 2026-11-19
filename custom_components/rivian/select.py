@@ -3,17 +3,15 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Final
+from typing import Final
 
 from rivian import VehicleCommand
 
 from homeassistant.components.select import SelectEntity
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import ATTR_COORDINATOR, ATTR_VEHICLE, DOMAIN
-from .coordinator import VehicleCoordinator
+from .coordinator import RivianConfigEntry
 from .data_classes import RivianSelectEntityDescription
 from .entity import RivianVehicleControlEntity
 
@@ -23,83 +21,110 @@ LEVEL_MAP = {"off": "0", "on": "1", "level_1": "2", "level_2": "3", "level_3": "
 LEVELS = ["off", "level_1", "level_2", "level_3"]
 
 
-SELECTS: Final[tuple[RivianSelectEntityDescription, ...]] = (
-    RivianSelectEntityDescription(
-        key="seat_front_left_heat",
-        translation_key="seat_front_left_heat",
-        options=LEVELS,
-        field="seatFrontLeftHeat",
-        select=lambda coordinator, option: coordinator.send_vehicle_command(
-            command=VehicleCommand.CABIN_HVAC_LEFT_SEAT_HEAT,
-            params={"level": int(option)},
+SELECTS: Final[dict[tuple[str, ...], tuple[RivianSelectEntityDescription, ...]]] = {
+    ("R1", "R2"): (
+        RivianSelectEntityDescription(
+            key="seat_front_left_heat",
+            translation_key="seat_front_left_heat",
+            options=LEVELS,
+            field="seatFrontLeftHeat",
+            select=lambda coordinator, option: coordinator.send_vehicle_command(
+                command=VehicleCommand.CABIN_HVAC_LEFT_SEAT_HEAT,
+                params={"level": int(option)},
+            ),
+        ),
+        RivianSelectEntityDescription(
+            key="seat_front_left_vent",
+            translation_key="seat_front_left_vent",
+            options=LEVELS,
+            field="seatFrontLeftVent",
+            select=lambda coordinator, option: coordinator.send_vehicle_command(
+                command=VehicleCommand.CABIN_HVAC_LEFT_SEAT_VENT,
+                params={"level": int(option)},
+            ),
+        ),
+        RivianSelectEntityDescription(
+            key="seat_front_right_heat",
+            translation_key="seat_front_right_heat",
+            options=LEVELS,
+            field="seatFrontRightHeat",
+            select=lambda coordinator, option: coordinator.send_vehicle_command(
+                command=VehicleCommand.CABIN_HVAC_RIGHT_SEAT_HEAT,
+                params={"level": int(option)},
+            ),
+        ),
+        RivianSelectEntityDescription(
+            key="seat_front_right_vent",
+            translation_key="seat_front_right_vent",
+            options=LEVELS,
+            field="seatFrontRightVent",
+            select=lambda coordinator, option: coordinator.send_vehicle_command(
+                command=VehicleCommand.CABIN_HVAC_RIGHT_SEAT_VENT,
+                params={"level": int(option)},
+            ),
+        ),
+        RivianSelectEntityDescription(
+            key="seat_rear_left_heat",
+            translation_key="seat_rear_left_heat",
+            options=LEVELS,
+            field="seatRearLeftHeat",
+            select=lambda coordinator, option: coordinator.send_vehicle_command(
+                command=VehicleCommand.CABIN_HVAC_REAR_LEFT_SEAT_HEAT,
+                params={"level": int(option)},
+            ),
+        ),
+        RivianSelectEntityDescription(
+            key="seat_rear_right_heat",
+            translation_key="seat_rear_right_heat",
+            options=LEVELS,
+            field="seatRearRightHeat",
+            select=lambda coordinator, option: coordinator.send_vehicle_command(
+                command=VehicleCommand.CABIN_HVAC_REAR_RIGHT_SEAT_HEAT,
+                params={"level": int(option)},
+            ),
         ),
     ),
-    RivianSelectEntityDescription(
-        key="seat_front_left_vent",
-        translation_key="seat_front_left_vent",
-        options=LEVELS,
-        field="seatFrontLeftVent",
-        select=lambda coordinator, option: coordinator.send_vehicle_command(
-            command=VehicleCommand.CABIN_HVAC_LEFT_SEAT_VENT,
-            params={"level": int(option)},
+    ("R1S",): (
+        RivianSelectEntityDescription(
+            key="seat_third_row_left_heat",
+            translation_key="seat_third_row_left_heat",
+            options=LEVELS,
+            field="seatThirdRowLeftHeat",
+            select=lambda coordinator, option: coordinator.send_vehicle_command(
+                command=VehicleCommand.CABIN_HVAC_3RD_ROW_REAR_LEFT_SEAT_HEAT,
+                params={"level": int(option)},
+            ),
+        ),
+        RivianSelectEntityDescription(
+            key="seat_third_row_right_heat",
+            translation_key="seat_third_row_right_heat",
+            options=LEVELS,
+            field="seatThirdRowRightHeat",
+            select=lambda coordinator, option: coordinator.send_vehicle_command(
+                command=VehicleCommand.CABIN_HVAC_3RD_ROW_REAR_RIGHT_SEAT_HEAT,
+                params={"level": int(option)},
+            ),
         ),
     ),
-    RivianSelectEntityDescription(
-        key="seat_front_right_heat",
-        translation_key="seat_front_right_heat",
-        options=LEVELS,
-        field="seatFrontRightHeat",
-        select=lambda coordinator, option: coordinator.send_vehicle_command(
-            command=VehicleCommand.CABIN_HVAC_RIGHT_SEAT_HEAT,
-            params={"level": int(option)},
-        ),
-    ),
-    RivianSelectEntityDescription(
-        key="seat_front_right_vent",
-        translation_key="seat_front_right_vent",
-        options=LEVELS,
-        field="seatFrontRightVent",
-        select=lambda coordinator, option: coordinator.send_vehicle_command(
-            command=VehicleCommand.CABIN_HVAC_RIGHT_SEAT_VENT,
-            params={"level": int(option)},
-        ),
-    ),
-    RivianSelectEntityDescription(
-        key="seat_rear_left_heat",
-        translation_key="seat_rear_left_heat",
-        options=LEVELS,
-        field="seatRearLeftHeat",
-        select=lambda coordinator, option: coordinator.send_vehicle_command(
-            command=VehicleCommand.CABIN_HVAC_REAR_LEFT_SEAT_HEAT,
-            params={"level": int(option)},
-        ),
-    ),
-    RivianSelectEntityDescription(
-        key="seat_rear_right_heat",
-        translation_key="seat_rear_right_heat",
-        options=LEVELS,
-        field="seatRearRightHeat",
-        select=lambda coordinator, option: coordinator.send_vehicle_command(
-            command=VehicleCommand.CABIN_HVAC_REAR_RIGHT_SEAT_HEAT,
-            params={"level": int(option)},
-        ),
-    ),
-)
+}
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: RivianConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the select entities."""
-    data: dict[str, Any] = hass.data[DOMAIN][entry.entry_id]
-    vehicles: dict[str, dict[str, Any]] = data[ATTR_VEHICLE]
-    coordinators: dict[str, VehicleCoordinator] = data[ATTR_COORDINATOR][ATTR_VEHICLE]
+    vehicles = entry.runtime_data.vehicles
+    coordinators = entry.runtime_data.vehicle_coordinators
 
     entities = [
         RivianSelectEntity(coordinators[vehicle_id], entry, description, vehicle)
         for vehicle_id, vehicle in vehicles.items()
         if vehicle.get("phone_identity_id")
-        for description in SELECTS
+        for models, descriptions in SELECTS.items()
+        if any(model in vehicle["model"] for model in models)
+        for description in descriptions
     ]
     async_add_entities(entities)
 
