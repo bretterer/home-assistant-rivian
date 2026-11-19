@@ -197,7 +197,6 @@ send_location:
   fields:
     device_id: *device_id
     location:
-      required: true
       selector:
         location:
           radius: false
@@ -211,17 +210,17 @@ send_trip:
         object:
           multiple: true
           label_field: name
+          translation_key: stop
           fields:
             name:
               required: true
               selector:
                 text:
             location:
-              required: true
               selector:
                 location:
                   radius: false
-    min_arrival_charge:
+    arrival_range:
       default: 20
       selector:
         number:

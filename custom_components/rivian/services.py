@@ -57,6 +57,8 @@ ATTR_FRONT_DEFROST: Final = "front_defrost"
 ATTR_LEAD_TIME: Final = "lead_time"
 ATTR_OVERRIDE_CHARGE_SCHEDULE: Final = "override_charge_schedule"
 ATTR_SCHEDULE_ID: Final = "schedule_id"
+ATTR_ARRIVAL_RANGE: Final = "arrival_range"
+ATTR_STOPS: Final = "stops"
 
 SERVICE_CREATE_DEPARTURE_SCHEDULE: Final = "create_departure_schedule"
 SERVICE_UPDATE_DEPARTURE_SCHEDULE: Final = "update_departure_schedule"
@@ -151,23 +153,25 @@ LOCATION_SCHEMA: Final = vol.Schema(
 SEND_LOCATION_SCHEMA: Final = vol.Schema(
     {
         vol.Required(ATTR_DEVICE_ID): cv.string,
-        vol.Required(ATTR_LOCATION): LOCATION_SCHEMA,
+        # Home Assistant's home location when left out, as the location selector
+        # shows it on the map when empty
+        vol.Optional(ATTR_LOCATION): LOCATION_SCHEMA,
     }
 )
 
 STOP_SCHEMA: Final = vol.Schema(
     {
         vol.Required(ATTR_NAME): cv.string,
-        vol.Required(ATTR_LOCATION): LOCATION_SCHEMA,
+        vol.Optional(ATTR_LOCATION): LOCATION_SCHEMA,
     }
 )
 SEND_TRIP_SCHEMA: Final = vol.Schema(
     {
         vol.Required(ATTR_DEVICE_ID): cv.string,
-        vol.Required("stops"): vol.All(
+        vol.Required(ATTR_STOPS): vol.All(
             cv.ensure_list, [STOP_SCHEMA], vol.Length(min=1)
         ),
-        vol.Optional("min_arrival_charge", default=20): vol.All(
+        vol.Optional(ATTR_ARRIVAL_RANGE, default=20): vol.All(
             vol.Coerce(int), vol.Range(min=0, max=100)
         ),
     }
@@ -249,6 +253,15 @@ def _position(coordinator: VehicleCoordinator) -> tuple[float, float]:
             translation_domain=DOMAIN, translation_key="location_unknown"
         )
     return latitude, longitude
+
+
+def _coordinates(
+    hass: HomeAssistant, location: dict[str, float] | None
+) -> tuple[float, float]:
+    """Return a location's latitude and longitude, by default Home Assistant's home."""
+    if location is None:
+        return hass.config.latitude, hass.config.longitude
+    return location[ATTR_LATITUDE], location[ATTR_LONGITUDE]
 
 
 def _user_id(coordinator: VehicleCoordinator) -> str:
@@ -369,8 +382,8 @@ def async_setup_services(hass: HomeAssistant) -> None:
         # plain "lat,lng", as a Google Maps link to coordinates sent the vehicle to
         # an earlier destination instead. Fixed decimals, as the default float
         # format turns tiny values into 1e-05
-        point = call.data[ATTR_LOCATION]
-        location = f"{point[ATTR_LATITUDE]:.6f},{point[ATTR_LONGITUDE]:.6f}"
+        latitude, longitude = _coordinates(hass, call.data.get(ATTR_LOCATION))
+        location = f"{latitude:.6f},{longitude:.6f}"
         try:
             response = await coordinator.api.send_location_to_vehicle(
                 coordinator.vehicle_id, location
@@ -394,21 +407,23 @@ def async_setup_services(hass: HomeAssistant) -> None:
         coordinator = await _async_get_controlled_vehicle(hass, call)
         origin = _position(coordinator)
         user_id = _user_id(coordinator)
-        # the vehicle ignores a new trip while navigating another one
-        await coordinator.api.end_trip(coordinator.vehicle_id, user_id)
-        if not await coordinator.api.send_trip_to_vehicle(
-            coordinator.vehicle_id,
-            origin,
-            [
-                (
-                    stop[ATTR_NAME],
-                    stop[ATTR_LOCATION][ATTR_LATITUDE],
-                    stop[ATTR_LOCATION][ATTR_LONGITUDE],
-                )
-                for stop in call.data["stops"]
-            ],
-            call.data["min_arrival_charge"],
-        ):
+        stops = [
+            (stop[ATTR_NAME], *_coordinates(hass, stop.get(ATTR_LOCATION)))
+            for stop in call.data[ATTR_STOPS]
+        ]
+        try:
+            # the vehicle ignores a new trip while navigating another one
+            await coordinator.api.end_trip(coordinator.vehicle_id, user_id)
+            sent = await coordinator.api.send_trip_to_vehicle(
+                coordinator.vehicle_id, origin, stops, call.data[ATTR_ARRIVAL_RANGE]
+            )
+        except RivianApiException as err:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="trip_failed",
+                translation_placeholders={"error": str(err)},
+            ) from err
+        if not sent:
             raise HomeAssistantError(
                 translation_domain=DOMAIN, translation_key="trip_rejected"
             )
@@ -416,9 +431,17 @@ def async_setup_services(hass: HomeAssistant) -> None:
     async def end_trip(call: ServiceCall) -> None:
         """End the trip the vehicle is navigating."""
         coordinator = await _async_get_controlled_vehicle(hass, call)
-        if not await coordinator.api.end_trip(
-            coordinator.vehicle_id, _user_id(coordinator)
-        ):
+        try:
+            ended = await coordinator.api.end_trip(
+                coordinator.vehicle_id, _user_id(coordinator)
+            )
+        except RivianApiException as err:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="end_trip_failed",
+                translation_placeholders={"error": str(err)},
+            ) from err
+        if not ended:
             raise HomeAssistantError(
                 translation_domain=DOMAIN, translation_key="end_trip_rejected"
             )

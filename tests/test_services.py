@@ -528,6 +528,20 @@ async def test_send_location_api_error(
     assert err.value.translation_placeholders == {"error": "rate limited"}
 
 
+async def test_send_location_defaults_to_home(
+    hass: SimpleNamespace, coordinator: MagicMock
+) -> None:
+    """Without a location, Home Assistant's home location is sent."""
+    share = _sharing(coordinator, ACCEPTED)
+    hass.config = SimpleNamespace(latitude=38.9, longitude=-94.6)
+    send = _handlers(hass)[services.SERVICE_SEND_LOCATION]
+    call = _location_call()
+    del call.data[services.ATTR_LOCATION]
+
+    await send(call)
+    share.assert_awaited_once_with("vehicle", "38.900000,-94.600000")
+
+
 async def test_send_location_checks_permission(
     hass: SimpleNamespace, coordinator: MagicMock
 ) -> None:
@@ -551,7 +565,7 @@ def _trip_call(**data: Any) -> SimpleNamespace:
         data={
             services.ATTR_DEVICE_ID: DEVICE_ID,
             "stops": STOPS,
-            "min_arrival_charge": 30,
+            services.ATTR_ARRIVAL_RANGE: 30,
         }
         | data,
     )
@@ -583,6 +597,20 @@ async def test_send_trip(hass: SimpleNamespace, vehicle: MagicMock) -> None:
     vehicle.api.send_trip_to_vehicle.assert_awaited_once_with(
         "vehicle", (40.1, -92.5), [("Stadium", 39.05, -94.48)], 30
     )
+
+
+async def test_send_trip_stop_defaults_to_home(
+    hass: SimpleNamespace, vehicle: MagicMock
+) -> None:
+    """A stop without a location is Home Assistant's home location."""
+    hass.config = SimpleNamespace(latitude=38.9, longitude=-94.6)
+    send = _handlers(hass)[services.SERVICE_SEND_TRIP]
+
+    await send(_trip_call(stops=[{"name": "Home"}, *STOPS]))
+    assert vehicle.api.send_trip_to_vehicle.await_args.args[2] == [
+        ("Home", 38.9, -94.6),
+        ("Stadium", 39.05, -94.48),
+    ]
 
 
 async def test_send_trip_without_position(
@@ -648,3 +676,33 @@ async def test_trip_actions_check_permission(
         await handler(call)
     vehicle.api.end_trip.assert_not_awaited()
     vehicle.api.send_trip_to_vehicle.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    ("service", "failing", "key"),
+    [
+        (services.SERVICE_SEND_TRIP, "send_trip_to_vehicle", "trip_failed"),
+        # the end send_trip makes first
+        (services.SERVICE_SEND_TRIP, "end_trip", "trip_failed"),
+        (services.SERVICE_END_TRIP, "end_trip", "end_trip_failed"),
+    ],
+)
+async def test_trip_api_error(
+    monkeypatch: pytest.MonkeyPatch,
+    hass: SimpleNamespace,
+    vehicle: MagicMock,
+    service: str,
+    failing: str,
+    key: str,
+) -> None:
+    """An API error, e.g. a rate limit, fails the action with the error."""
+    monkeypatch.setattr(services, "HomeAssistantError", _TranslatedError)
+    getattr(vehicle.api, failing).side_effect = services.RivianApiException(
+        "rate limited"
+    )
+    handler = _handlers(hass)[service]
+
+    with pytest.raises(_TranslatedError) as err:
+        await handler(_trip_call())
+    assert err.value.translation_key == key
+    assert err.value.translation_placeholders == {"error": "rate limited"}

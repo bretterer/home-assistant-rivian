@@ -42,6 +42,18 @@
         "photo": "Photorealistic",
         "none": "None"
       }
+    },
+    "stop": {
+      "fields": {
+        "name": {
+          "name": "Name",
+          "description": "The name the vehicle shows for the stop."
+        },
+        "location": {
+          "name": "Location",
+          "description": "The stop's location. Defaults to Home Assistant's home location."
+        }
+      }
     }
   },
   "entity": {
@@ -1299,11 +1311,11 @@
       "fields": {
         "device_id": {
           "name": "Vehicle",
-          "description": "The vehicle to send the location to."
+          "description": "The Rivian vehicle."
         },
         "location": {
           "name": "Location",
-          "description": "The location to navigate to."
+          "description": "The location to navigate to. Defaults to Home Assistant's home location."
         }
       }
     },
@@ -1313,14 +1325,14 @@
       "fields": {
         "device_id": {
           "name": "Vehicle",
-          "description": "The vehicle."
+          "description": "The Rivian vehicle."
         },
         "stops": {
           "name": "Stops",
-          "description": "The stops in order, each with a name and a location."
+          "description": "The stops in order, each with a name and a location (Home Assistant's home location if left out)."
         },
-        "min_arrival_charge": {
-          "name": "Minimum arrival charge",
+        "arrival_range": {
+          "name": "Preferred arrival range",
           "description": "The least charge to arrive with, in percent."
         }
       }
@@ -1331,7 +1343,7 @@
       "fields": {
         "device_id": {
           "name": "Vehicle",
-          "description": "The vehicle."
+          "description": "The Rivian vehicle."
         }
       }
     }
@@ -1400,8 +1412,14 @@
     "trip_rejected": {
       "message": "Rivian didn't accept the trip"
     },
+    "trip_failed": {
+      "message": "Couldn't send the trip to Rivian: {error}"
+    },
     "end_trip_rejected": {
       "message": "Rivian didn't accept ending the trip"
+    },
+    "end_trip_failed": {
+      "message": "Couldn't end the trip: {error}"
     }
   }
 }
