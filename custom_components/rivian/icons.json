@@ -80,12 +80,38 @@
                 }
             }
         },
+        "camera": {
+            "gear_guard_front": {
+                "default": "mdi:cctv"
+            },
+            "gear_guard_rear": {
+                "default": "mdi:cctv"
+            },
+            "gear_guard_left": {
+                "default": "mdi:cctv"
+            },
+            "gear_guard_right": {
+                "default": "mdi:cctv"
+            },
+            "gear_guard_interior": {
+                "default": "mdi:cctv"
+            },
+            "gear_guard_bed": {
+                "default": "mdi:cctv"
+            }
+        },
         "button": {
+            "precondition_cabin": {
+                "default": "mdi:car-seat-heater"
+            },
             "wake": {
                 "default": "mdi:weather-night"
             }
         },
         "number": {
+            "climate_hold_duration": {
+                "default": "mdi:fan-clock"
+            },
             "charging_schedule_amperage": {
                 "default": "mdi:current-ac"
             },
@@ -118,6 +144,12 @@
                 "default": "mdi:car-seat-heater"
             },
             "seat_rear_right_heat": {
+                "default": "mdi:car-seat-heater"
+            },
+            "seat_third_row_left_heat": {
+                "default": "mdi:car-seat-heater"
+            },
+            "seat_third_row_right_heat": {
                 "default": "mdi:car-seat-heater"
             }
         },
@@ -455,14 +487,23 @@
             "charging_schedule_enabled": {
                 "default": "mdi:calendar-clock"
             },
+            "departure_schedule": {
+                "default": "mdi:car-clock"
+            },
             "alarm": {
                 "default": "mdi:alarm-light"
             },
             "charging_enabled": {
                 "default": "mdi:lightning-bolt"
             },
+            "climate_hold": {
+                "default": "mdi:thermometer-auto"
+            },
             "gear_guard_video": {
                 "default": "mdi:cctv"
+            },
+            "pet_mode": {
+                "default": "mdi:dog-side"
             },
             "steering_wheel_heat": {
                 "default": "mdi:steering"
@@ -475,6 +516,23 @@
             "charging_schedule_end": {
                 "default": "mdi:clock-end"
             }
+        }
+    },
+    "services": {
+        "create_departure_schedule": {
+            "service": "mdi:calendar-plus"
+        },
+        "update_departure_schedule": {
+            "service": "mdi:calendar-edit"
+        },
+        "delete_departure_schedule": {
+            "service": "mdi:calendar-remove"
+        },
+        "precondition_cabin": {
+            "service": "mdi:car-seat-heater"
+        },
+        "send_location": {
+            "service": "mdi:map-marker-path"
         }
     }
 }
