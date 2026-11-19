@@ -301,21 +301,37 @@ def _arrival(
     return _live_progress(coordinator, live_field) or waypoint.get("arrivalTime")
 
 
+def _round(value: Any, digits: int | None = None) -> Any:
+    """Round a number, leaving anything else (such as None) as it is."""
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return round(value, digits)
+    return value
+
+
+def _coordinate(value: Any) -> Any:
+    """Round a stop's latitude or longitude to 6 decimals, like the vehicle's."""
+    return _round(value, 6)
+
+
 def _waypoint_attributes(waypoint: dict[str, Any] | None) -> dict[str, Any] | None:
-    """Return a stop's location and charge details."""
+    """Return a stop's location and charge details (charge in whole percent)."""
     if not waypoint:
         return None
     attributes = {
         "type": waypoint.get("type"),
-        "latitude": waypoint.get("latitude"),
-        "longitude": waypoint.get("longitude"),
+        "latitude": _coordinate(waypoint.get("latitude")),
+        "longitude": _coordinate(waypoint.get("longitude")),
     }
     if waypoint.get("type") == "chargingStop":
-        attributes["arrival_state_of_charge"] = waypoint.get("arrivalStateOfCharge")
-        attributes["departure_state_of_charge"] = waypoint.get("departureStateOfCharge")
+        attributes["arrival_state_of_charge"] = _round(
+            waypoint.get("arrivalStateOfCharge")
+        )
+        attributes["departure_state_of_charge"] = _round(
+            waypoint.get("departureStateOfCharge")
+        )
         attributes["charge_duration"] = waypoint.get("chargeDuration")
     else:
-        attributes["arrival_state_of_charge"] = waypoint.get("stateOfCharge")
+        attributes["arrival_state_of_charge"] = _round(waypoint.get("stateOfCharge"))
     return attributes
 
 
@@ -333,8 +349,8 @@ def _destination_attributes(coordinator: VehicleCoordinator) -> dict[str, Any] |
         "stops": [
             {
                 "name": _waypoint_name(waypoint),
-                "latitude": waypoint.get("latitude"),
-                "longitude": waypoint.get("longitude"),
+                "latitude": _coordinate(waypoint.get("latitude")),
+                "longitude": _coordinate(waypoint.get("longitude")),
                 "charging": waypoint.get("type") == "chargingStop",
                 "arrival": waypoint.get("arrivalTime"),
                 "next": waypoint is next_stop,
