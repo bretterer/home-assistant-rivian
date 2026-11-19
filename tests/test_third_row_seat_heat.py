@@ -8,7 +8,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from custom_components.rivian import select
-from custom_components.rivian.const import ATTR_COORDINATOR, ATTR_VEHICLE, DOMAIN
 
 THIRD_ROW = {"seat_third_row_left_heat", "seat_third_row_right_heat"}
 
@@ -18,18 +17,11 @@ async def keys_for(model: str) -> set[str]:
     vehicle = {"id": "id", "vin": "VIN", "name": "", "model": model}
     vehicle["phone_identity_id"] = "phone"
     coordinator = MagicMock()
-    hass = MagicMock()
     entry = MagicMock(entry_id="entry")
-    hass.data = {
-        DOMAIN: {
-            "entry": {
-                ATTR_VEHICLE: {"id": vehicle},
-                ATTR_COORDINATOR: {ATTR_VEHICLE: {"id": coordinator}},
-            }
-        }
-    }
+    entry.runtime_data.vehicles = {"id": vehicle}
+    entry.runtime_data.vehicle_coordinators = {"id": coordinator}
     added: list[Any] = []
-    await select.async_setup_entry(hass, entry, added.extend)
+    await select.async_setup_entry(MagicMock(), entry, added.extend)
     return {entity.entity_description.key for entity in added}
 
 
