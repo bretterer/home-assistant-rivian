@@ -333,6 +333,14 @@ Preconditioning runs until the departure time. To stop it early, turn off the sc
 
 The departure time is computed in Home Assistant's timezone and interpreted by Rivian in the vehicle's local timezone, which the API does not expose. This assumes the two match (the vehicle is near home); if they differ, the button may precondition at the wrong time. Home Assistant recognizes its temporary schedules by their name, which the departure schedule actions don't let you use. Since one always departs within the hour, any schedule named `HA Precondition Now` that doesn't, including one you move further out in the Rivian app, is treated as departed and deleted. Don't give your own schedules that name in the app.
 
+### Navigation
+
+These actions need only the signed-in account, not a paired phone key.
+
+| Action                 | Description                                                                                          |
+| ---------------------- | ---------------------------------------------------------------------------------------------------- |
+| `rivian.send_location` | Send a location (`latitude`, `longitude`) to a vehicle's navigation, which starts navigating there |
+
 ## Trip Route Card
 
 The integration includes a dashboard card that shows a vehicle on a map. While it's navigating, the card shows the trip's route, the vehicle and the destination, with the stops along the way numbered in trip order. The next stop is larger, charging stops are in a different color, and hovering over or tapping a stop, or selecting it with the keyboard, shows its name and arrival time. Otherwise, it follows the vehicle's location.

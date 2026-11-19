@@ -1293,6 +1293,24 @@
           "description": "The cabin temperature to reach, in your unit system (16–29 °C / about 61–84 °F). Defaults to the driver's set temperature."
         }
       }
+    },
+    "send_location": {
+      "name": "Send location",
+      "description": "Sends a location to the vehicle's navigation, which starts navigating there.",
+      "fields": {
+        "device_id": {
+          "name": "Vehicle",
+          "description": "The vehicle to send the location to."
+        },
+        "latitude": {
+          "name": "Latitude",
+          "description": "Latitude of the location."
+        },
+        "longitude": {
+          "name": "Longitude",
+          "description": "Longitude of the location."
+        }
+      }
     }
   },
   "exceptions": {
@@ -1346,6 +1364,12 @@
     },
     "pet_comfort_on": {
       "message": "Pet comfort is on: make sure there are no pets inside, then turn it off with its switch"
+    },
+    "location_failed": {
+      "message": "Couldn't send the location to Rivian: {error}"
+    },
+    "location_rejected": {
+      "message": "Rivian didn't accept the location"
     }
   }
 }

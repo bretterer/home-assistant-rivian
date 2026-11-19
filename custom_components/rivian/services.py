@@ -5,17 +5,25 @@ from __future__ import annotations
 from datetime import time
 from typing import Any, Final
 
+from rivian.exceptions import RivianApiException
 import voluptuous as vol
 
 from homeassistant.auth.permissions.const import CAT_ENTITIES, POLICY_CONTROL
 from homeassistant.const import (
     ATTR_DEVICE_ID,
+    ATTR_LATITUDE,
+    ATTR_LONGITUDE,
     ATTR_NAME,
     ATTR_TEMPERATURE,
     UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant, ServiceCall, callback
-from homeassistant.exceptions import ServiceValidationError, Unauthorized, UnknownUser
+from homeassistant.exceptions import (
+    HomeAssistantError,
+    ServiceValidationError,
+    Unauthorized,
+    UnknownUser,
+)
 from homeassistant.helpers import (
     config_validation as cv,
     device_registry as dr,
@@ -53,6 +61,7 @@ SERVICE_CREATE_DEPARTURE_SCHEDULE: Final = "create_departure_schedule"
 SERVICE_UPDATE_DEPARTURE_SCHEDULE: Final = "update_departure_schedule"
 SERVICE_DELETE_DEPARTURE_SCHEDULE: Final = "delete_departure_schedule"
 SERVICE_PRECONDITION_CABIN: Final = "precondition_cabin"
+SERVICE_SEND_LOCATION: Final = "send_location"
 
 
 def _not_reserved_name(value: str) -> str:
@@ -124,6 +133,14 @@ PRECONDITION_CABIN_SCHEMA: Final = vol.Schema(
         ),
         # in the user's unit system; checked once converted to Celsius
         vol.Optional(ATTR_TEMPERATURE): vol.Coerce(float),
+    }
+)
+
+SEND_LOCATION_SCHEMA: Final = vol.Schema(
+    {
+        vol.Required(ATTR_DEVICE_ID): cv.string,
+        vol.Required(ATTR_LATITUDE): cv.latitude,
+        vol.Required(ATTR_LONGITUDE): cv.longitude,
     }
 )
 
@@ -300,6 +317,32 @@ def async_setup_services(hass: HomeAssistant) -> None:
         )
         await coordinator.precondition_now(call.data.get(ATTR_LEAD_TIME), temperature)
 
+    async def send_location(call: ServiceCall) -> None:
+        """Send a location to the vehicle's navigation."""
+        coordinator = await _async_get_controlled_vehicle(hass, call)
+        # fixed decimals, as the default float format turns tiny values into 1e-05
+        url = (
+            "https://www.google.com/maps/search/?api=1"
+            f"&query={call.data[ATTR_LATITUDE]:.6f},{call.data[ATTR_LONGITUDE]:.6f}"
+        )
+        try:
+            response = await coordinator.api.send_location_to_vehicle(
+                coordinator.vehicle_id, url
+            )
+            data = (await response.json()).get("data") or {}
+        except RivianApiException as err:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="location_failed",
+                translation_placeholders={"error": str(err)},
+            ) from err
+        share = data.get("parseAndShareLocationToVehicle") or {}
+        # result is 0 when Rivian accepted the location
+        if (share.get("publishResponse") or {}).get("result") != 0:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN, translation_key="location_rejected"
+            )
+
     hass.services.async_register(
         DOMAIN,
         SERVICE_CREATE_DEPARTURE_SCHEDULE,
@@ -323,4 +366,10 @@ def async_setup_services(hass: HomeAssistant) -> None:
         SERVICE_PRECONDITION_CABIN,
         precondition_cabin,
         schema=PRECONDITION_CABIN_SCHEMA,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_SEND_LOCATION,
+        send_location,
+        schema=SEND_LOCATION_SCHEMA,
     )

@@ -1,4 +1,4 @@
-"""Tests for the departure schedule actions' permission checks."""
+"""Tests for the Rivian actions."""
 
 from __future__ import annotations
 
@@ -440,3 +440,96 @@ def test_vehicle_of_unloaded_entry(
     with pytest.raises(_TranslatedError) as err:
         services._get_coordinator(hass, "device")
     assert err.value.translation_key == "vehicle_not_loaded"
+
+
+def _location_call(user_id: str | None = None, **data: Any) -> SimpleNamespace:
+    """A send_location call, by default from an automation."""
+    return SimpleNamespace(
+        context=SimpleNamespace(user_id=user_id),
+        data={
+            services.ATTR_DEVICE_ID: DEVICE_ID,
+            services.ATTR_LATITUDE: 39.05,
+            services.ATTR_LONGITUDE: -94.48,
+        }
+        | data,
+    )
+
+
+def _sharing(coordinator: MagicMock, result: dict[str, Any] | None) -> AsyncMock:
+    """Have the coordinator's API answer a shared location with this result."""
+    response = MagicMock(
+        json=AsyncMock(
+            return_value={"data": {"parseAndShareLocationToVehicle": result}}
+        )
+    )
+    coordinator.vehicle_id = "vehicle"
+    coordinator.api.send_location_to_vehicle = AsyncMock(return_value=response)
+    return coordinator.api.send_location_to_vehicle
+
+
+ACCEPTED = {"publishResponse": {"result": 0}}
+
+
+async def test_send_location(hass: SimpleNamespace, coordinator: MagicMock) -> None:
+    """The coordinates are sent as a map link to the device's vehicle."""
+    share = _sharing(coordinator, ACCEPTED)
+    send = _handlers(hass)[services.SERVICE_SEND_LOCATION]
+
+    await send(_location_call())
+    share.assert_awaited_once_with(
+        "vehicle",
+        "https://www.google.com/maps/search/?api=1&query=39.050000,-94.480000",
+    )
+
+
+async def test_send_location_near_zero(
+    hass: SimpleNamespace, coordinator: MagicMock
+) -> None:
+    """Coordinates near 0 stay in decimal notation."""
+    share = _sharing(coordinator, ACCEPTED)
+    send = _handlers(hass)[services.SERVICE_SEND_LOCATION]
+
+    await send(_location_call(latitude=-0.00001, longitude=0.00001))
+    assert share.await_args.args[1].endswith("query=-0.000010,0.000010")
+
+
+async def test_send_location_rejected(
+    monkeypatch: pytest.MonkeyPatch, hass: SimpleNamespace, coordinator: MagicMock
+) -> None:
+    """A location Rivian doesn't accept fails the action."""
+    monkeypatch.setattr(services, "HomeAssistantError", _TranslatedError)
+    _sharing(coordinator, None)
+    send = _handlers(hass)[services.SERVICE_SEND_LOCATION]
+
+    with pytest.raises(_TranslatedError) as err:
+        await send(_location_call())
+    assert err.value.translation_key == "location_rejected"
+
+
+async def test_send_location_api_error(
+    monkeypatch: pytest.MonkeyPatch, hass: SimpleNamespace, coordinator: MagicMock
+) -> None:
+    """An API error, e.g. a rate limit, fails the action with the error."""
+    monkeypatch.setattr(services, "HomeAssistantError", _TranslatedError)
+    _sharing(coordinator, ACCEPTED).side_effect = services.RivianApiException(
+        "rate limited"
+    )
+    send = _handlers(hass)[services.SERVICE_SEND_LOCATION]
+
+    with pytest.raises(_TranslatedError) as err:
+        await send(_location_call())
+    assert err.value.translation_key == "location_failed"
+    assert err.value.translation_placeholders == {"error": "rate limited"}
+
+
+async def test_send_location_checks_permission(
+    hass: SimpleNamespace, coordinator: MagicMock
+) -> None:
+    """A user who can't control the vehicle can't send it a location."""
+    share = _sharing(coordinator, ACCEPTED)
+    hass.auth.async_get_user.return_value = _user()
+    send = _handlers(hass)[services.SERVICE_SEND_LOCATION]
+
+    with pytest.raises(Unauthorized):
+        await send(_location_call("user"))
+    share.assert_not_awaited()

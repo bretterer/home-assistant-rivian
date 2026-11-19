@@ -192,3 +192,21 @@ precondition_cabin:
         number:
           step: 0.5
           mode: box
+
+send_location:
+  fields:
+    device_id: *device_id
+    latitude:
+      required: true
+      selector:
+        number:
+          min: -90
+          max: 90
+          step: any
+    longitude:
+      required: true
+      selector:
+        number:
+          min: -180
+          max: 180
+          step: any
