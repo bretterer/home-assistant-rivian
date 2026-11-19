@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Final
 
 from homeassistant.components.binary_sensor import BinarySensorDeviceClass
@@ -20,6 +21,7 @@ from homeassistant.const import (
     UnitOfTemperature,
     UnitOfTime,
 )
+from homeassistant.util import dt as dt_util
 
 from .data_classes import (
     RivianBinarySensorEntityDescription,
@@ -102,6 +104,25 @@ BTM_FAILURE_STATUS_OPTIONS: Final[list[str]] = [
     "set",
 ]
 
+# Gear Guard live view needs both: LIVE_CAM, and V_GGVS (the app's
+# GEAR_GUARD_STREAMING, Connect+'s Gear Guard Live Cam). A LIVE_CAM vehicle
+# without V_GGVS refuses the stream (VEHICLE_COMMAND_FORBIDDEN). The cameras
+# and the streaming sensors are created for vehicles with both.
+GEAR_GUARD_STREAM_FEATURES: Final[frozenset[str]] = frozenset({"LIVE_CAM", "V_GGVS"})
+
+
+def _gear_guard_streaming_limit_reset(coordinator: Any) -> datetime | None:
+    """Return when the daily streaming limit resets, only while it's hit.
+
+    The vehicle keeps sending the reset time from the last time the limit was
+    hit (a date long past) while it isn't, so that one doesn't count.
+    """
+    if coordinator.get("gearGuardStreamingDailyLimit") != "hit":
+        return None
+    if (reset := coordinator.get("gearGuardStreamingLimitResetTime")) is None:
+        return None
+    return dt_util.utc_from_timestamp(reset)
+
 
 SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]] = {
     ("R1", "R2"): (
@@ -165,6 +186,41 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
             native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
             state_class=SensorStateClass.MEASUREMENT,
             suggested_display_precision=2,
+        ),
+        # Energy used while parked. The last 24 and 8 hours are rolling windows,
+        # which overlap and can drop without a reset, so they have no state
+        # class. The park session only goes up, and starts again with each one.
+        RivianSensorEntityDescription(
+            key="parked_energy_last_24_hours",
+            translation_key="parked_energy_last_24_hours",
+            field="parkedEnergyLast24Hours",
+            native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+            device_class=SensorDeviceClass.ENERGY,
+            suggested_display_precision=1,
+            value_lambda=lambda v: v.get("totalEnergy"),
+            supported_feature="ENRG_MONTR_PARK",
+        ),
+        RivianSensorEntityDescription(
+            key="parked_energy_last_8_hours",
+            translation_key="parked_energy_last_8_hours",
+            field="parkedEnergyLast8Hours",
+            native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+            device_class=SensorDeviceClass.ENERGY,
+            suggested_display_precision=1,
+            value_lambda=lambda v: v.get("totalEnergy"),
+            entity_registry_enabled_default=False,
+            supported_feature="ENRG_MONTR_PARK",
+        ),
+        RivianSensorEntityDescription(
+            key="parked_energy_park_session",
+            translation_key="parked_energy_park_session",
+            field="parkedEnergyLastParkSession",
+            native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+            device_class=SensorDeviceClass.ENERGY,
+            state_class=SensorStateClass.TOTAL_INCREASING,
+            suggested_display_precision=1,
+            value_lambda=lambda v: v.get("totalEnergy"),
+            supported_feature="ENRG_MONTR_PARK",
         ),
         RivianSensorEntityDescription(
             key="bearing",
@@ -331,6 +387,46 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
                 "not_accepted",
                 "accepted",
             ],
+        ),
+        RivianSensorEntityDescription(
+            key="gear_guard_streaming_consent",
+            translation_key="gear_guard_streaming_consent",
+            field="gearGuardStreamingConsent",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
+            device_class=SensorDeviceClass.ENUM,
+            options=[
+                "not_set",
+                "not_applicable",
+                "consented",
+                "not_consented",
+            ],
+            # "unknown" means consent hasn't been set, not an unknown state
+            value_lambda=lambda v: "not_set" if v == "unknown" else v,
+            supported_feature=GEAR_GUARD_STREAM_FEATURES,
+        ),
+        RivianSensorEntityDescription(
+            key="gear_guard_streaming_daily_limit",
+            translation_key="gear_guard_streaming_daily_limit",
+            field="gearGuardStreamingDailyLimit",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
+            device_class=SensorDeviceClass.ENUM,
+            options=[
+                "not_hit",
+                "hit",
+            ],
+            supported_feature=GEAR_GUARD_STREAM_FEATURES,
+        ),
+        RivianSensorEntityDescription(
+            key="gear_guard_streaming_limit_reset_time",
+            translation_key="gear_guard_streaming_limit_reset_time",
+            field="gearGuardStreamingLimitResetTime",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
+            device_class=SensorDeviceClass.TIMESTAMP,
+            value_fn=_gear_guard_streaming_limit_reset,
+            supported_feature=GEAR_GUARD_STREAM_FEATURES,
         ),
         RivianSensorEntityDescription(
             key="ota_current_status",
@@ -1091,6 +1187,15 @@ BINARY_SENSORS: Final[
             on_value=["active", "complete_maintain", "initiate"],
         ),
         RivianBinarySensorEntityDescription(
+            key="cabin_ventilation_enabled",
+            field="cabinVentilationEnabled",
+            translation_key="cabin_ventilation_enabled",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
+            on_value=[True],
+            supported_feature="AUTO_VENT",
+        ),
+        RivianBinarySensorEntityDescription(
             key="charger_state",
             field="chargerState",
             translation_key="charger_state",
@@ -1575,7 +1680,12 @@ TRIP_INFO_FIELDS: Final[frozenset[str]] = frozenset(
 # Parallax fields whose None value means "not set", so it clears the field
 # rather than being skipped as unsent
 PARALLAX_NONE_CLEARS: Final[frozenset[str]] = frozenset(
-    {"chargingTimeEstimationValidity", "otaScheduledInstallTime", *TRIP_INFO_FIELDS}
+    {
+        "chargingTimeEstimationValidity",
+        "gearGuardStreamingLimitResetTime",
+        "otaScheduledInstallTime",
+        *TRIP_INFO_FIELDS,
+    }
 )
 
 # Parallax topics that send one message per device/schedule, which can't be
@@ -1589,6 +1699,11 @@ PARALLAX_IGNORED_RVMS: Final[frozenset[str]] = frozenset(
 PARALLAX_RVM_DEFAULTS: Final[dict[str, dict[str, Any]]] = {
     "ota.deployment.state": OTA_AVAILABLE_VERSION_IDLE,
     "navigation.navigation_service.trip_info": dict.fromkeys(TRIP_INFO_FIELDS),
+    # The schema says the reset time is only sent while the limit is hit (the
+    # vehicle also resends an old one, which the sensor ignores)
+    "gearguard_streaming.privacy.gearguard_streaming_daily_limit": {
+        "gearGuardStreamingLimitResetTime": None
+    },
 }
 
 # Vehicle state fields Parallax doesn't provide, so they're requested from the

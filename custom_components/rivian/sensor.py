@@ -64,6 +64,14 @@ def _parse_timestamp(val: datetime | str | None) -> datetime | None:
     return val.astimezone(UTC)
 
 
+def _supports(vehicle: dict[str, Any], feature: str | frozenset[str] | None) -> bool:
+    """Return whether a vehicle reports a supported feature, or all of a set."""
+    if feature is None:
+        return True
+    features = set(vehicle.get("supported_features") or [])
+    return feature in features if isinstance(feature, str) else feature <= features
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: RivianConfigEntry,
@@ -82,8 +90,7 @@ async def async_setup_entry(
         for models, descriptions in SENSORS.items()
         if any(model in vehicle["model"] for model in models)
         for description in descriptions
-        if description.supported_feature is None
-        or description.supported_feature in vehicle.get("supported_features", [])
+        if _supports(vehicle, description.supported_feature)
     ]
 
     # Add charging entities

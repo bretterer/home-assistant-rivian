@@ -102,6 +102,7 @@ Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
 | Bluetooth module failure status instrument controls\* | Sensor         |                                                                                                                                |
 | Bluetooth module failure status overhead console\*  | Sensor         |                                                                                                                                |
 | Brake fluid level                                   | Sensor         |                                                                                                                                |
+| Cabin auto ventilation\*                            | Binary sensor  | On/off status                                                                                                                  |
 | Cabin climate preconditioning                       | Binary sensor  | Running/not running status                                                                                                     |
 | Cabin climate preconditioning type                  | Sensor         |                                                                                                                                |
 | Cabin temperature                                   | Sensor         |                                                                                                                                |
@@ -152,6 +153,9 @@ Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
 | Front trunk next action                             | Sensor         |                                                                                                                                |
 | Gear Guard                                          | Binary sensor  | Locked/unlocked status, R1T and R1S only                                                                                       |
 | Gear Guard alarm                                    | Binary sensor  | Tampered/clear status                                                                                                          |
+| Gear Guard streaming consent\*                      | Sensor         | Whether Gear Guard live streaming is consented to in the vehicle, or not set                                                   |
+| Gear Guard streaming daily limit\*                  | Sensor         | Whether the daily Gear Guard live streaming limit is reached                                                                   |
+| Gear Guard streaming limit reset\*                  | Sensor         | When the daily Gear Guard live streaming limit resets, while it's reached                                                      |
 | Gear Guard video mode                               | Sensor         |                                                                                                                                |
 | Gear Guard video status                             | Sensor         |                                                                                                                                |
 | Gear Guard video terms accepted\*                   | Sensor         |                                                                                                                                |
@@ -183,6 +187,9 @@ Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
 | Next stop ETA                                       | Sensor         | Estimated arrival at the next stop                                                                                             |
 | No updates since                                    | Sensor         | When the vehicle last reported data; empty unless that was over 10 minutes ago                                                 |
 | Odometer                                            | Sensor         |                                                                                                                                |
+| Parked energy last 24 hours                         | Sensor         | Energy used while parked in the last 24 hours                                                                                  |
+| Parked energy last 8 hours\*                        | Sensor         | Energy used while parked in the last 8 hours                                                                                   |
+| Parked energy latest session                        | Sensor         | Energy used while parked in the current or last park session                                                                   |
 | Pet comfort                                         | Binary sensor  | Running/not running status                                                                                                     |
 | Pet comfort temperature status                      | Sensor         |                                                                                                                                |
 | Power                                               | Sensor         | Wallbox power                                                                                                                  |

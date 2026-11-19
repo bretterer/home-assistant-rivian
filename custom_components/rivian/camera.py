@@ -28,7 +28,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import DOMAIN
+from .const import DOMAIN, GEAR_GUARD_STREAM_FEATURES
 from .coordinator import RivianConfigEntry, VehicleCoordinator
 from .entity import RivianVehicleEntity
 from .helpers import async_remove_stale_entities
@@ -47,17 +47,18 @@ CAMERAS: Final[dict[str, tuple[str, ...]]] = {
     "interior": ("R2",),  # the R1's cabin camera is only for driver monitoring
     "bed": ("R1T",),
 }
-# Live view also needs V_GGVS (the app's GEAR_GUARD_STREAMING, Connect+'s Gear
-# Guard Live Cam): a LIVE_CAM vehicle without it refuses the stream
-# (VEHICLE_COMMAND_FORBIDDEN). The interior camera needs its own feature too.
-STREAM_FEATURES: Final[set[str]] = {"LIVE_CAM", "V_GGVS"}
+# Live view needs GEAR_GUARD_STREAM_FEATURES; the interior camera needs its own
+# feature too
 CAMERA_FEATURES: Final[dict[str, str]] = {"interior": "INTERIOR_CAMERA"}
 
 
 def vehicle_cameras(vehicle: dict[str, Any]) -> list[str]:
     """Return the cameras a vehicle can stream."""
     features = set(vehicle.get("supported_features", []))
-    if not vehicle.get("phone_identity_id") or not STREAM_FEATURES <= features:
+    if (
+        not vehicle.get("phone_identity_id")
+        or not GEAR_GUARD_STREAM_FEATURES <= features
+    ):
         return []
     return [
         camera
