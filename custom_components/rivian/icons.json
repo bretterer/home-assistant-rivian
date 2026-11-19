@@ -497,6 +497,9 @@
         },
         "precondition_cabin": {
             "service": "mdi:car-seat-heater"
+        },
+        "send_location": {
+            "service": "mdi:map-marker-path"
         }
     }
 }

@@ -239,6 +239,9 @@ def _setup_mock_environment() -> None:
         const_mod.SIGNAL_STRENGTH_DECIBELS_MILLIWATT = "dBm"  # type: ignore[attr-defined]
         # Real values, as the actions' schemas are keyed by them
         const_mod.ATTR_DEVICE_ID = "device_id"  # type: ignore[attr-defined]
+        const_mod.ATTR_LATITUDE = "latitude"  # type: ignore[attr-defined]
+        const_mod.ATTR_LOCATION = "location"  # type: ignore[attr-defined]
+        const_mod.ATTR_LONGITUDE = "longitude"  # type: ignore[attr-defined]
         const_mod.ATTR_NAME = "name"  # type: ignore[attr-defined]
         const_mod.ATTR_TEMPERATURE = "temperature"  # type: ignore[attr-defined]
         const_mod.CONF_EMAIL = "email"  # type: ignore[attr-defined]

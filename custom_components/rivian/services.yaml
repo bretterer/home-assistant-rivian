@@ -192,3 +192,12 @@ precondition_cabin:
         number:
           step: 0.5
           mode: box
+
+send_location:
+  fields:
+    device_id: *device_id
+    location:
+      required: true
+      selector:
+        location:
+          radius: false
