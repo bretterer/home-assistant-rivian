@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Final
 
 from homeassistant.components.binary_sensor import BinarySensorDeviceClass
@@ -108,6 +109,19 @@ BTM_FAILURE_STATUS_OPTIONS: Final[list[str]] = [
 # without V_GGVS refuses the stream (VEHICLE_COMMAND_FORBIDDEN). The cameras
 # and the streaming sensors are created for vehicles with both.
 GEAR_GUARD_STREAM_FEATURES: Final[frozenset[str]] = frozenset({"LIVE_CAM", "V_GGVS"})
+
+
+def _gear_guard_streaming_limit_reset(coordinator: Any) -> datetime | None:
+    """Return when the daily streaming limit resets, only while it's hit.
+
+    The vehicle keeps sending the reset time from the last time the limit was
+    hit (a date long past) while it isn't, so that one doesn't count.
+    """
+    if coordinator.get("gearGuardStreamingDailyLimit") != "hit":
+        return None
+    if (reset := coordinator.get("gearGuardStreamingLimitResetTime")) is None:
+        return None
+    return dt_util.utc_from_timestamp(reset)
 
 
 SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]] = {
@@ -410,7 +424,7 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
             entity_category=EntityCategory.DIAGNOSTIC,
             entity_registry_enabled_default=False,
             device_class=SensorDeviceClass.TIMESTAMP,
-            value_lambda=dt_util.utc_from_timestamp,
+            value_fn=_gear_guard_streaming_limit_reset,
             supported_feature=GEAR_GUARD_STREAM_FEATURES,
         ),
         RivianSensorEntityDescription(
@@ -1684,7 +1698,8 @@ PARALLAX_IGNORED_RVMS: Final[frozenset[str]] = frozenset(
 PARALLAX_RVM_DEFAULTS: Final[dict[str, dict[str, Any]]] = {
     "ota.deployment.state": OTA_AVAILABLE_VERSION_IDLE,
     "navigation.navigation_service.trip_info": dict.fromkeys(TRIP_INFO_FIELDS),
-    # The reset time is only sent while a limit is active
+    # The schema says the reset time is only sent while the limit is hit (the
+    # vehicle also resends an old one, which the sensor ignores)
     "gearguard_streaming.privacy.gearguard_streaming_daily_limit": {
         "gearGuardStreamingLimitResetTime": None
     },

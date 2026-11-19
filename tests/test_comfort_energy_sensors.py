@@ -49,6 +49,8 @@ def parallax(
 def sensor_value(coor: coordinator.VehicleCoordinator, key: str) -> Any:
     """Return a sensor's value, as the sensor entity converts it."""
     description = SENSORS[key]
+    if description.value_fn:
+        return description.value_fn(coor)
     return description.value_lambda(coor.get(description.field))
 
 
@@ -117,6 +119,24 @@ def test_gear_guard_streaming_limit(coor: coordinator.VehicleCoordinator) -> Non
     assert {"hit", "not_hit"} <= set(
         SENSORS["gear_guard_streaming_daily_limit"].options
     )
+
+
+def test_gear_guard_streaming_old_reset_time(
+    coor: coordinator.VehicleCoordinator,
+) -> None:
+    """A reset time sent while the limit isn't hit is the last one, so unknown."""
+    # As a vehicle sends it: the reset time from when the limit was last hit
+    parallax(
+        coor,
+        DAILY_LIMIT_RVM,
+        {
+            "gearGuardStreamingDailyLimit": "not_hit",
+            "gearGuardStreamingLimitResetTime": 1728777600,
+        },
+    )
+
+    assert coor.get("gearGuardStreamingLimitResetTime") == 1728777600
+    assert sensor_value(coor, "gear_guard_streaming_limit_reset_time") is None
 
 
 def test_parked_energy(coor: coordinator.VehicleCoordinator) -> None:
