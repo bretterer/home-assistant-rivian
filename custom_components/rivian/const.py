@@ -1033,6 +1033,15 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
             # -255 when there's no reading
             value_lambda=lambda v: None if v == -255 else v,
         ),
+        RivianSensorEntityDescription(
+            key="saved_location",
+            translation_key="saved_location",
+            field="knownLocation",
+            device_class=SensorDeviceClass.ENUM,
+            options=["elsewhere", "home", "work"],
+            # "unknown" means not at home or work, not an unknown state
+            value_lambda=lambda v: "elsewhere" if v == "unknown" else v,
+        ),
     ),
     # The R2 has a manual charge port door and doesn't get GraphQL vehicle state
     # updates for the install type

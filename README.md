@@ -198,6 +198,7 @@ Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
 | Range threshold                                     | Sensor         |                                                                                                                                |
 | Rear hitch status                                   | Sensor         | Nothing, an accessory or a trailer on the hitch                                                                                |
 | Remote charging available                           | Sensor         |                                                                                                                                |
+| Saved location                                      | Sensor         | Home or work, as saved in the Rivian app, or elsewhere                                                                         |
 | Service mode                                        | Sensor         |                                                                                                                                |
 | Software                                            | Update         |                                                                                                                                |
 | Software OTA - Download progress                    | Sensor         |                                                                                                                                |

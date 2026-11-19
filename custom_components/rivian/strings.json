@@ -1124,6 +1124,14 @@
       },
       "cellular_signal_strength": {
         "name": "Cellular signal strength"
+      },
+      "saved_location": {
+        "name": "Saved location",
+        "state": {
+          "elsewhere": "Elsewhere",
+          "home": "Home",
+          "work": "Work"
+        }
       }
     },
     "switch": {

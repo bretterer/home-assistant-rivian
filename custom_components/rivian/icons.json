@@ -481,6 +481,13 @@
             },
             "cellular_signal_strength": {
                 "default": "mdi:signal"
+            },
+            "saved_location": {
+                "default": "mdi:map-marker",
+                "state": {
+                    "home": "mdi:home-map-marker",
+                    "work": "mdi:office-building-marker"
+                }
             }
         },
         "switch": {
