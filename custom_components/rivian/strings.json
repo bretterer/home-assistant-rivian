@@ -1296,19 +1296,15 @@
     },
     "send_location": {
       "name": "Send location",
-      "description": "Sends a location to the vehicle's navigation, which starts navigating there.",
+      "description": "Sends a location to the vehicle's navigation. It starts navigating there, or adds it as a stop if it's already navigating.",
       "fields": {
         "device_id": {
           "name": "Vehicle",
           "description": "The vehicle to send the location to."
         },
-        "latitude": {
-          "name": "Latitude",
-          "description": "Latitude of the location."
-        },
-        "longitude": {
-          "name": "Longitude",
-          "description": "Longitude of the location."
+        "location": {
+          "name": "Location",
+          "description": "The location to navigate to."
         }
       }
     }

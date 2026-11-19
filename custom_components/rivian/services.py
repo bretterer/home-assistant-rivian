@@ -12,6 +12,7 @@ from homeassistant.auth.permissions.const import CAT_ENTITIES, POLICY_CONTROL
 from homeassistant.const import (
     ATTR_DEVICE_ID,
     ATTR_LATITUDE,
+    ATTR_LOCATION,
     ATTR_LONGITUDE,
     ATTR_NAME,
     ATTR_TEMPERATURE,
@@ -136,11 +137,19 @@ PRECONDITION_CABIN_SCHEMA: Final = vol.Schema(
     }
 )
 
+# what a location selector returns
+LOCATION_SCHEMA: Final = vol.Schema(
+    {
+        vol.Required(ATTR_LATITUDE): cv.latitude,
+        vol.Required(ATTR_LONGITUDE): cv.longitude,
+    },
+    extra=vol.REMOVE_EXTRA,
+)
+
 SEND_LOCATION_SCHEMA: Final = vol.Schema(
     {
         vol.Required(ATTR_DEVICE_ID): cv.string,
-        vol.Required(ATTR_LATITUDE): cv.latitude,
-        vol.Required(ATTR_LONGITUDE): cv.longitude,
+        vol.Required(ATTR_LOCATION): LOCATION_SCHEMA,
     }
 )
 
@@ -323,7 +332,8 @@ def async_setup_services(hass: HomeAssistant) -> None:
         # plain "lat,lng", as a Google Maps link to coordinates sent the vehicle to
         # an earlier destination instead. Fixed decimals, as the default float
         # format turns tiny values into 1e-05
-        location = f"{call.data[ATTR_LATITUDE]:.6f},{call.data[ATTR_LONGITUDE]:.6f}"
+        point = call.data[ATTR_LOCATION]
+        location = f"{point[ATTR_LATITUDE]:.6f},{point[ATTR_LONGITUDE]:.6f}"
         try:
             response = await coordinator.api.send_location_to_vehicle(
                 coordinator.vehicle_id, location

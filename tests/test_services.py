@@ -448,8 +448,10 @@ def _location_call(user_id: str | None = None, **data: Any) -> SimpleNamespace:
         context=SimpleNamespace(user_id=user_id),
         data={
             services.ATTR_DEVICE_ID: DEVICE_ID,
-            services.ATTR_LATITUDE: 39.05,
-            services.ATTR_LONGITUDE: -94.48,
+            services.ATTR_LOCATION: {
+                services.ATTR_LATITUDE: 39.05,
+                services.ATTR_LONGITUDE: -94.48,
+            },
         }
         | data,
     )
@@ -486,7 +488,14 @@ async def test_send_location_near_zero(
     share = _sharing(coordinator, ACCEPTED)
     send = _handlers(hass)[services.SERVICE_SEND_LOCATION]
 
-    await send(_location_call(latitude=-0.00001, longitude=0.00001))
+    await send(
+        _location_call(
+            location={
+                services.ATTR_LATITUDE: -0.00001,
+                services.ATTR_LONGITUDE: 0.00001,
+            }
+        )
+    )
     assert share.await_args.args[1] == "-0.000010,0.000010"
 
 

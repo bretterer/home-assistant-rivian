@@ -339,7 +339,7 @@ These actions need only the signed-in account, not a paired phone key.
 
 | Action                 | Description                                                                                          |
 | ---------------------- | ---------------------------------------------------------------------------------------------------- |
-| `rivian.send_location` | Send a location (`latitude`, `longitude`) to a vehicle's navigation, which starts navigating there |
+| `rivian.send_location` | Send a `location` (`latitude`, `longitude`) to a vehicle's navigation, which starts navigating there, or adds it as a stop if it's already navigating |
 
 ## Trip Route Card
 
