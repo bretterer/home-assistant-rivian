@@ -208,6 +208,7 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
             device_class=SensorDeviceClass.ENERGY,
             suggested_display_precision=1,
             value_lambda=lambda v: v.get("totalEnergy"),
+            entity_registry_enabled_default=False,
             supported_feature="ENRG_MONTR_PARK",
         ),
         RivianSensorEntityDescription(

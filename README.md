@@ -89,7 +89,6 @@ Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
 | Altitude                                            | Sensor         |                                                                                                                                |
 | Amperage                                            | Sensor         | Wallbox current                                                                                                                |
 | Amperage maximum                                    | Sensor         | Wallbox maximum current                                                                                                        |
-| Auto cabin ventilation\*                            | Binary sensor  | On/off status                                                                                                                  |
 | Battery capacity                                    | Sensor         |                                                                                                                                |
 | Battery state of charge                             | Sensor         |                                                                                                                                |
 | Battery state of charge limit                       | Sensor         |                                                                                                                                |
@@ -103,6 +102,7 @@ Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
 | Bluetooth module failure status instrument controls\* | Sensor         |                                                                                                                                |
 | Bluetooth module failure status overhead console\*  | Sensor         |                                                                                                                                |
 | Brake fluid level                                   | Sensor         |                                                                                                                                |
+| Cabin auto ventilation\*                            | Binary sensor  | On/off status                                                                                                                  |
 | Cabin climate preconditioning                       | Binary sensor  | Running/not running status                                                                                                     |
 | Cabin climate preconditioning type                  | Sensor         |                                                                                                                                |
 | Cabin temperature                                   | Sensor         |                                                                                                                                |
@@ -188,7 +188,7 @@ Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
 | No updates since                                    | Sensor         | When the vehicle last reported data; empty unless that was over 10 minutes ago                                                 |
 | Odometer                                            | Sensor         |                                                                                                                                |
 | Parked energy last 24 hours                         | Sensor         | Energy used while parked in the last 24 hours                                                                                  |
-| Parked energy last 8 hours                          | Sensor         | Energy used while parked in the last 8 hours                                                                                   |
+| Parked energy last 8 hours\*                        | Sensor         | Energy used while parked in the last 8 hours                                                                                   |
 | Parked energy park session                          | Sensor         | Energy used while parked in the current or last park session                                                                   |
 | Pet comfort                                         | Binary sensor  | Running/not running status                                                                                                     |
 | Pet comfort temperature status                      | Sensor         |                                                                                                                                |
