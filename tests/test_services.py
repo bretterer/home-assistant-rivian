@@ -541,7 +541,7 @@ async def test_send_location_checks_permission(
     share.assert_not_awaited()
 
 
-STOPS = [{"name": "Stadium", "latitude": 39.05, "longitude": -94.48}]
+STOPS = [{"name": "Stadium", "location": {"latitude": 39.05, "longitude": -94.48}}]
 
 
 def _trip_call(**data: Any) -> SimpleNamespace:

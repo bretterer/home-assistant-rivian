@@ -158,8 +158,7 @@ SEND_LOCATION_SCHEMA: Final = vol.Schema(
 STOP_SCHEMA: Final = vol.Schema(
     {
         vol.Required(ATTR_NAME): cv.string,
-        vol.Required(ATTR_LATITUDE): cv.latitude,
-        vol.Required(ATTR_LONGITUDE): cv.longitude,
+        vol.Required(ATTR_LOCATION): LOCATION_SCHEMA,
     }
 )
 SEND_TRIP_SCHEMA: Final = vol.Schema(
@@ -401,7 +400,11 @@ def async_setup_services(hass: HomeAssistant) -> None:
             coordinator.vehicle_id,
             origin,
             [
-                (stop[ATTR_NAME], stop[ATTR_LATITUDE], stop[ATTR_LONGITUDE])
+                (
+                    stop[ATTR_NAME],
+                    stop[ATTR_LOCATION][ATTR_LATITUDE],
+                    stop[ATTR_LOCATION][ATTR_LONGITUDE],
+                )
                 for stop in call.data["stops"]
             ],
             call.data["min_arrival_charge"],

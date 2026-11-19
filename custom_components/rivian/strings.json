@@ -1318,7 +1318,7 @@
         },
         "stops": {
           "name": "Stops",
-          "description": "The stops in order, each with a name, latitude and longitude."
+          "description": "The stops in order, each with a name and a location."
         },
         "min_arrival_charge": {
           "name": "Minimum arrival charge",

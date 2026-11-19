@@ -216,20 +216,11 @@ send_trip:
               required: true
               selector:
                 text:
-            latitude:
+            location:
               required: true
               selector:
-                number:
-                  min: -90
-                  max: 90
-                  step: any
-            longitude:
-              required: true
-              selector:
-                number:
-                  min: -180
-                  max: 180
-                  step: any
+                location:
+                  radius: false
     min_arrival_charge:
       default: 20
       selector:
