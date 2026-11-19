@@ -778,8 +778,7 @@ async def test_search_places(hass: SimpleNamespace, places: MagicMock) -> None:
                 "place_id": "place_id",
                 "name": "REI",
                 "address": "5901 Mills Civic Pkwy, West Des Moines, IA",
-                "latitude": 41.56001,
-                "longitude": -93.78730,
+                "location": {"latitude": 41.56001, "longitude": -93.78730},
                 "drive_distance": 239062,
                 "drive_duration": 9960,
             }
@@ -788,14 +787,14 @@ async def test_search_places(hass: SimpleNamespace, places: MagicMock) -> None:
     }
 
 
-async def test_search_places_near_coordinates(
+async def test_search_places_near_location(
     hass: SimpleNamespace, places: MagicMock
 ) -> None:
-    """Given coordinates, the search is from there, even with no vehicle position."""
+    """Given a location, the search is from there, even with no vehicle position."""
     places.data = {}
     search = _handlers(hass)[services.SERVICE_SEARCH_PLACES]
 
-    await search(_search_call(latitude=1.0, longitude=2.0))
+    await search(_search_call(location={"latitude": 1.0, "longitude": 2.0}))
     places.api.search_places.assert_awaited_once_with("REI", 1.0, 2.0)
 
 

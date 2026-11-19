@@ -248,18 +248,10 @@ search_places:
       example: REI
       selector:
         text:
-    latitude:
+    location:
       selector:
-        number:
-          min: -90
-          max: 90
-          step: any
-    longitude:
-      selector:
-        number:
-          min: -180
-          max: 180
-          step: any
+        location:
+          radius: false
     max_results:
       default: 8
       selector:

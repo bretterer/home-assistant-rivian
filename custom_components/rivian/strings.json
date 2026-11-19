@@ -1419,7 +1419,7 @@
     },
     "search_places": {
       "name": "Search places",
-      "description": "Searches for places like the Rivian app's map search, from the vehicle's location unless coordinates are given, and returns the results.",
+      "description": "Searches for places like the Rivian app's map search, from the vehicle's location unless a location is given, and returns the results.",
       "fields": {
         "device_id": {
           "name": "Vehicle",
@@ -1429,12 +1429,8 @@
           "name": "Query",
           "description": "What to search for, such as a name or an address."
         },
-        "latitude": {
-          "name": "Latitude",
-          "description": "Search from here instead of the vehicle's location."
-        },
-        "longitude": {
-          "name": "Longitude",
+        "location": {
+          "name": "Location",
           "description": "Search from here instead of the vehicle's location."
         },
         "max_results": {

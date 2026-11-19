@@ -174,8 +174,7 @@ SEARCH_PLACES_SCHEMA: Final = vol.Schema(
     {
         vol.Required(ATTR_DEVICE_ID): cv.string,
         vol.Required("query"): cv.string,
-        vol.Inclusive(ATTR_LATITUDE, "near"): cv.latitude,
-        vol.Inclusive(ATTR_LONGITUDE, "near"): cv.longitude,
+        vol.Optional(ATTR_LOCATION): LOCATION_SCHEMA,
         vol.Optional("max_results", default=8): vol.All(
             vol.Coerce(int), vol.Range(min=1, max=20)
         ),
@@ -444,8 +443,8 @@ def async_setup_services(hass: HomeAssistant) -> None:
     async def search_places(call: ServiceCall) -> ServiceResponse:
         """Search for places, or suggest searches, from the vehicle or coordinates."""
         coordinator = await _async_get_controlled_vehicle(hass, call)
-        if ATTR_LATITUDE in call.data:
-            near = (call.data[ATTR_LATITUDE], call.data[ATTR_LONGITUDE])
+        if point := call.data.get(ATTR_LOCATION):
+            near = (point[ATTR_LATITUDE], point[ATTR_LONGITUDE])
         else:
             near = _position(coordinator)
         try:
@@ -471,8 +470,11 @@ def async_setup_services(hass: HomeAssistant) -> None:
                     "place_id": place["id"],
                     "name": place["name"],
                     "address": location.get("formattedAddress"),
-                    "latitude": point.get("latitude"),
-                    "longitude": point.get("longitude"),
+                    # shaped like a location selector's value, for send_location
+                    "location": {
+                        "latitude": point.get("latitude"),
+                        "longitude": point.get("longitude"),
+                    },
                     "drive_distance": drive.get("driveDistance"),
                     "drive_duration": drive.get("driveDuration"),
                 }
