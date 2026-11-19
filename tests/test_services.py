@@ -471,15 +471,12 @@ ACCEPTED = {"publishResponse": {"result": 0}}
 
 
 async def test_send_location(hass: SimpleNamespace, coordinator: MagicMock) -> None:
-    """The coordinates are sent as a map link to the device's vehicle."""
+    """The coordinates are sent to the device's vehicle."""
     share = _sharing(coordinator, ACCEPTED)
     send = _handlers(hass)[services.SERVICE_SEND_LOCATION]
 
     await send(_location_call())
-    share.assert_awaited_once_with(
-        "vehicle",
-        "https://www.google.com/maps/search/?api=1&query=39.050000,-94.480000",
-    )
+    share.assert_awaited_once_with("vehicle", "39.050000,-94.480000")
 
 
 async def test_send_location_near_zero(
@@ -490,7 +487,7 @@ async def test_send_location_near_zero(
     send = _handlers(hass)[services.SERVICE_SEND_LOCATION]
 
     await send(_location_call(latitude=-0.00001, longitude=0.00001))
-    assert share.await_args.args[1].endswith("query=-0.000010,0.000010")
+    assert share.await_args.args[1] == "-0.000010,0.000010"
 
 
 async def test_send_location_rejected(

@@ -320,14 +320,13 @@ def async_setup_services(hass: HomeAssistant) -> None:
     async def send_location(call: ServiceCall) -> None:
         """Send a location to the vehicle's navigation."""
         coordinator = await _async_get_controlled_vehicle(hass, call)
-        # fixed decimals, as the default float format turns tiny values into 1e-05
-        url = (
-            "https://www.google.com/maps/search/?api=1"
-            f"&query={call.data[ATTR_LATITUDE]:.6f},{call.data[ATTR_LONGITUDE]:.6f}"
-        )
+        # plain "lat,lng", as a Google Maps link to coordinates sent the vehicle to
+        # an earlier destination instead. Fixed decimals, as the default float
+        # format turns tiny values into 1e-05
+        location = f"{call.data[ATTR_LATITUDE]:.6f},{call.data[ATTR_LONGITUDE]:.6f}"
         try:
             response = await coordinator.api.send_location_to_vehicle(
-                coordinator.vehicle_id, url
+                coordinator.vehicle_id, location
             )
             data = (await response.json()).get("data") or {}
         except RivianApiException as err:
