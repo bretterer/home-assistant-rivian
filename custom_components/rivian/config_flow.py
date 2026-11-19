@@ -24,6 +24,7 @@ from homeassistant.helpers.schema_config_entry_flow import (
     SchemaOptionsFlowHandler,
 )
 from homeassistant.helpers.selector import (
+    BooleanSelector,
     DeviceFilterSelectorConfig,
     DeviceSelector,
     DeviceSelectorConfig,
@@ -53,6 +54,12 @@ from .helpers import get_rivian_api_from_entry, has_verified_2fa
 _LOGGER = logging.getLogger(__name__)
 
 
+# Whether each vehicle gets an Outside temperature sensor from the public
+# Open-Meteo API. sensor.py imports the option names below from here.
+CONF_WEATHER_LOOKUPS = "weather_lookups"
+# Off by default: it sends vehicle locations to a third party
+DEFAULT_WEATHER_LOOKUPS = False
+
 STEP_OTP_DATA_SCHEMA = vol.Schema({vol.Required(CONF_OTP): str})
 R1S = DeviceFilterSelectorConfig(integration=DOMAIN, manufacturer="Rivian", model="R1S")
 R1T = DeviceFilterSelectorConfig(integration=DOMAIN, manufacturer="Rivian", model="R1T")
@@ -72,6 +79,9 @@ OPTIONS_SCHEMA = vol.Schema(
         vol.Optional(CONF_ZONE): EntitySelector(
             EntitySelectorConfig(domain=ZONE_DOMAIN, multiple=True)
         ),
+        vol.Optional(
+            CONF_WEATHER_LOOKUPS, default=DEFAULT_WEATHER_LOOKUPS
+        ): BooleanSelector(),
     }
 )
 
