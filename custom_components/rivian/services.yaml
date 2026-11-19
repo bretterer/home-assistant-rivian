@@ -197,7 +197,36 @@ send_location:
   fields:
     device_id: *device_id
     location:
-      required: true
       selector:
         location:
           radius: false
+
+send_trip:
+  fields:
+    device_id: *device_id
+    stops:
+      required: true
+      selector:
+        object:
+          multiple: true
+          label_field: name
+          translation_key: stop
+          fields:
+            name:
+              selector:
+                text:
+            location:
+              selector:
+                location:
+                  radius: false
+    arrival_range:
+      default: 20
+      selector:
+        number:
+          min: 0
+          max: 100
+          unit_of_measurement: "%"
+
+end_trip:
+  fields:
+    device_id: *device_id

@@ -43,6 +43,18 @@
         "photo": "Photorealistic",
         "none": "None"
       }
+    },
+    "stop": {
+      "fields": {
+        "name": {
+          "name": "Name",
+          "description": "The name the vehicle shows for the stop. Defaults to \"Stop 1\", \"Stop 2\" and so on."
+        },
+        "location": {
+          "name": "Location",
+          "description": "The stop's location. Defaults to Home Assistant's home location."
+        }
+      }
     }
   },
   "entity": {
@@ -1357,11 +1369,39 @@
       "fields": {
         "device_id": {
           "name": "Vehicle",
-          "description": "The vehicle to send the location to."
+          "description": "The Rivian vehicle."
         },
         "location": {
           "name": "Location",
-          "description": "The location to navigate to."
+          "description": "The location to navigate to. Defaults to Home Assistant's home location."
+        }
+      }
+    },
+    "send_trip": {
+      "name": "Send trip",
+      "description": "Sends stops to the vehicle's navigation. The vehicle plans the route and charging stops itself. Ends any trip it is navigating first, since the vehicle ignores a new one until then.",
+      "fields": {
+        "device_id": {
+          "name": "Vehicle",
+          "description": "The Rivian vehicle."
+        },
+        "stops": {
+          "name": "Stops",
+          "description": "The stops in order, each with a name (\"Stop 1\" and so on if left out) and a location (Home Assistant's home location if left out)."
+        },
+        "arrival_range": {
+          "name": "Preferred arrival range",
+          "description": "The least charge to arrive with, in percent."
+        }
+      }
+    },
+    "end_trip": {
+      "name": "End trip",
+      "description": "Ends the trip the vehicle is navigating.",
+      "fields": {
+        "device_id": {
+          "name": "Vehicle",
+          "description": "The Rivian vehicle."
         }
       }
     }
@@ -1423,6 +1463,21 @@
     },
     "location_rejected": {
       "message": "Rivian didn't accept the location"
+    },
+    "location_unknown": {
+      "message": "The vehicle's location is unknown"
+    },
+    "trip_rejected": {
+      "message": "Rivian didn't accept the trip"
+    },
+    "trip_failed": {
+      "message": "Couldn't send the trip to Rivian: {error}"
+    },
+    "end_trip_rejected": {
+      "message": "Rivian didn't accept ending the trip"
+    },
+    "end_trip_failed": {
+      "message": "Couldn't end the trip: {error}"
     }
   }
 }

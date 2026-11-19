@@ -528,6 +528,20 @@ async def test_send_location_api_error(
     assert err.value.translation_placeholders == {"error": "rate limited"}
 
 
+async def test_send_location_defaults_to_home(
+    hass: SimpleNamespace, coordinator: MagicMock
+) -> None:
+    """Without a location, Home Assistant's home location is sent."""
+    share = _sharing(coordinator, ACCEPTED)
+    hass.config = SimpleNamespace(latitude=38.9, longitude=-94.6)
+    send = _handlers(hass)[services.SERVICE_SEND_LOCATION]
+    call = _location_call()
+    del call.data[services.ATTR_LOCATION]
+
+    await send(call)
+    share.assert_awaited_once_with("vehicle", "38.900000,-94.600000")
+
+
 async def test_send_location_checks_permission(
     hass: SimpleNamespace, coordinator: MagicMock
 ) -> None:
@@ -539,3 +553,177 @@ async def test_send_location_checks_permission(
     with pytest.raises(Unauthorized):
         await send(_location_call("user"))
     share.assert_not_awaited()
+
+
+STOPS = [{"name": "Stadium", "location": {"latitude": 39.05, "longitude": -94.48}}]
+
+
+def _trip_call(**data: Any) -> SimpleNamespace:
+    """A send_trip call from an automation."""
+    return SimpleNamespace(
+        context=SimpleNamespace(user_id=None),
+        data={
+            services.ATTR_DEVICE_ID: DEVICE_ID,
+            "stops": STOPS,
+            services.ATTR_ARRIVAL_RANGE: 30,
+        }
+        | data,
+    )
+
+
+@pytest.fixture
+def vehicle(coordinator: MagicMock) -> MagicMock:
+    """A vehicle at 40.1, -92.5, signed in as "user", that accepts trips."""
+    coordinator.vehicle_id = "vehicle"
+    coordinator.data = {"gnssLocation": {"latitude": 40.1, "longitude": -92.5}}
+    coordinator.config_entry.runtime_data.user_coordinator.data = {"id": "user"}
+    coordinator.api.end_trip = AsyncMock(return_value=True)
+    coordinator.api.send_trip_to_vehicle = AsyncMock(return_value=True)
+    return coordinator
+
+
+async def test_send_trip(hass: SimpleNamespace, vehicle: MagicMock) -> None:
+    """Any active trip is ended, then stops are sent from the vehicle's location."""
+    calls = MagicMock()
+    calls.attach_mock(vehicle.api.end_trip, "end_trip")
+    calls.attach_mock(vehicle.api.send_trip_to_vehicle, "send_trip")
+    # a rejected end, with no trip to end, doesn't stop the send
+    vehicle.api.end_trip.return_value = False
+    send = _handlers(hass)[services.SERVICE_SEND_TRIP]
+
+    await send(_trip_call())
+    assert [name for name, *_ in calls.mock_calls] == ["end_trip", "send_trip"]
+    vehicle.api.end_trip.assert_awaited_once_with("vehicle", "user")
+    vehicle.api.send_trip_to_vehicle.assert_awaited_once_with(
+        "vehicle", (40.1, -92.5), [("Stadium", 39.05, -94.48)], 30
+    )
+
+
+async def test_send_trip_stop_defaults_to_home(
+    hass: SimpleNamespace, vehicle: MagicMock
+) -> None:
+    """A stop without a location is Home Assistant's home location."""
+    hass.config = SimpleNamespace(latitude=38.9, longitude=-94.6)
+    send = _handlers(hass)[services.SERVICE_SEND_TRIP]
+
+    await send(_trip_call(stops=[{"name": "Home"}, *STOPS]))
+    assert vehicle.api.send_trip_to_vehicle.await_args.args[2] == [
+        ("Home", 38.9, -94.6),
+        ("Stadium", 39.05, -94.48),
+    ]
+
+
+async def test_send_trip_stop_names_default(
+    hass: SimpleNamespace, vehicle: MagicMock
+) -> None:
+    """A stop without a name, or with an empty one, is named by its number."""
+    send = _handlers(hass)[services.SERVICE_SEND_TRIP]
+    location = STOPS[0]["location"]
+
+    await send(
+        _trip_call(
+            stops=[{"location": location}, *STOPS, {"name": "", "location": location}]
+        )
+    )
+    assert [
+        name for name, *_ in vehicle.api.send_trip_to_vehicle.await_args.args[2]
+    ] == [
+        "Stop 1",
+        "Stadium",
+        "Stop 3",
+    ]
+
+
+async def test_send_trip_without_position(
+    monkeypatch: pytest.MonkeyPatch, hass: SimpleNamespace, vehicle: MagicMock
+) -> None:
+    """A trip can't be planned without the vehicle's location."""
+    monkeypatch.setattr(services, "HomeAssistantError", _TranslatedError)
+    vehicle.data = {}
+    send = _handlers(hass)[services.SERVICE_SEND_TRIP]
+
+    with pytest.raises(_TranslatedError) as err:
+        await send(_trip_call())
+    assert err.value.translation_key == "location_unknown"
+    vehicle.api.send_trip_to_vehicle.assert_not_awaited()
+
+
+async def test_end_trip(hass: SimpleNamespace, vehicle: MagicMock) -> None:
+    """The trip is ended for the signed-in user."""
+    end = _handlers(hass)[services.SERVICE_END_TRIP]
+
+    await end(_trip_call())
+    vehicle.api.end_trip.assert_awaited_once_with("vehicle", "user")
+
+
+@pytest.mark.parametrize(
+    ("service", "key"),
+    [
+        (services.SERVICE_SEND_TRIP, "trip_rejected"),
+        (services.SERVICE_END_TRIP, "end_trip_rejected"),
+    ],
+)
+async def test_trip_refused(
+    monkeypatch: pytest.MonkeyPatch,
+    hass: SimpleNamespace,
+    vehicle: MagicMock,
+    service: str,
+    key: str,
+) -> None:
+    """A trip, or ending one, that Rivian refuses fails the action."""
+    monkeypatch.setattr(services, "HomeAssistantError", _TranslatedError)
+    vehicle.api.end_trip.return_value = False
+    vehicle.api.send_trip_to_vehicle.return_value = False
+    handler = _handlers(hass)[service]
+
+    with pytest.raises(_TranslatedError) as err:
+        await handler(_trip_call())
+    assert err.value.translation_key == key
+
+
+@pytest.mark.parametrize(
+    "service", [services.SERVICE_SEND_TRIP, services.SERVICE_END_TRIP]
+)
+async def test_trip_actions_check_permission(
+    hass: SimpleNamespace, vehicle: MagicMock, service: str
+) -> None:
+    """A user who can't control the vehicle can't send or end its trip."""
+    hass.auth.async_get_user.return_value = _user()
+    handler = _handlers(hass)[service]
+    call = _trip_call()
+    call.context.user_id = "user"
+
+    with pytest.raises(Unauthorized):
+        await handler(call)
+    vehicle.api.end_trip.assert_not_awaited()
+    vehicle.api.send_trip_to_vehicle.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    ("service", "failing", "key"),
+    [
+        (services.SERVICE_SEND_TRIP, "send_trip_to_vehicle", "trip_failed"),
+        # the end send_trip makes first
+        (services.SERVICE_SEND_TRIP, "end_trip", "trip_failed"),
+        (services.SERVICE_END_TRIP, "end_trip", "end_trip_failed"),
+    ],
+)
+async def test_trip_api_error(
+    monkeypatch: pytest.MonkeyPatch,
+    hass: SimpleNamespace,
+    vehicle: MagicMock,
+    service: str,
+    failing: str,
+    key: str,
+) -> None:
+    """An API error, e.g. a rate limit, fails the action with the error."""
+    monkeypatch.setattr(services, "HomeAssistantError", _TranslatedError)
+    getattr(vehicle.api, failing).side_effect = services.RivianApiException(
+        "rate limited"
+    )
+    handler = _handlers(hass)[service]
+
+    with pytest.raises(_TranslatedError) as err:
+        await handler(_trip_call())
+    assert err.value.translation_key == key
+    assert err.value.translation_placeholders == {"error": "rate limited"}

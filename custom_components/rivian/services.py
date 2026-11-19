@@ -57,12 +57,16 @@ ATTR_FRONT_DEFROST: Final = "front_defrost"
 ATTR_LEAD_TIME: Final = "lead_time"
 ATTR_OVERRIDE_CHARGE_SCHEDULE: Final = "override_charge_schedule"
 ATTR_SCHEDULE_ID: Final = "schedule_id"
+ATTR_ARRIVAL_RANGE: Final = "arrival_range"
+ATTR_STOPS: Final = "stops"
 
 SERVICE_CREATE_DEPARTURE_SCHEDULE: Final = "create_departure_schedule"
 SERVICE_UPDATE_DEPARTURE_SCHEDULE: Final = "update_departure_schedule"
 SERVICE_DELETE_DEPARTURE_SCHEDULE: Final = "delete_departure_schedule"
 SERVICE_PRECONDITION_CABIN: Final = "precondition_cabin"
 SERVICE_SEND_LOCATION: Final = "send_location"
+SERVICE_SEND_TRIP: Final = "send_trip"
+SERVICE_END_TRIP: Final = "end_trip"
 
 
 def _not_reserved_name(value: str) -> str:
@@ -149,9 +153,31 @@ LOCATION_SCHEMA: Final = vol.Schema(
 SEND_LOCATION_SCHEMA: Final = vol.Schema(
     {
         vol.Required(ATTR_DEVICE_ID): cv.string,
-        vol.Required(ATTR_LOCATION): LOCATION_SCHEMA,
+        # Home Assistant's home location when left out, as the location selector
+        # shows it on the map when empty
+        vol.Optional(ATTR_LOCATION): LOCATION_SCHEMA,
     }
 )
+
+STOP_SCHEMA: Final = vol.Schema(
+    {
+        # "Stop 1" and so on when left out or empty, as Rivian keeps no name then
+        vol.Optional(ATTR_NAME): cv.string,
+        vol.Optional(ATTR_LOCATION): LOCATION_SCHEMA,
+    }
+)
+SEND_TRIP_SCHEMA: Final = vol.Schema(
+    {
+        vol.Required(ATTR_DEVICE_ID): cv.string,
+        vol.Required(ATTR_STOPS): vol.All(
+            cv.ensure_list, [STOP_SCHEMA], vol.Length(min=1)
+        ),
+        vol.Optional(ATTR_ARRIVAL_RANGE, default=20): vol.All(
+            vol.Coerce(int), vol.Range(min=0, max=100)
+        ),
+    }
+)
+END_TRIP_SCHEMA: Final = vol.Schema({vol.Required(ATTR_DEVICE_ID): cv.string})
 
 
 def _get_coordinator(hass: HomeAssistant, device_id: str) -> VehicleCoordinator:
@@ -217,6 +243,31 @@ async def _async_get_controlled_vehicle(
             perm_category=CAT_ENTITIES,
         )
     return coordinator
+
+
+def _position(coordinator: VehicleCoordinator) -> tuple[float, float]:
+    """Return the vehicle's latitude and longitude."""
+    location = (coordinator.data or {}).get("gnssLocation") or {}
+    latitude, longitude = location.get("latitude"), location.get("longitude")
+    if latitude is None or longitude is None:
+        raise HomeAssistantError(
+            translation_domain=DOMAIN, translation_key="location_unknown"
+        )
+    return latitude, longitude
+
+
+def _coordinates(
+    hass: HomeAssistant, location: dict[str, float] | None
+) -> tuple[float, float]:
+    """Return a location's latitude and longitude, by default Home Assistant's home."""
+    if location is None:
+        return hass.config.latitude, hass.config.longitude
+    return location[ATTR_LATITUDE], location[ATTR_LONGITUDE]
+
+
+def _user_id(coordinator: VehicleCoordinator) -> str:
+    """Return the id of the account the vehicle's config entry signs in as."""
+    return coordinator.config_entry.runtime_data.user_coordinator.data["id"]
 
 
 def _to_celsius(hass: HomeAssistant, temperature: float) -> float:
@@ -332,8 +383,8 @@ def async_setup_services(hass: HomeAssistant) -> None:
         # plain "lat,lng", as a Google Maps link to coordinates sent the vehicle to
         # an earlier destination instead. Fixed decimals, as the default float
         # format turns tiny values into 1e-05
-        point = call.data[ATTR_LOCATION]
-        location = f"{point[ATTR_LATITUDE]:.6f},{point[ATTR_LONGITUDE]:.6f}"
+        latitude, longitude = _coordinates(hass, call.data.get(ATTR_LOCATION))
+        location = f"{latitude:.6f},{longitude:.6f}"
         try:
             response = await coordinator.api.send_location_to_vehicle(
                 coordinator.vehicle_id, location
@@ -350,6 +401,53 @@ def async_setup_services(hass: HomeAssistant) -> None:
         if (share.get("publishResponse") or {}).get("result") != 0:
             raise HomeAssistantError(
                 translation_domain=DOMAIN, translation_key="location_rejected"
+            )
+
+    async def send_trip(call: ServiceCall) -> None:
+        """Send stops to the vehicle, which plans the route and charging stops."""
+        coordinator = await _async_get_controlled_vehicle(hass, call)
+        origin = _position(coordinator)
+        user_id = _user_id(coordinator)
+        stops = [
+            (
+                stop.get(ATTR_NAME) or f"Stop {number}",
+                *_coordinates(hass, stop.get(ATTR_LOCATION)),
+            )
+            for number, stop in enumerate(call.data[ATTR_STOPS], 1)
+        ]
+        try:
+            # the vehicle ignores a new trip while navigating another one
+            await coordinator.api.end_trip(coordinator.vehicle_id, user_id)
+            sent = await coordinator.api.send_trip_to_vehicle(
+                coordinator.vehicle_id, origin, stops, call.data[ATTR_ARRIVAL_RANGE]
+            )
+        except RivianApiException as err:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="trip_failed",
+                translation_placeholders={"error": str(err)},
+            ) from err
+        if not sent:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN, translation_key="trip_rejected"
+            )
+
+    async def end_trip(call: ServiceCall) -> None:
+        """End the trip the vehicle is navigating."""
+        coordinator = await _async_get_controlled_vehicle(hass, call)
+        try:
+            ended = await coordinator.api.end_trip(
+                coordinator.vehicle_id, _user_id(coordinator)
+            )
+        except RivianApiException as err:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="end_trip_failed",
+                translation_placeholders={"error": str(err)},
+            ) from err
+        if not ended:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN, translation_key="end_trip_rejected"
             )
 
     hass.services.async_register(
@@ -381,4 +479,16 @@ def async_setup_services(hass: HomeAssistant) -> None:
         SERVICE_SEND_LOCATION,
         send_location,
         schema=SEND_LOCATION_SCHEMA,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_SEND_TRIP,
+        send_trip,
+        schema=SEND_TRIP_SCHEMA,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_END_TRIP,
+        end_trip,
+        schema=END_TRIP_SCHEMA,
     )
