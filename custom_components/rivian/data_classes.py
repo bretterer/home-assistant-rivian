@@ -38,6 +38,9 @@ class RivianBinarySensorEntityDescription(BinarySensorEntityDescription):
     negate: bool = False
     # Only create for vehicles reporting this supported feature
     supported_feature: str | None = None
+    # Only create once the vehicle reports a value for field, which must be a
+    # single field, for parts no supported feature shows
+    add_when_reported: bool = False
 
 
 @dataclass(kw_only=True)
@@ -96,8 +99,8 @@ class RivianSensorEntityDescription(SensorEntityDescription):
     value_lambda: Callable[[Any], Any] | None = None
     # Keep the last known value (across restarts) while the field is unreported
     restore: bool = False
-    # Only create for vehicles reporting this supported feature
-    supported_feature: str | None = None
+    # Only create for vehicles reporting this supported feature, or all of these
+    supported_feature: str | frozenset[str] | None = None
 
 
 @dataclass(kw_only=True)
@@ -119,6 +122,7 @@ class RivianSwitchEntityDescription(
     is_on: Callable[[VehicleCoordinator], bool]
     turn_off: Callable[[VehicleCoordinator], Awaitable[None]]
     turn_on: Callable[[VehicleCoordinator], Awaitable[None]]
+    supported_feature: str | None = None
 
 
 @dataclass(kw_only=True)

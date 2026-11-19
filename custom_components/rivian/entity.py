@@ -10,16 +10,16 @@ from homeassistant.components.zone import in_zone
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_ZONE
 from homeassistant.core import callback
+from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC, format_mac
 from homeassistant.helpers.entity import DeviceInfo, EntityDescription
 from homeassistant.helpers.event import async_call_later, async_track_time_interval
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
-from .const import ATTR_COORDINATOR, ATTR_USER, DOMAIN
+from .const import DOMAIN
 from .coordinator import (
     ChargingCoordinator,
     RivianDataUpdateCoordinator,
-    UserCoordinator,
     VehicleCoordinator,
     WallboxCoordinator,
 )
@@ -63,6 +63,10 @@ class RivianVehicleEntity(RivianEntity[VehicleCoordinator]):
             serial_number=vin,
             sw_version=self._get_value("otaCurrentVersion"),
         )
+        if mac := self._get_value("wifiMacAddress"):
+            self._attr_device_info["connections"] = {
+                (CONNECTION_NETWORK_MAC, format_mac(mac))
+            }
 
     @property
     def available(self) -> bool:
@@ -164,15 +168,13 @@ class RivianVehicleControlEntity(RivianVehicleEntity):
 
     def _handle_driver_update(self) -> None:
         """Handle driver update."""
-        entry_data = self.hass.data[DOMAIN][self._config_entry.entry_id]
-        user: UserCoordinator = entry_data[ATTR_COORDINATOR][ATTR_USER]
+        user = self.coordinator.config_entry.runtime_data.user_coordinator
         phone_info = user.get_enrolled_phone_data(
             self._config_entry.options.get("public_key")
         )
-        device = self.coordinator.drivers_coordinator.get_device_details(
+        self._available = self.coordinator.has_paired_phone(
             phone_info[1].get(self.coordinator.vehicle_id)
         )
-        self._available = device["isPaired"]
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""
