@@ -206,8 +206,12 @@
       "window_rear_closed": {
         "name": "Window liftgate"
       },
-      "battery_needs_lfp_calibration": {
-        "name": "Battery needs LFP calibration"
+      "battery_lfp_calibration": {
+        "name": "Battery LFP calibration",
+        "state": {
+          "off": "Not needed",
+          "on": "Needed"
+        }
       }
     },
     "camera": {

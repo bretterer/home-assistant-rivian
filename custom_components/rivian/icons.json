@@ -73,7 +73,7 @@
                     "on": "mdi:cloud-alert-outline"
                 }
             },
-            "battery_needs_lfp_calibration": {
+            "battery_lfp_calibration": {
                 "default": "mdi:battery-sync"
             }
         },

@@ -1387,9 +1387,9 @@ BINARY_SENSORS: Final[
             on_value="on",
         ),
         RivianBinarySensorEntityDescription(
-            key="battery_needs_lfp_calibration",
+            key="battery_lfp_calibration",
             field="batteryNeedsLfpCalibration",
-            translation_key="battery_needs_lfp_calibration",
+            translation_key="battery_lfp_calibration",
             entity_category=EntityCategory.DIAGNOSTIC,
             entity_registry_enabled_default=False,
             device_class=BinarySensorDeviceClass.PROBLEM,

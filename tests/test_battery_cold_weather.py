@@ -57,7 +57,7 @@ def test_battery_cell_type(coor: coordinator.VehicleCoordinator) -> None:
 
 
 @pytest.mark.parametrize(("value", "is_on"), [("true", True), ("false", False)])
-def test_battery_needs_lfp_calibration(
+def test_battery_lfp_calibration(
     coor: coordinator.VehicleCoordinator, value: str, is_on: bool
 ) -> None:
     """The binary sensor is on when the battery needs calibrating."""
@@ -70,7 +70,7 @@ def test_battery_needs_lfp_calibration(
     entity = binary_sensor.RivianBinarySensorEntity(
         coor,
         MagicMock(),
-        BINARY_DESCRIPTIONS["battery_needs_lfp_calibration"],
+        BINARY_DESCRIPTIONS["battery_lfp_calibration"],
         {"id": "V", "vin": "VIN", "name": "R1T", "model": "R1T"},
     )
     assert entity.is_on is is_on
@@ -96,7 +96,7 @@ def test_cold_weather_soc(coor: coordinator.VehicleCoordinator) -> None:
         "cold_weather_soc_green",
         "cold_weather_soc_blue",
         "cold_range_impact",
-        "battery_needs_lfp_calibration",
+        "battery_lfp_calibration",
     ],
 )
 def test_disabled_by_default(key: str) -> None:

@@ -91,7 +91,7 @@ Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
 | Amperage maximum                                    | Sensor         | Wallbox maximum current                                                                                                        |
 | Battery capacity                                    | Sensor         |                                                                                                                                |
 | Battery cell type\*                                 | Sensor         |                                                                                                                                |
-| Battery needs LFP calibration\*                     | Binary sensor  | Whether the LFP battery needs a calibration charge                                                                             |
+| Battery LFP calibration\*                           | Binary sensor  | Whether the LFP battery needs a calibration charge                                                                             |
 | Battery state of charge                             | Sensor         |                                                                                                                                |
 | Battery state of charge limit                       | Sensor         |                                                                                                                                |
 | Battery thermal runaway propagation                 | Sensor         |                                                                                                                                |
