@@ -200,6 +200,15 @@ send_location:
       selector:
         location:
           radius: false
+    place_id:
+      selector:
+        text:
+    name:
+      selector:
+        text:
+    address:
+      selector:
+        text:
 
 send_trip:
   fields:
@@ -230,3 +239,34 @@ send_trip:
 end_trip:
   fields:
     device_id: *device_id
+
+search_places:
+  fields:
+    device_id: *device_id
+    query:
+      required: true
+      example: REI
+      selector:
+        text:
+    latitude:
+      selector:
+        number:
+          min: -90
+          max: 90
+          step: any
+    longitude:
+      selector:
+        number:
+          min: -180
+          max: 180
+          step: any
+    max_results:
+      default: 8
+      selector:
+        number:
+          min: 1
+          max: 20
+    autocomplete:
+      default: false
+      selector:
+        boolean:

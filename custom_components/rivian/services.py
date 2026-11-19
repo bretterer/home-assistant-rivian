@@ -6,6 +6,7 @@ from datetime import time
 from typing import Any, Final
 
 from rivian.exceptions import RivianApiException
+from rivian.utils import place_url
 import voluptuous as vol
 
 from homeassistant.auth.permissions.const import CAT_ENTITIES, POLICY_CONTROL
@@ -18,7 +19,13 @@ from homeassistant.const import (
     ATTR_TEMPERATURE,
     UnitOfTemperature,
 )
-from homeassistant.core import HomeAssistant, ServiceCall, callback
+from homeassistant.core import (
+    HomeAssistant,
+    ServiceCall,
+    ServiceResponse,
+    SupportsResponse,
+    callback,
+)
 from homeassistant.exceptions import (
     HomeAssistantError,
     ServiceValidationError,
@@ -64,6 +71,7 @@ SERVICE_CREATE_DEPARTURE_SCHEDULE: Final = "create_departure_schedule"
 SERVICE_UPDATE_DEPARTURE_SCHEDULE: Final = "update_departure_schedule"
 SERVICE_DELETE_DEPARTURE_SCHEDULE: Final = "delete_departure_schedule"
 SERVICE_PRECONDITION_CABIN: Final = "precondition_cabin"
+SERVICE_SEARCH_PLACES: Final = "search_places"
 SERVICE_SEND_LOCATION: Final = "send_location"
 SERVICE_SEND_TRIP: Final = "send_trip"
 SERVICE_END_TRIP: Final = "end_trip"
@@ -156,6 +164,22 @@ SEND_LOCATION_SCHEMA: Final = vol.Schema(
         # Home Assistant's home location when left out, as the location selector
         # shows it on the map when empty
         vol.Optional(ATTR_LOCATION): LOCATION_SCHEMA,
+        vol.Inclusive("place_id", "place"): cv.string,
+        vol.Inclusive(ATTR_NAME, "place"): cv.string,
+        vol.Optional("address"): cv.string,
+    }
+)
+
+SEARCH_PLACES_SCHEMA: Final = vol.Schema(
+    {
+        vol.Required(ATTR_DEVICE_ID): cv.string,
+        vol.Required("query"): cv.string,
+        vol.Inclusive(ATTR_LATITUDE, "near"): cv.latitude,
+        vol.Inclusive(ATTR_LONGITUDE, "near"): cv.longitude,
+        vol.Optional("max_results", default=8): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=20)
+        ),
+        vol.Optional("autocomplete", default=False): cv.boolean,
     }
 )
 
@@ -380,11 +404,25 @@ def async_setup_services(hass: HomeAssistant) -> None:
     async def send_location(call: ServiceCall) -> None:
         """Send a location to the vehicle's navigation."""
         coordinator = await _async_get_controlled_vehicle(hass, call)
-        # plain "lat,lng", as a Google Maps link to coordinates sent the vehicle to
-        # an earlier destination instead. Fixed decimals, as the default float
-        # format turns tiny values into 1e-05
         latitude, longitude = _coordinates(hass, call.data.get(ATTR_LOCATION))
-        location = f"{latitude:.6f},{longitude:.6f}"
+        if place_id := call.data.get("place_id"):
+            if ATTR_LOCATION not in call.data:
+                # the place link carries the coordinates the vehicle navigates to
+                raise ServiceValidationError(
+                    translation_domain=DOMAIN, translation_key="place_without_location"
+                )
+            location = place_url(
+                place_id,
+                call.data[ATTR_NAME],
+                latitude,
+                longitude,
+                call.data.get("address"),
+            )
+        else:
+            # plain "lat,lng", as a Google Maps link to coordinates sent the vehicle
+            # to an earlier destination instead. Fixed decimals, as the default
+            # float format turns tiny values into 1e-05
+            location = f"{latitude:.6f},{longitude:.6f}"
         try:
             response = await coordinator.api.send_location_to_vehicle(
                 coordinator.vehicle_id, location
@@ -402,6 +440,44 @@ def async_setup_services(hass: HomeAssistant) -> None:
             raise HomeAssistantError(
                 translation_domain=DOMAIN, translation_key="location_rejected"
             )
+
+    async def search_places(call: ServiceCall) -> ServiceResponse:
+        """Search for places, or suggest searches, from the vehicle or coordinates."""
+        coordinator = await _async_get_controlled_vehicle(hass, call)
+        if ATTR_LATITUDE in call.data:
+            near = (call.data[ATTR_LATITUDE], call.data[ATTR_LONGITUDE])
+        else:
+            near = _position(coordinator)
+        try:
+            if call.data["autocomplete"]:
+                predictions = await coordinator.api.suggest_places(
+                    call.data["query"], *near
+                )
+                return {"predictions": predictions, "results": []}
+            places = await coordinator.api.search_places(call.data["query"], *near)
+        except RivianApiException as err:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="search_failed",
+                translation_placeholders={"error": str(err)},
+            ) from err
+        results = []
+        for place in places[: call.data["max_results"]]:
+            location = place.get("location") or {}
+            point = location.get("navCoordinate") or location.get("coordinate") or {}
+            drive = place.get("driveDetails") or {}
+            results.append(
+                {
+                    "place_id": place["id"],
+                    "name": place["name"],
+                    "address": location.get("formattedAddress"),
+                    "latitude": point.get("latitude"),
+                    "longitude": point.get("longitude"),
+                    "drive_distance": drive.get("driveDistance"),
+                    "drive_duration": drive.get("driveDuration"),
+                }
+            )
+        return {"predictions": [], "results": results}
 
     async def send_trip(call: ServiceCall) -> None:
         """Send stops to the vehicle, which plans the route and charging stops."""
@@ -491,4 +567,11 @@ def async_setup_services(hass: HomeAssistant) -> None:
         SERVICE_END_TRIP,
         end_trip,
         schema=END_TRIP_SCHEMA,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_SEARCH_PLACES,
+        search_places,
+        schema=SEARCH_PLACES_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
     )

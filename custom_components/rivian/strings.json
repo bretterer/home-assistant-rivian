@@ -1374,6 +1374,18 @@
         "location": {
           "name": "Location",
           "description": "The location to navigate to. Defaults to Home Assistant's home location."
+        },
+        "place_id": {
+          "name": "Place ID",
+          "description": "A place's ID from Search places; with a name, the vehicle shows the place's name. Requires a name and a location."
+        },
+        "name": {
+          "name": "Name",
+          "description": "The place's name, shown on the vehicle. Requires a place ID."
+        },
+        "address": {
+          "name": "Address",
+          "description": "The place's address, sent with a place ID."
         }
       }
     },
@@ -1402,6 +1414,36 @@
         "device_id": {
           "name": "Vehicle",
           "description": "The Rivian vehicle."
+        }
+      }
+    },
+    "search_places": {
+      "name": "Search places",
+      "description": "Searches for places like the Rivian app's map search, from the vehicle's location unless coordinates are given, and returns the results.",
+      "fields": {
+        "device_id": {
+          "name": "Vehicle",
+          "description": "The vehicle to search from."
+        },
+        "query": {
+          "name": "Query",
+          "description": "What to search for, such as a name or an address."
+        },
+        "latitude": {
+          "name": "Latitude",
+          "description": "Search from here instead of the vehicle's location."
+        },
+        "longitude": {
+          "name": "Longitude",
+          "description": "Search from here instead of the vehicle's location."
+        },
+        "max_results": {
+          "name": "Maximum results",
+          "description": "The most results to return."
+        },
+        "autocomplete": {
+          "name": "Autocomplete",
+          "description": "Return suggested search texts for partial text, for type-ahead, instead of places."
         }
       }
     }
@@ -1464,6 +1506,9 @@
     "location_rejected": {
       "message": "Rivian didn't accept the location"
     },
+    "place_without_location": {
+      "message": "A place ID needs the place's location"
+    },
     "location_unknown": {
       "message": "The vehicle's location is unknown"
     },
@@ -1478,6 +1523,9 @@
     },
     "end_trip_failed": {
       "message": "Couldn't end the trip: {error}"
+    },
+    "search_failed": {
+      "message": "The place search failed: {error}"
     }
   }
 }
