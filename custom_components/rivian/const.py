@@ -103,6 +103,12 @@ BTM_FAILURE_STATUS_OPTIONS: Final[list[str]] = [
     "set",
 ]
 
+# Gear Guard live view needs both: LIVE_CAM, and V_GGVS (the app's
+# GEAR_GUARD_STREAMING, Connect+'s Gear Guard Live Cam). A LIVE_CAM vehicle
+# without V_GGVS refuses the stream (VEHICLE_COMMAND_FORBIDDEN). The cameras
+# and the streaming sensors are created for vehicles with both.
+GEAR_GUARD_STREAM_FEATURES: Final[frozenset[str]] = frozenset({"LIVE_CAM", "V_GGVS"})
+
 
 SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]] = {
     ("R1", "R2"): (
@@ -167,14 +173,15 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
             state_class=SensorStateClass.MEASUREMENT,
             suggested_display_precision=2,
         ),
-        # Energy used over a window while parked, which can go down as well as
-        # up, so not an energy meter (device class energy)
+        # Energy used while parked. The last 24 and 8 hours are rolling windows,
+        # which overlap and can drop without a reset, so they have no state
+        # class. The park session only goes up, and starts again with each one.
         RivianSensorEntityDescription(
             key="parked_energy_last_24_hours",
             translation_key="parked_energy_last_24_hours",
             field="parkedEnergyLast24Hours",
             native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
-            state_class=SensorStateClass.MEASUREMENT,
+            device_class=SensorDeviceClass.ENERGY,
             suggested_display_precision=1,
             value_lambda=lambda v: v.get("totalEnergy"),
             supported_feature="ENRG_MONTR_PARK",
@@ -184,7 +191,7 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
             translation_key="parked_energy_last_8_hours",
             field="parkedEnergyLast8Hours",
             native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
-            state_class=SensorStateClass.MEASUREMENT,
+            device_class=SensorDeviceClass.ENERGY,
             suggested_display_precision=1,
             value_lambda=lambda v: v.get("totalEnergy"),
             supported_feature="ENRG_MONTR_PARK",
@@ -194,7 +201,8 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
             translation_key="parked_energy_park_session",
             field="parkedEnergyLastParkSession",
             native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
-            state_class=SensorStateClass.MEASUREMENT,
+            device_class=SensorDeviceClass.ENERGY,
+            state_class=SensorStateClass.TOTAL_INCREASING,
             suggested_display_precision=1,
             value_lambda=lambda v: v.get("totalEnergy"),
             supported_feature="ENRG_MONTR_PARK",
@@ -380,7 +388,7 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
             ],
             # "unknown" means consent hasn't been set, not an unknown state
             value_lambda=lambda v: "not_set" if v == "unknown" else v,
-            supported_feature="V_GGVS",
+            supported_feature=GEAR_GUARD_STREAM_FEATURES,
         ),
         RivianSensorEntityDescription(
             key="gear_guard_streaming_daily_limit",
@@ -393,7 +401,7 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
                 "not_hit",
                 "hit",
             ],
-            supported_feature="V_GGVS",
+            supported_feature=GEAR_GUARD_STREAM_FEATURES,
         ),
         RivianSensorEntityDescription(
             key="gear_guard_streaming_limit_reset_time",
@@ -403,7 +411,7 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
             entity_registry_enabled_default=False,
             device_class=SensorDeviceClass.TIMESTAMP,
             value_lambda=dt_util.utc_from_timestamp,
-            supported_feature="V_GGVS",
+            supported_feature=GEAR_GUARD_STREAM_FEATURES,
         ),
         RivianSensorEntityDescription(
             key="ota_current_status",

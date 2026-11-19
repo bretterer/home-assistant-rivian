@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from custom_components.rivian import binary_sensor, const, coordinator
+from custom_components.rivian import binary_sensor, const, coordinator, sensor
 
 SENSORS = {d.key: d for ds in const.SENSORS.values() for d in ds}
 BINARY_SENSORS = {d.key: d for ds in const.BINARY_SENSORS.values() for d in ds}
@@ -149,19 +149,40 @@ def test_parked_energy(coor: coordinator.VehicleCoordinator) -> None:
 
 
 @pytest.mark.parametrize(
-    "key",
+    ("key", "state_class"),
     [
-        "parked_energy_last_24_hours",
-        "parked_energy_last_8_hours",
-        "parked_energy_park_session",
+        # Rolling windows overlap and can drop without a reset
+        ("parked_energy_last_24_hours", None),
+        ("parked_energy_last_8_hours", None),
+        # Only goes up, and starts again with each park session
+        ("parked_energy_park_session", const.SensorStateClass.TOTAL_INCREASING),
     ],
 )
-def test_parked_energy_is_not_an_energy_meter(key: str) -> None:
-    """A window's total goes down as well as up, so it's a plain measurement."""
+def test_parked_energy_classes(key: str, state_class: Any) -> None:
+    """Parked energy is energy, counted in statistics only for the park session."""
     description = SENSORS[key]
 
-    assert description.device_class is None
-    assert description.state_class == const.SensorStateClass.MEASUREMENT
+    assert description.device_class == const.SensorDeviceClass.ENERGY
+    assert description.state_class == state_class
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "gear_guard_streaming_consent",
+        "gear_guard_streaming_daily_limit",
+        "gear_guard_streaming_limit_reset_time",
+    ],
+)
+def test_gear_guard_streaming_needs_live_view(key: str) -> None:
+    """The streaming sensors need the same features as the Gear Guard cameras."""
+    feature = SENSORS[key].supported_feature
+
+    assert feature == const.GEAR_GUARD_STREAM_FEATURES
+    assert sensor._supports({"supported_features": ["LIVE_CAM", "V_GGVS"]}, feature)
+    assert not sensor._supports({"supported_features": ["V_GGVS"]}, feature)
+    assert not sensor._supports({"supported_features": ["LIVE_CAM"]}, feature)
+    assert not sensor._supports({}, feature)
 
 
 @pytest.mark.parametrize(

@@ -99,8 +99,8 @@ class RivianSensorEntityDescription(SensorEntityDescription):
     value_lambda: Callable[[Any], Any] | None = None
     # Keep the last known value (across restarts) while the field is unreported
     restore: bool = False
-    # Only create for vehicles reporting this supported feature
-    supported_feature: str | None = None
+    # Only create for vehicles reporting this supported feature, or all of these
+    supported_feature: str | frozenset[str] | None = None
 
 
 @dataclass(kw_only=True)
