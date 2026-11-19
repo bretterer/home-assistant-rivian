@@ -3,17 +3,15 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Final
+from typing import Final
 
 from rivian import VehicleCommand
 
 from homeassistant.components.select import SelectEntity
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import ATTR_COORDINATOR, ATTR_VEHICLE, DOMAIN
-from .coordinator import VehicleCoordinator
+from .coordinator import RivianConfigEntry
 from .data_classes import RivianSelectEntityDescription
 from .entity import RivianVehicleControlEntity
 
@@ -112,12 +110,13 @@ SELECTS: Final[dict[tuple[str, ...], tuple[RivianSelectEntityDescription, ...]]]
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: RivianConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the select entities."""
-    data: dict[str, Any] = hass.data[DOMAIN][entry.entry_id]
-    vehicles: dict[str, dict[str, Any]] = data[ATTR_VEHICLE]
-    coordinators: dict[str, VehicleCoordinator] = data[ATTR_COORDINATOR][ATTR_VEHICLE]
+    vehicles = entry.runtime_data.vehicles
+    coordinators = entry.runtime_data.vehicle_coordinators
 
     entities = [
         RivianSelectEntity(coordinators[vehicle_id], entry, description, vehicle)

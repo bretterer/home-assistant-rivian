@@ -4,24 +4,19 @@ from __future__ import annotations
 
 from typing import Any
 
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
-from .const import ATTR_COORDINATOR, ATTR_USER, ATTR_VEHICLE, ATTR_WALLBOX, DOMAIN
-from .coordinator import UserCoordinator, VehicleCoordinator, WallboxCoordinator
+from .coordinator import RivianConfigEntry
 from .helpers import redact
 
 
 async def async_get_config_entry_diagnostics(
-    hass: HomeAssistant, entry: ConfigEntry
+    hass: HomeAssistant, entry: RivianConfigEntry
 ) -> dict[str, Any]:
     """Return diagnostics for a config entry."""
-    coordinators = hass.data[DOMAIN][entry.entry_id][ATTR_COORDINATOR]
-    user_coordinator: UserCoordinator = coordinators[ATTR_USER]
-    vehicle_coordinators: dict[str, VehicleCoordinator] = coordinators[ATTR_VEHICLE]
-    wallbox_coordinator: WallboxCoordinator = coordinators[ATTR_WALLBOX]
+    vehicle_coordinators = entry.runtime_data.vehicle_coordinators
     data = {
-        "user": user_coordinator.data,
+        "user": entry.runtime_data.user_coordinator.data,
         "vehicle": [coor.data for coor in vehicle_coordinators.values()],
         "charging": [
             coor.charging_coordinator.data for coor in vehicle_coordinators.values()
@@ -29,6 +24,6 @@ async def async_get_config_entry_diagnostics(
         "drivers": [
             coor.drivers_coordinator.data for coor in vehicle_coordinators.values()
         ],
-        "wallbox": wallbox_coordinator.data,
+        "wallbox": entry.runtime_data.wallbox_coordinator.data,
     }
     return redact(data)

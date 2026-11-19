@@ -15,7 +15,6 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     STATE_UNAVAILABLE,
     EntityCategory,
@@ -29,19 +28,11 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 
-from .const import (
-    ATTR_COORDINATOR,
-    ATTR_VEHICLE,
-    ATTR_WALLBOX,
-    DOMAIN,
-    REMOVED_SENSOR_KEYS,
-    SENSORS,
-    WEEK_DAYS_ORDERED,
-)
-from .coordinator import DriverKeyCoordinator, VehicleCoordinator, WallboxCoordinator
+from .const import DOMAIN, REMOVED_SENSOR_KEYS, SENSORS, WEEK_DAYS_ORDERED
+from .coordinator import DriverKeyCoordinator, RivianConfigEntry, VehicleCoordinator
 from .data_classes import (
     RivianNavigationSensorEntityDescription,
     RivianSensorEntityDescription,
@@ -74,15 +65,15 @@ def _parse_timestamp(val: datetime | str | None) -> datetime | None:
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: RivianConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the sensor entities."""
-    data: dict[str, Any] = hass.data[DOMAIN][entry.entry_id]
-    vehicles: dict[str, Any] = data[ATTR_VEHICLE]
-    coordinators: dict[str, Any] = data[ATTR_COORDINATOR]
+    vehicles = entry.runtime_data.vehicles
 
     # Add vehicle entities
-    vehicle_coordinators: dict[str, VehicleCoordinator] = coordinators[ATTR_VEHICLE]
+    vehicle_coordinators = entry.runtime_data.vehicle_coordinators
     entities = [
         RivianSensorEntity(
             vehicle_coordinators[vehicle_id], entry, description, vehicle
@@ -118,7 +109,7 @@ async def async_setup_entry(
     )
 
     # Add wallbox entities
-    wallbox_coordinator: WallboxCoordinator = coordinators[ATTR_WALLBOX]
+    wallbox_coordinator = entry.runtime_data.wallbox_coordinator
     entities.extend(
         RivianWallboxSensorEntity(wallbox_coordinator, description, wallbox)
         for wallbox in wallbox_coordinator.data
@@ -252,7 +243,7 @@ def _next_stop_arrival(coordinator: VehicleCoordinator) -> datetime | None:
     index = next(i for i, w in enumerate(_waypoints(coordinator)) if w is waypoint)
     legs = (coordinator.get("legs") or [])[1 : index + 1]
     if (
-        (leaving := _live_arrival(coordinator, "nextWaypointArrivalTime"))
+        (leaving := _live_progress(coordinator, "nextWaypointArrivalTime"))
         and len(legs) == index
         and all(leg.get("duration") is not None for leg in legs)
     ):
@@ -272,8 +263,8 @@ def _waypoint_name(waypoint: dict[str, Any] | None) -> str | None:
     return waypoint.get("name") or waypoint.get("label")
 
 
-def _live_arrival(coordinator: VehicleCoordinator, field: str) -> datetime | None:
-    """Return trip_progress's live arrival time, if sent since the trip was planned.
+def _live_progress(coordinator: VehicleCoordinator, field: str) -> Any:
+    """Return a trip_progress value, if sent since the trip was planned.
 
     trip_progress keeps resending the last trip's values after navigation ends,
     so they're only used when newer than the trip's waypoints.
@@ -282,13 +273,23 @@ def _live_arrival(coordinator: VehicleCoordinator, field: str) -> datetime | Non
     progress = data.get(field) or {}
     trip = data.get("waypoints") or {}
     if (
-        (arrival := progress.get("value"))
+        (value := progress.get("value")) is not None
         and (progress_time := progress.get("timeStamp"))
         and (trip_time := trip.get("timeStamp"))
         and datetime.fromisoformat(progress_time) >= datetime.fromisoformat(trip_time)
     ):
-        return arrival
+        return value
     return None
+
+
+def _next_stop_progress(coordinator: VehicleCoordinator, field: str) -> Any:
+    """Return trip_progress's countdown to the next stop, unknown while at a stop.
+
+    At a stop, trip_progress counts down to that stop, not the next one.
+    """
+    if not _next_stop(coordinator) or _current_stop(coordinator):
+        return None
+    return _live_progress(coordinator, field)
 
 
 def _arrival(
@@ -297,25 +298,68 @@ def _arrival(
     """Return a stop's live arrival time, or its planned one."""
     if not waypoint:
         return None
-    return _live_arrival(coordinator, live_field) or waypoint.get("arrivalTime")
+    return _live_progress(coordinator, live_field) or waypoint.get("arrivalTime")
+
+
+def _round(value: Any, digits: int | None = None) -> Any:
+    """Round a number, leaving anything else (such as None) as it is."""
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return round(value, digits)
+    return value
+
+
+def _coordinate(value: Any) -> Any:
+    """Round a stop's latitude or longitude to 6 decimals, like the vehicle's."""
+    return _round(value, 6)
 
 
 def _waypoint_attributes(waypoint: dict[str, Any] | None) -> dict[str, Any] | None:
-    """Return a stop's location and charge details."""
+    """Return a stop's location and charge details (charge in whole percent)."""
     if not waypoint:
         return None
     attributes = {
         "type": waypoint.get("type"),
-        "latitude": waypoint.get("latitude"),
-        "longitude": waypoint.get("longitude"),
+        "latitude": _coordinate(waypoint.get("latitude")),
+        "longitude": _coordinate(waypoint.get("longitude")),
     }
     if waypoint.get("type") == "chargingStop":
-        attributes["arrival_state_of_charge"] = waypoint.get("arrivalStateOfCharge")
-        attributes["departure_state_of_charge"] = waypoint.get("departureStateOfCharge")
+        attributes["arrival_state_of_charge"] = _round(
+            waypoint.get("arrivalStateOfCharge")
+        )
+        attributes["departure_state_of_charge"] = _round(
+            waypoint.get("departureStateOfCharge")
+        )
         attributes["charge_duration"] = waypoint.get("chargeDuration")
     else:
-        attributes["arrival_state_of_charge"] = waypoint.get("stateOfCharge")
+        attributes["arrival_state_of_charge"] = _round(waypoint.get("stateOfCharge"))
     return attributes
+
+
+def _destination_attributes(coordinator: VehicleCoordinator) -> dict[str, Any] | None:
+    """Return the destination's details, plus the trip's route for the trip card."""
+    if (
+        attributes := _waypoint_attributes(destination := _destination(coordinator))
+    ) is None:
+        return None
+    next_stop = _next_stop(coordinator)
+    return attributes | {
+        # Google-encoded polyline of the whole trip, and every stop (both
+        # excluded from the recorder)
+        "route": coordinator.get("overviewPolyline"),
+        "stops": [
+            {
+                "name": _waypoint_name(waypoint),
+                "latitude": _coordinate(waypoint.get("latitude")),
+                "longitude": _coordinate(waypoint.get("longitude")),
+                "charging": waypoint.get("type") == "chargingStop",
+                "arrival": waypoint.get("arrivalTime"),
+                "next": waypoint is next_stop,
+            }
+            for waypoint in _waypoints(coordinator)
+        ],
+        "trip_start": coordinator.get("originTime"),
+        "arrival": _arrival(destination, coordinator, "finalDestinationArrivalTime"),
+    }
 
 
 NAVIGATION_SENSORS: Final[tuple[RivianNavigationSensorEntityDescription, ...]] = (
@@ -332,10 +376,28 @@ NAVIGATION_SENSORS: Final[tuple[RivianNavigationSensorEntityDescription, ...]] =
         value_fn=_next_stop_arrival,
     ),
     RivianNavigationSensorEntityDescription(
+        key="next_stop_distance",
+        translation_key="next_stop_distance",
+        device_class=SensorDeviceClass.DISTANCE,
+        native_unit_of_measurement=UnitOfLength.METERS,
+        suggested_display_precision=1,
+        suggested_unit_of_measurement=UnitOfLength.MILES,
+        value_fn=lambda coor: _next_stop_progress(coor, "distanceRemaining"),
+    ),
+    RivianNavigationSensorEntityDescription(
+        key="next_stop_drive_time",
+        translation_key="next_stop_drive_time",
+        device_class=SensorDeviceClass.DURATION,
+        native_unit_of_measurement=UnitOfTime.SECONDS,
+        suggested_display_precision=0,
+        suggested_unit_of_measurement=UnitOfTime.MINUTES,
+        value_fn=lambda coor: _next_stop_progress(coor, "durationRemaining"),
+    ),
+    RivianNavigationSensorEntityDescription(
         key="destination",
         translation_key="destination",
         value_fn=lambda coor: _waypoint_name(_destination(coor)),
-        attributes_fn=lambda coor: _waypoint_attributes(_destination(coor)),
+        attributes_fn=_destination_attributes,
     ),
     RivianNavigationSensorEntityDescription(
         key="destination_eta",
@@ -367,6 +429,11 @@ class RivianNoUpdatesSinceEntity(RivianVehicleFreshnessEntity, SensorEntity):
 
 class RivianNavigationSensorEntity(RivianVehicleEntity, SensorEntity):
     """Rivian navigation sensor entity, unknown while not navigating."""
+
+    # The destination's route for the trip card can exceed the recorder's
+    # attribute size limit, the stops' arrival times change throughout a trip,
+    # and the live arrival time is recorded by the Destination ETA sensor
+    _unrecorded_attributes = frozenset({"route", "stops", "arrival"})
 
     entity_description: RivianNavigationSensorEntityDescription
 

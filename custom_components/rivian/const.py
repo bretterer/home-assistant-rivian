@@ -9,8 +9,11 @@ from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
 from homeassistant.const import (
     DEGREE,
     PERCENTAGE,
+    SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
     EntityCategory,
+    UnitOfDataRate,
     UnitOfEnergy,
+    UnitOfFrequency,
     UnitOfLength,
     UnitOfPressure,
     UnitOfSpeed,
@@ -29,13 +32,6 @@ VERSION = "0.0.0"
 ISSUE_URL = "https://github.com/bretterer/home-assistant-rivian/issues"
 ISSUE_STATE_VALUES_CHANGED = "state_values_changed"
 ISSUE_RATE_LIMITED = "rate_limited"
-
-# Attributes
-ATTR_API = "api"
-ATTR_COORDINATOR = "coordinator"
-ATTR_USER = "user"
-ATTR_VEHICLE = "vehicle"
-ATTR_WALLBOX = "wallbox"
 
 # Config properties
 CONF_ACCESS_TOKEN = "access_token"
@@ -486,6 +482,19 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
             state_class=SensorStateClass.MEASUREMENT,
         ),
         RivianSensorEntityDescription(
+            key="charging_time_estimation_validity",
+            translation_key="charging_time_estimation_validity",
+            field="chargingTimeEstimationValidity",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
+            device_class=SensorDeviceClass.ENUM,
+            options=[
+                "valid",
+                "invalid",
+                "pack_discharging",
+            ],
+        ),
+        RivianSensorEntityDescription(
             key="tire_pressure_front_left",
             field="tirePressureFrontLeft",
             translation_key="tire_pressure_front_left",
@@ -653,6 +662,7 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
             translation_key="bluetooth_front_fascia_hardware_failure_status",
             field="btmFfHardwareFailureStatus",
             entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
             device_class=SensorDeviceClass.ENUM,
             options=BTM_FAILURE_STATUS_OPTIONS,
         ),
@@ -661,6 +671,7 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
             translation_key="bluetooth_rear_fascia_hardware_failure_status",
             field="btmRfHardwareFailureStatus",
             entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
             device_class=SensorDeviceClass.ENUM,
             options=BTM_FAILURE_STATUS_OPTIONS,
         ),
@@ -669,6 +680,7 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
             translation_key="bluetooth_instrument_controls_hardware_failure_status",
             field="btmIcHardwareFailureStatus",
             entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
             device_class=SensorDeviceClass.ENUM,
             options=BTM_FAILURE_STATUS_OPTIONS,
         ),
@@ -677,6 +689,7 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
             translation_key="bluetooth_right_front_door_hardware_failure_status",
             field="btmRfdHardwareFailureStatus",
             entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
             device_class=SensorDeviceClass.ENUM,
             options=BTM_FAILURE_STATUS_OPTIONS,
         ),
@@ -685,6 +698,16 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
             translation_key="bluetooth_left_front_door_hardware_failure_status",
             field="btmLfdHardwareFailureStatus",
             entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
+            device_class=SensorDeviceClass.ENUM,
+            options=BTM_FAILURE_STATUS_OPTIONS,
+        ),
+        RivianSensorEntityDescription(
+            key="bluetooth_overhead_console_hardware_failure_status",
+            translation_key="bluetooth_overhead_console_hardware_failure_status",
+            field="btmOcHardwareFailureStatus",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
             device_class=SensorDeviceClass.ENUM,
             options=BTM_FAILURE_STATUS_OPTIONS,
         ),
@@ -787,6 +810,132 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
                 "charging_disabled_partial_connection",
                 "charging_disabled_not_parked",
             ],
+        ),
+        RivianSensorEntityDescription(
+            key="wifi_signal_strength",
+            translation_key="wifi_signal_strength",
+            field="wifiSignal",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
+            device_class=SensorDeviceClass.SIGNAL_STRENGTH,
+            native_unit_of_measurement=SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+            state_class=SensorStateClass.MEASUREMENT,
+            # -255 when there's no reading
+            value_lambda=lambda v: None if v == -255 else v,
+        ),
+        RivianSensorEntityDescription(
+            key="wifi_antenna_bars",
+            translation_key="wifi_antenna_bars",
+            field="wifiAntennaBars",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
+            device_class=SensorDeviceClass.ENUM,
+            options=["level_0", "level_1", "level_2", "level_3", "level_4"],
+        ),
+        RivianSensorEntityDescription(
+            key="wifi_frequency",
+            translation_key="wifi_frequency",
+            field="wifiFreq",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
+            device_class=SensorDeviceClass.FREQUENCY,
+            native_unit_of_measurement=UnitOfFrequency.MEGAHERTZ,
+            state_class=SensorStateClass.MEASUREMENT,
+            suggested_unit_of_measurement=UnitOfFrequency.GIGAHERTZ,
+            # 2.4 GHz channels are 5 MHz apart
+            suggested_display_precision=3,
+            # In MHz (5200 seen live). Anything under 1000 isn't a Wi-Fi
+            # frequency, e.g. 0 when unset or a 2/5 band number, and would be
+            # recorded in statistics as MHz
+            value_lambda=lambda v: v if v >= 1000 else None,
+        ),
+        RivianSensorEntityDescription(
+            key="wifi_link_speed",
+            translation_key="wifi_link_speed",
+            field="wifiLinkSpeed",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
+            device_class=SensorDeviceClass.DATA_RATE,
+            native_unit_of_measurement=UnitOfDataRate.MEGABITS_PER_SECOND,
+            state_class=SensorStateClass.MEASUREMENT,
+        ),
+        RivianSensorEntityDescription(
+            key="wifi_secure_status",
+            translation_key="wifi_secure_status",
+            field="wifiSecureStatus",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
+            device_class=SensorDeviceClass.ENUM,
+            options=[
+                "open",
+                "wpa_personal",
+                "wpa_enterprise",
+                "wpa2_personal",
+                "wpa2_enterprise",
+                "wpa3_personal",
+                "wpa3_enterprise",
+                "enhanced_open",
+            ],
+        ),
+        RivianSensorEntityDescription(
+            key="wifi_wpa_status",
+            translation_key="wifi_wpa_status",
+            field="wifiWpaStatus",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
+            device_class=SensorDeviceClass.ENUM,
+            options=[
+                "not_connected",
+                "connected",
+                "scanning",
+                "connecting",
+                "disconnecting",
+                "connection_failed",
+                "disabled",
+                "scan_failure",
+            ],
+        ),
+        RivianSensorEntityDescription(
+            key="wifi_ssid",
+            translation_key="wifi_ssid",
+            field="wifiSsid",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
+        ),
+        RivianSensorEntityDescription(
+            key="cellular_antenna_bars",
+            translation_key="cellular_antenna_bars",
+            field="cellularAntennaBars",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
+            device_class=SensorDeviceClass.ENUM,
+            options=["level_0", "level_1", "level_2", "level_3", "level_4"],
+        ),
+        RivianSensorEntityDescription(
+            key="cellular_carrier",
+            translation_key="cellular_carrier",
+            field="cellularCarrier",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
+        ),
+        RivianSensorEntityDescription(
+            key="cellular_mode",
+            translation_key="cellular_mode",
+            field="cellularMode",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
+        ),
+        RivianSensorEntityDescription(
+            key="cellular_signal_strength",
+            translation_key="cellular_signal_strength",
+            field="cellularSignalStrength",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_registry_enabled_default=False,
+            device_class=SensorDeviceClass.SIGNAL_STRENGTH,
+            native_unit_of_measurement=SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+            state_class=SensorStateClass.MEASUREMENT,
+            # -255 when there's no reading
+            value_lambda=lambda v: None if v == -255 else v,
         ),
     ),
     # The R2 has a manual charge port door and doesn't get GraphQL vehicle state
@@ -1265,7 +1414,9 @@ BINARY_SENSORS: Final[
             translation_key="closure_tonneau_closed",
             device_class=BinarySensorDeviceClass.DOOR,
             on_value="open",
-            supported_feature="TONNEAU_CMD",
+            # No supported feature shows a tonneau (Gen 1 power tonneau covers lack
+            # TONNEAU_CMD); gate on one instead if found
+            add_when_reported=True,
         ),
         RivianBinarySensorEntityDescription(
             key="closure_tonneau_locked",
@@ -1273,7 +1424,9 @@ BINARY_SENSORS: Final[
             translation_key="closure_tonneau_locked",
             device_class=BinarySensorDeviceClass.LOCK,
             on_value="unlocked",
-            supported_feature="TONNEAU_CMD",
+            # No supported feature shows a tonneau (Gen 1 power tonneau covers lack
+            # TONNEAU_CMD); gate on one instead if found
+            add_when_reported=True,
         ),
     ),
     ("R1S", "R2"): (
@@ -1325,6 +1478,7 @@ BTM_FAILURE_STATUS_FIELDS: Final[frozenset[str]] = frozenset(
         "btmFfHardwareFailureStatus",
         "btmIcHardwareFailureStatus",
         "btmLfdHardwareFailureStatus",
+        "btmOcHardwareFailureStatus",
         "btmRfHardwareFailureStatus",
         "btmRfdHardwareFailureStatus",
     }
@@ -1421,7 +1575,7 @@ TRIP_INFO_FIELDS: Final[frozenset[str]] = frozenset(
 # Parallax fields whose None value means "not set", so it clears the field
 # rather than being skipped as unsent
 PARALLAX_NONE_CLEARS: Final[frozenset[str]] = frozenset(
-    {"otaScheduledInstallTime", *TRIP_INFO_FIELDS}
+    {"chargingTimeEstimationValidity", "otaScheduledInstallTime", *TRIP_INFO_FIELDS}
 )
 
 # Parallax topics that send one message per device/schedule, which can't be
@@ -1486,4 +1640,68 @@ DEFAULT_CHARGING_SCHEDULE: Final[dict[str, Any]] = {
     "amperage": DEFAULT_CHARGING_SCHEDULE_AMPERAGE,
     "enabled": True,
     "weekDays": list(WEEK_DAYS_ORDERED),
+}
+
+DEPARTURE_SCHEDULE_TEMPERATURE_MINIMUM: Final[int] = 16
+DEPARTURE_SCHEDULE_TEMPERATURE_MAXIMUM: Final[int] = 29
+DEPARTURE_SCHEDULE_OFF: Final[str] = "Off"
+DEPARTURE_SCHEDULE_DEFROST_MODES: Final[tuple[str, ...]] = (
+    DEPARTURE_SCHEDULE_OFF,
+    "Defrost",
+    "Defog",
+)
+DEPARTURE_SCHEDULE_HEAT_LEVELS: Final[tuple[str, ...]] = (
+    DEPARTURE_SCHEDULE_OFF,
+    "Heat1",
+    "Heat2",
+    "Heat3",
+)
+DEPARTURE_SCHEDULE_HEAT_VENT_LEVELS: Final[tuple[str, ...]] = (
+    *DEPARTURE_SCHEDULE_HEAT_LEVELS,
+    "Vent1",
+    "Vent2",
+    "Vent3",
+)
+# The API accepts every level for every surface, but drops the ones a surface lacks
+DEPARTURE_SCHEDULE_SURFACE_LEVELS: Final[dict[str, tuple[str, ...]]] = {
+    "front_left_seat": DEPARTURE_SCHEDULE_HEAT_VENT_LEVELS,
+    "front_right_seat": DEPARTURE_SCHEDULE_HEAT_VENT_LEVELS,
+    "rear_left_seat": DEPARTURE_SCHEDULE_HEAT_LEVELS,
+    "rear_right_seat": DEPARTURE_SCHEDULE_HEAT_LEVELS,
+    "steering_wheel": DEPARTURE_SCHEDULE_HEAT_LEVELS[:2],
+}
+# Maps the action field name to the API name of the heated surface
+DEPARTURE_SCHEDULE_SURFACES: Final[dict[str, str]] = {
+    "front_left_seat": "frontLeftSeat",
+    "front_right_seat": "frontRightSeat",
+    "rear_left_seat": "rearLeftSeat",
+    "rear_right_seat": "rearRightSeat",
+    "steering_wheel": "steeringWheel",
+}
+# Rivian rejects a departure schedule name longer than this ("Bad user input")
+DEPARTURE_SCHEDULE_NAME_MAX_LENGTH: Final[int] = 24
+PRECONDITION_SCHEDULE_NAME: Final[str] = "HA Precondition Now"
+# Keyless "precondition now": a temporary departure schedule this many minutes out
+# starts cabin preconditioning right away and runs until the departure time. The
+# vehicle may not precondition for a departure about 15 minutes or less away: on a
+# 2025 R1T two leads of about 14.6 minutes never started it, while 16 and 20 minutes
+# started it within seconds, asleep or awake. Hence a 20 minute minimum.
+PRECONDITION_LEAD_MINUTES_MINIMUM: Final[int] = 20
+PRECONDITION_LEAD_MINUTES_MAXIMUM: Final[int] = 60
+DEFAULT_PRECONDITION_LEAD_MINUTES: Final[int] = 20
+DEFAULT_PRECONDITION_TEMPERATURE: Final[int] = 21
+
+DEFAULT_DEPARTURE_SCHEDULE: Final[dict[str, Any]] = {
+    "isEnabled": True,
+    "repeatsWeekly": {"days": [], "startsAtMin": 0, "skippedOn": []},
+    "departureSettings": {
+        "shouldOverrideChargeSchedule": False,
+        "comfortSettings": {
+            "cabinTempCelsius": 21,
+            "frontDefogDefrost": DEPARTURE_SCHEDULE_OFF,
+            "surfaceHeatVentLevels": dict.fromkeys(
+                DEPARTURE_SCHEDULE_SURFACES.values(), DEPARTURE_SCHEDULE_OFF
+            ),
+        },
+    },
 }
