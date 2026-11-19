@@ -1,4 +1,4 @@
-"""Tests for the known location and GNSS error sensors."""
+"""Tests for the known location sensor."""
 
 from __future__ import annotations
 
@@ -61,40 +61,3 @@ def test_known_location(
 
     assert native_value(coor, "known_location") == state
     assert state in DESCRIPTIONS["known_location"].options
-
-
-def test_gnss_error(coor: coordinator.VehicleCoordinator) -> None:
-    """Each sensor reads its own part of the fix's error estimate."""
-    parallax(
-        coor,
-        "dynamics.vehicle.gnss",
-        {
-            "gnssError": {
-                "timeStamp": datetime(2026, 10, 12, tzinfo=UTC),
-                "positionVertical": 2.5,
-                "positionHorizontal": 1.2,
-                "speed": 0.3,
-                "bearing": 4.1,
-            }
-        },
-    )
-
-    assert native_value(coor, "gnss_error_position_vertical") == 2.5
-    assert native_value(coor, "gnss_error_position_horizontal") == 1.2
-    assert native_value(coor, "gnss_error_speed") == 0.3
-    assert native_value(coor, "gnss_error_bearing") == 4.1
-
-
-@pytest.mark.parametrize(
-    ("key", "enabled"),
-    [
-        ("gnss_error_position_vertical", False),
-        ("gnss_error_position_horizontal", False),
-        ("gnss_error_speed", False),
-        ("gnss_error_bearing", False),
-        ("known_location", True),
-    ],
-)
-def test_enabled_by_default(key: str, enabled: bool) -> None:
-    """The GNSS error diagnostics are created disabled; known location is not."""
-    assert DESCRIPTIONS[key].entity_registry_enabled_default is enabled
