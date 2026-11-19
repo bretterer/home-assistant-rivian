@@ -63,6 +63,8 @@ SERVICE_UPDATE_DEPARTURE_SCHEDULE: Final = "update_departure_schedule"
 SERVICE_DELETE_DEPARTURE_SCHEDULE: Final = "delete_departure_schedule"
 SERVICE_PRECONDITION_CABIN: Final = "precondition_cabin"
 SERVICE_SEND_LOCATION: Final = "send_location"
+SERVICE_SEND_TRIP: Final = "send_trip"
+SERVICE_END_TRIP: Final = "end_trip"
 
 
 def _not_reserved_name(value: str) -> str:
@@ -153,6 +155,26 @@ SEND_LOCATION_SCHEMA: Final = vol.Schema(
     }
 )
 
+STOP_SCHEMA: Final = vol.Schema(
+    {
+        vol.Required(ATTR_NAME): cv.string,
+        vol.Required(ATTR_LATITUDE): cv.latitude,
+        vol.Required(ATTR_LONGITUDE): cv.longitude,
+    }
+)
+SEND_TRIP_SCHEMA: Final = vol.Schema(
+    {
+        vol.Required(ATTR_DEVICE_ID): cv.string,
+        vol.Required("stops"): vol.All(
+            cv.ensure_list, [STOP_SCHEMA], vol.Length(min=1)
+        ),
+        vol.Optional("min_arrival_charge", default=20): vol.All(
+            vol.Coerce(int), vol.Range(min=0, max=100)
+        ),
+    }
+)
+END_TRIP_SCHEMA: Final = vol.Schema({vol.Required(ATTR_DEVICE_ID): cv.string})
+
 
 def _get_coordinator(hass: HomeAssistant, device_id: str) -> VehicleCoordinator:
     """Get the vehicle coordinator for a device."""
@@ -217,6 +239,22 @@ async def _async_get_controlled_vehicle(
             perm_category=CAT_ENTITIES,
         )
     return coordinator
+
+
+def _position(coordinator: VehicleCoordinator) -> tuple[float, float]:
+    """Return the vehicle's latitude and longitude."""
+    location = (coordinator.data or {}).get("gnssLocation") or {}
+    latitude, longitude = location.get("latitude"), location.get("longitude")
+    if latitude is None or longitude is None:
+        raise HomeAssistantError(
+            translation_domain=DOMAIN, translation_key="location_unknown"
+        )
+    return latitude, longitude
+
+
+def _user_id(coordinator: VehicleCoordinator) -> str:
+    """Return the id of the account the vehicle's config entry signs in as."""
+    return coordinator.config_entry.runtime_data.user_coordinator.data["id"]
 
 
 def _to_celsius(hass: HomeAssistant, temperature: float) -> float:
@@ -352,6 +390,36 @@ def async_setup_services(hass: HomeAssistant) -> None:
                 translation_domain=DOMAIN, translation_key="location_rejected"
             )
 
+    async def send_trip(call: ServiceCall) -> None:
+        """Send stops to the vehicle, which plans the route and charging stops."""
+        coordinator = await _async_get_controlled_vehicle(hass, call)
+        origin = _position(coordinator)
+        user_id = _user_id(coordinator)
+        # the vehicle ignores a new trip while navigating another one
+        await coordinator.api.end_trip(coordinator.vehicle_id, user_id)
+        if not await coordinator.api.send_trip_to_vehicle(
+            coordinator.vehicle_id,
+            origin,
+            [
+                (stop[ATTR_NAME], stop[ATTR_LATITUDE], stop[ATTR_LONGITUDE])
+                for stop in call.data["stops"]
+            ],
+            call.data["min_arrival_charge"],
+        ):
+            raise HomeAssistantError(
+                translation_domain=DOMAIN, translation_key="trip_rejected"
+            )
+
+    async def end_trip(call: ServiceCall) -> None:
+        """End the trip the vehicle is navigating."""
+        coordinator = await _async_get_controlled_vehicle(hass, call)
+        if not await coordinator.api.end_trip(
+            coordinator.vehicle_id, _user_id(coordinator)
+        ):
+            raise HomeAssistantError(
+                translation_domain=DOMAIN, translation_key="end_trip_rejected"
+            )
+
     hass.services.async_register(
         DOMAIN,
         SERVICE_CREATE_DEPARTURE_SCHEDULE,
@@ -381,4 +449,16 @@ def async_setup_services(hass: HomeAssistant) -> None:
         SERVICE_SEND_LOCATION,
         send_location,
         schema=SEND_LOCATION_SCHEMA,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_SEND_TRIP,
+        send_trip,
+        schema=SEND_TRIP_SCHEMA,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_END_TRIP,
+        end_trip,
+        schema=END_TRIP_SCHEMA,
     )

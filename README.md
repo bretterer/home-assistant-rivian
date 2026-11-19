@@ -340,6 +340,8 @@ These actions need only the signed-in account, not a paired phone key.
 | Action                 | Description                                                                                          |
 | ---------------------- | ---------------------------------------------------------------------------------------------------- |
 | `rivian.send_location` | Send a `location` (`latitude`, `longitude`) to a vehicle's navigation, which starts navigating there, or adds it as a stop if it's already navigating |
+| `rivian.send_trip`     | Send stops to a vehicle's navigation, which plans the route and charging stops, ending any active trip first (optional `min_arrival_charge`) |
+| `rivian.end_trip`      | End the trip a vehicle is navigating |
 
 ## Trip Route Card
 

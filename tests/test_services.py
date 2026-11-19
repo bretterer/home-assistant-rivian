@@ -539,3 +539,112 @@ async def test_send_location_checks_permission(
     with pytest.raises(Unauthorized):
         await send(_location_call("user"))
     share.assert_not_awaited()
+
+
+STOPS = [{"name": "Stadium", "latitude": 39.05, "longitude": -94.48}]
+
+
+def _trip_call(**data: Any) -> SimpleNamespace:
+    """A send_trip call from an automation."""
+    return SimpleNamespace(
+        context=SimpleNamespace(user_id=None),
+        data={
+            services.ATTR_DEVICE_ID: DEVICE_ID,
+            "stops": STOPS,
+            "min_arrival_charge": 30,
+        }
+        | data,
+    )
+
+
+@pytest.fixture
+def vehicle(coordinator: MagicMock) -> MagicMock:
+    """A vehicle at 40.1, -92.5, signed in as "user", that accepts trips."""
+    coordinator.vehicle_id = "vehicle"
+    coordinator.data = {"gnssLocation": {"latitude": 40.1, "longitude": -92.5}}
+    coordinator.config_entry.runtime_data.user_coordinator.data = {"id": "user"}
+    coordinator.api.end_trip = AsyncMock(return_value=True)
+    coordinator.api.send_trip_to_vehicle = AsyncMock(return_value=True)
+    return coordinator
+
+
+async def test_send_trip(hass: SimpleNamespace, vehicle: MagicMock) -> None:
+    """Any active trip is ended, then stops are sent from the vehicle's location."""
+    calls = MagicMock()
+    calls.attach_mock(vehicle.api.end_trip, "end_trip")
+    calls.attach_mock(vehicle.api.send_trip_to_vehicle, "send_trip")
+    # a rejected end, with no trip to end, doesn't stop the send
+    vehicle.api.end_trip.return_value = False
+    send = _handlers(hass)[services.SERVICE_SEND_TRIP]
+
+    await send(_trip_call())
+    assert [name for name, *_ in calls.mock_calls] == ["end_trip", "send_trip"]
+    vehicle.api.end_trip.assert_awaited_once_with("vehicle", "user")
+    vehicle.api.send_trip_to_vehicle.assert_awaited_once_with(
+        "vehicle", (40.1, -92.5), [("Stadium", 39.05, -94.48)], 30
+    )
+
+
+async def test_send_trip_without_position(
+    monkeypatch: pytest.MonkeyPatch, hass: SimpleNamespace, vehicle: MagicMock
+) -> None:
+    """A trip can't be planned without the vehicle's location."""
+    monkeypatch.setattr(services, "HomeAssistantError", _TranslatedError)
+    vehicle.data = {}
+    send = _handlers(hass)[services.SERVICE_SEND_TRIP]
+
+    with pytest.raises(_TranslatedError) as err:
+        await send(_trip_call())
+    assert err.value.translation_key == "location_unknown"
+    vehicle.api.send_trip_to_vehicle.assert_not_awaited()
+
+
+async def test_end_trip(hass: SimpleNamespace, vehicle: MagicMock) -> None:
+    """The trip is ended for the signed-in user."""
+    end = _handlers(hass)[services.SERVICE_END_TRIP]
+
+    await end(_trip_call())
+    vehicle.api.end_trip.assert_awaited_once_with("vehicle", "user")
+
+
+@pytest.mark.parametrize(
+    ("service", "key"),
+    [
+        (services.SERVICE_SEND_TRIP, "trip_rejected"),
+        (services.SERVICE_END_TRIP, "end_trip_rejected"),
+    ],
+)
+async def test_trip_refused(
+    monkeypatch: pytest.MonkeyPatch,
+    hass: SimpleNamespace,
+    vehicle: MagicMock,
+    service: str,
+    key: str,
+) -> None:
+    """A trip, or ending one, that Rivian refuses fails the action."""
+    monkeypatch.setattr(services, "HomeAssistantError", _TranslatedError)
+    vehicle.api.end_trip.return_value = False
+    vehicle.api.send_trip_to_vehicle.return_value = False
+    handler = _handlers(hass)[service]
+
+    with pytest.raises(_TranslatedError) as err:
+        await handler(_trip_call())
+    assert err.value.translation_key == key
+
+
+@pytest.mark.parametrize(
+    "service", [services.SERVICE_SEND_TRIP, services.SERVICE_END_TRIP]
+)
+async def test_trip_actions_check_permission(
+    hass: SimpleNamespace, vehicle: MagicMock, service: str
+) -> None:
+    """A user who can't control the vehicle can't send or end its trip."""
+    hass.auth.async_get_user.return_value = _user()
+    handler = _handlers(hass)[service]
+    call = _trip_call()
+    call.context.user_id = "user"
+
+    with pytest.raises(Unauthorized):
+        await handler(call)
+    vehicle.api.end_trip.assert_not_awaited()
+    vehicle.api.send_trip_to_vehicle.assert_not_awaited()

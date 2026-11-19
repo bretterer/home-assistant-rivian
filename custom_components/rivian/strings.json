@@ -1307,6 +1307,34 @@
           "description": "The location to navigate to."
         }
       }
+    },
+    "send_trip": {
+      "name": "Send trip",
+      "description": "Sends stops to the vehicle's navigation. The vehicle plans the route and charging stops itself. Ends any trip it is navigating first, since the vehicle ignores a new one until then.",
+      "fields": {
+        "device_id": {
+          "name": "Vehicle",
+          "description": "The vehicle."
+        },
+        "stops": {
+          "name": "Stops",
+          "description": "The stops in order, each with a name, latitude and longitude."
+        },
+        "min_arrival_charge": {
+          "name": "Minimum arrival charge",
+          "description": "The least charge to arrive with, in percent."
+        }
+      }
+    },
+    "end_trip": {
+      "name": "End trip",
+      "description": "Ends the trip the vehicle is navigating.",
+      "fields": {
+        "device_id": {
+          "name": "Vehicle",
+          "description": "The vehicle."
+        }
+      }
     }
   },
   "exceptions": {
@@ -1366,6 +1394,15 @@
     },
     "location_rejected": {
       "message": "Rivian didn't accept the location"
+    },
+    "location_unknown": {
+      "message": "The vehicle's location is unknown"
+    },
+    "trip_rejected": {
+      "message": "Rivian didn't accept the trip"
+    },
+    "end_trip_rejected": {
+      "message": "Rivian didn't accept ending the trip"
     }
   }
 }
