@@ -155,7 +155,7 @@ Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
 | Gear Guard alarm                                    | Binary sensor  | Tampered/clear status                                                                                                          |
 | Gear Guard streaming consent\*                      | Sensor         | Whether Gear Guard live streaming is consented to in the vehicle, or not set                                                   |
 | Gear Guard streaming daily limit\*                  | Sensor         | Whether the daily Gear Guard live streaming limit is reached                                                                   |
-| Gear Guard streaming limit reset\*                  | Sensor         | When the daily Gear Guard live streaming limit resets                                                                          |
+| Gear Guard streaming limit reset\*                  | Sensor         | When the daily Gear Guard live streaming limit resets, while it's reached                                                      |
 | Gear Guard video mode                               | Sensor         |                                                                                                                                |
 | Gear Guard video status                             | Sensor         |                                                                                                                                |
 | Gear Guard video terms accepted\*                   | Sensor         |                                                                                                                                |
@@ -189,7 +189,7 @@ Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
 | Odometer                                            | Sensor         |                                                                                                                                |
 | Parked energy last 24 hours                         | Sensor         | Energy used while parked in the last 24 hours                                                                                  |
 | Parked energy last 8 hours\*                        | Sensor         | Energy used while parked in the last 8 hours                                                                                   |
-| Parked energy park session                          | Sensor         | Energy used while parked in the current or last park session                                                                   |
+| Parked energy latest session                        | Sensor         | Energy used while parked in the current or last park session                                                                   |
 | Pet comfort                                         | Binary sensor  | Running/not running status                                                                                                     |
 | Pet comfort temperature status                      | Sensor         |                                                                                                                                |
 | Power                                               | Sensor         | Wallbox power                                                                                                                  |

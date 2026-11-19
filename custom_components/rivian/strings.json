@@ -799,7 +799,7 @@
         "name": "Parked energy last 8 hours"
       },
       "parked_energy_park_session": {
-        "name": "Parked energy park session"
+        "name": "Parked energy latest session"
       },
       "bearing": {
         "name": "Bearing"
