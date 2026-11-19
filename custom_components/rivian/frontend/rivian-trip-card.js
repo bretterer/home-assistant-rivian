@@ -144,25 +144,18 @@ export function buildRouteLayer(encoded, color) {
   return { color, segments: [{ points }], markers: [] };
 }
 
-const sameLocation = (a, b) =>
-  Boolean(a && b) && a.latitude === b.latitude && a.longitude === b.longitude;
-
 /**
  * The stops' markers, numbered in trip order, each with its name and arrival
- * time. The next stop (flagged by the Destination sensor) stands out. The final
- * stop is left out when it's at `destination`, as it's shown as the destination
- * entity; an earlier visit to the same place keeps its marker and number.
+ * time. The next stop (flagged by the Destination sensor) stands out, and the
+ * final stop is the destination, marked with a flag rather than its number.
  */
-export function stopMarkers(stops, { destination, formatTime }) {
+export function stopMarkers(stops, { formatTime }) {
   const all = stops ?? [];
   const last = all.length - 1;
   return all
     .map((stop, index) => ({ stop, number: index + 1 }))
     .filter(
-      ({ stop, number }) =>
-        typeof stop.latitude === "number" &&
-        typeof stop.longitude === "number" &&
-        !(number - 1 === last && sameLocation(stop, destination))
+      ({ stop }) => typeof stop.latitude === "number" && typeof stop.longitude === "number"
     )
     .map(({ stop, number }) => {
       const name = stop.name || (stop.charging ? "Charging stop" : "Stop");
@@ -176,6 +169,7 @@ export function stopMarkers(stops, { destination, formatTime }) {
         title: `${number}. ${name}${time ? ` · ${time}` : ""}`,
         charging: Boolean(stop.charging),
         next: Boolean(stop.next),
+        destination: number - 1 === last,
       };
     });
 }
@@ -188,17 +182,33 @@ function canNumberStops(engine) {
 // The stop tooltip opened by a tap, closed when another opens
 let openTooltip;
 
+// mdi:flag, for the destination's marker
+const FLAG_PATH = "M14.4,6L14,4H5V21H7V14H12.6L13,16H20V6H14.4Z";
+
 /**
- * A numbered stop marker, with a tooltip of the stop's name and arrival time
- * shown on hover or keyboard focus, and toggled by a tap. Styled inline, as
- * it's placed inside the map.
+ * A numbered stop marker (a flag for the destination), with a tooltip of the
+ * stop's name and arrival time shown on hover or keyboard focus, and toggled by
+ * a tap. `onOpen`, if given, is called when the marker is activated (see the
+ * click handler). Styled inline, as it's placed inside the map.
  */
 function markerElement(
-  { number, name, time, title: label, charging, next },
-  { color, chargingColor }
+  { number, name, time, title: label, charging, next, destination },
+  { color, chargingColor, onOpen }
 ) {
   const element = document.createElement("div");
-  element.textContent = String(number);
+  if (destination) {
+    const svgNs = "http://www.w3.org/2000/svg";
+    const icon = document.createElementNS(svgNs, "svg");
+    icon.setAttribute("viewBox", "0 0 24 24");
+    icon.setAttribute("aria-hidden", "true");
+    Object.assign(icon.style, { width: "60%", height: "60%", fill: "currentColor" });
+    const path = document.createElementNS(svgNs, "path");
+    path.setAttribute("d", FLAG_PATH);
+    icon.append(path);
+    element.append(icon);
+  } else {
+    element.textContent = String(number);
+  }
   // The map sets these for interactive markers too, and keeps ones already set
   element.setAttribute("role", "button");
   element.setAttribute("aria-label", label);
@@ -276,11 +286,20 @@ function markerElement(
   element.addEventListener("pointerleave", (event) => {
     if (event.pointerType === "mouse") hide();
   });
+  // With onOpen, a click, a second tap or a key press opens it; the tooltip is
+  // already shown by hovering, the first tap or focus
+  const open = () => {
+    hide();
+    onOpen();
+  };
   element.addEventListener("click", (event) => {
     event.stopPropagation();
     if (pointer && pointer !== "mouse") {
       if (tooltip.style.display === "none") show();
+      else if (onOpen) open();
       else hide();
+    } else if (onOpen) {
+      open();
     }
   });
   element.addEventListener("focus", () => {
@@ -290,7 +309,8 @@ function markerElement(
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
     event.stopPropagation();
-    if (tooltip.style.display === "none") show();
+    if (onOpen) open();
+    else if (tooltip.style.display === "none") show();
     else hide();
   });
   element.addEventListener("blur", hide);
@@ -473,13 +493,15 @@ if (typeof customElements !== "undefined" && !customElements.get(CARD_TYPE)) {
       this._map.hass = this._hass;
 
       const next = this._hass.states[nextStop]?.attributes;
-      // With numbered stops, the vehicle and destination are the entities shown
+      // With numbered stops, the vehicle is the only entity shown: the destination
+      // is drawn as the last stop, so it's labelled with its own name rather than
+      // the sensor's
       const numbered =
         Boolean(route) &&
         canNumberStops(this._map._engine) &&
         this._map._engine !== this._failedEngine;
       const entities = numbered
-        ? [vehicle, this._config.entity].filter(Boolean)
+        ? [vehicle].filter(Boolean)
         : mapEntities({
             route,
             vehicle,
@@ -504,11 +526,11 @@ if (typeof customElements !== "undefined" && !customElements.get(CARD_TYPE)) {
       this._routeKey = route;
       this._entitiesKey = entitiesKey;
       this._timingKey = timingKey;
-      this._drawRoute({ route, tripStart, arrival, stops, destination: destination.attributes });
+      this._drawRoute({ route, tripStart, arrival, stops, nextStop });
       if (!viewChanged) return;
 
-      // The vehicle keeps the map's usual marker; the destination (and, without
-      // numbered stops, the next stop) shows its icon rather than a name label,
+      // The vehicle keeps the map's usual marker; without numbered stops, the
+      // destination and next stop show their icons rather than a name label,
       // which is large and splits emoji in names
       this._map.entities = entities.map((entity_id) =>
         entity_id === vehicle ? { entity_id } : { entity_id, label_mode: "icon" },
@@ -543,7 +565,7 @@ if (typeof customElements !== "undefined" && !customElements.get(CARD_TYPE)) {
       this._routeEngine = undefined;
     }
 
-    _drawRoute({ route, tripStart, arrival, stops, destination }) {
+    _drawRoute({ route, tripStart, arrival, stops, nextStop }) {
       this._removeRouteLayer();
       this._map.paths = [];
       if (!route) return;
@@ -551,7 +573,7 @@ if (typeof customElements !== "undefined" && !customElements.get(CARD_TYPE)) {
       const engine = this._map._engine;
       if (canNumberStops(engine) && engine !== this._failedEngine) {
         try {
-          this._drawNumbered({ engine, route, stops, destination });
+          this._drawNumbered({ engine, route, stops, nextStop });
           return;
         } catch (err) {
           // The engine is internal to Home Assistant's map, so its API can change
@@ -570,7 +592,7 @@ if (typeof customElements !== "undefined" && !customElements.get(CARD_TYPE)) {
     }
 
     /** Draw the route and numbered stops through the map's engine. */
-    _drawNumbered({ engine, route, stops, destination }) {
+    _drawNumbered({ engine, route, stops, nextStop }) {
       const style = typeof getComputedStyle === "function" ? getComputedStyle(this._map) : null;
       const color =
         style?.getPropertyValue("--dark-primary-color").trim() || "#03a9f4";
@@ -584,7 +606,6 @@ if (typeof customElements !== "undefined" && !customElements.get(CARD_TYPE)) {
       if (!layer) return;
       this._routeHandles = [engine.addPath(layer)];
       const markers = stopMarkers(stops, {
-        destination,
         formatTime: (date) =>
           date.toLocaleTimeString(language, { hour: "numeric", minute: "2-digit" }),
       });
@@ -592,7 +613,13 @@ if (typeof customElements !== "undefined" && !customElements.get(CARD_TYPE)) {
       const ordered = [...markers.filter((m) => !m.next), ...markers.filter((m) => m.next)];
       for (const marker of ordered) {
         const size = marker.next ? 34 : 22;
-        const element = markerElement(marker, { color, chargingColor });
+        const element = markerElement(marker, {
+          color,
+          chargingColor,
+          // The next stop opens the Next stop sensor, and the others the
+          // Destination sensor, which lists every stop
+          onOpen: () => this._openMoreInfo(marker.next ? nextStop : undefined),
+        });
         this._routeHandles.push(
           engine.addMarker(element, marker.location, {
             size: [size, size],
@@ -607,6 +634,17 @@ if (typeof customElements !== "undefined" && !customElements.get(CARD_TYPE)) {
         if (marker.next) element.style.zIndex = "2";
       }
       this._routeEngine = engine;
+    }
+
+    /** Open an entity's more-info dialog, by default the Destination sensor's. */
+    _openMoreInfo(entityId) {
+      this.dispatchEvent(
+        new CustomEvent("hass-more-info", {
+          detail: { entityId: entityId || this._config.entity },
+          bubbles: true,
+          composed: true,
+        })
+      );
     }
 
     /** Check for the map's engine again shortly, until it's ready. */

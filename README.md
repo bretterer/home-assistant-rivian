@@ -343,7 +343,7 @@ These actions need only the signed-in account, not a paired phone key.
 
 ## Trip Route Card
 
-The integration includes a dashboard card that shows a vehicle on a map. While it's navigating, the card shows the trip's route, the vehicle and the destination, with the stops along the way numbered in trip order. The next stop is larger, charging stops are in a different color, and hovering over or tapping a stop, or selecting it with the keyboard, shows its name and arrival time. Otherwise, it follows the vehicle's location.
+The integration includes a dashboard card that shows a vehicle on a map. While it's navigating, the card shows the trip's route and the vehicle, with the stops along the way numbered in trip order and a flag on the destination. The next stop is larger, charging stops are in a different color, and hovering over or tapping a stop, or selecting it with the keyboard, shows its name and arrival time. Clicking a stop, tapping it again or pressing Enter on it opens the Next stop sensor for the next stop, and the Destination sensor for the others. Otherwise, it follows the vehicle's location.
 
 The card is loaded automatically. Add it from the card picker ("Rivian trip") and pick the vehicle's Destination sensor in the visual editor, or use YAML:
 

@@ -62,6 +62,41 @@ def test_destination_without_trip() -> None:
     assert sensor._destination_attributes(coordinator({})) is None
 
 
+def test_stop_values_are_rounded() -> None:
+    """Charge is in whole percent and coordinates to 6 decimals; None stays None."""
+    coor = coordinator(
+        {
+            "waypoints": [
+                {
+                    "type": "chargingStop",
+                    "label": "Supercharger",
+                    "latitude": 40.123456789,
+                    "longitude": -105.987654321,
+                    "arrivalStateOfCharge": 18.6,
+                    "departureStateOfCharge": None,
+                },
+                {
+                    "type": "place",
+                    "name": "Trailhead",
+                    "latitude": 40.0,
+                    "longitude": -105.3,
+                    "stateOfCharge": 67.36445617675781,
+                },
+            ]
+        }
+    )
+
+    attributes = sensor._destination_attributes(coor)
+    assert attributes["arrival_state_of_charge"] == 67
+    assert attributes["stops"][0]["latitude"] == 40.123457
+    assert attributes["stops"][0]["longitude"] == -105.987654
+
+    charging = sensor._waypoint_attributes(coor.get("waypoints")[0])
+    assert charging["arrival_state_of_charge"] == 19
+    assert charging["departure_state_of_charge"] is None
+    assert charging["latitude"] == 40.123457
+
+
 def test_route_is_not_recorded() -> None:
     """The route can be larger than the recorder allows; stop times churn."""
     unrecorded = sensor.RivianNavigationSensorEntity._unrecorded_attributes
