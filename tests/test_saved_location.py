@@ -1,4 +1,4 @@
-"""Tests for the known location sensor."""
+"""Tests for the saved location sensor."""
 
 from __future__ import annotations
 
@@ -53,11 +53,11 @@ def native_value(coor: coordinator.VehicleCoordinator, key: str) -> Any:
     ("value", "state"),
     [("unknown", "elsewhere"), ("home", "home"), ("work", "work")],
 )
-def test_known_location(
+def test_saved_location(
     coor: coordinator.VehicleCoordinator, value: str, state: str
 ) -> None:
     """Not being at a known place is a state of its own, not an unknown state."""
     parallax(coor, "dynamics.vehicle.location", {"knownLocation": value})
 
-    assert native_value(coor, "known_location") == state
-    assert state in DESCRIPTIONS["known_location"].options
+    assert native_value(coor, "saved_location") == state
+    assert state in DESCRIPTIONS["saved_location"].options

@@ -482,7 +482,7 @@
             "cellular_signal_strength": {
                 "default": "mdi:signal"
             },
-            "known_location": {
+            "saved_location": {
                 "default": "mdi:map-marker",
                 "state": {
                     "home": "mdi:home-map-marker",

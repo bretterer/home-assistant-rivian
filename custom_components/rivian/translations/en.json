@@ -1124,8 +1124,8 @@
       "cellular_signal_strength": {
         "name": "Cellular signal strength"
       },
-      "known_location": {
-        "name": "Known location",
+      "saved_location": {
+        "name": "Saved location",
         "state": {
           "elsewhere": "Elsewhere",
           "home": "Home",

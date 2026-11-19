@@ -1034,8 +1034,8 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
             value_lambda=lambda v: None if v == -255 else v,
         ),
         RivianSensorEntityDescription(
-            key="known_location",
-            translation_key="known_location",
+            key="saved_location",
+            translation_key="saved_location",
             field="knownLocation",
             device_class=SensorDeviceClass.ENUM,
             options=["elsewhere", "home", "work"],

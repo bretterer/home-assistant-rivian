@@ -175,7 +175,6 @@ Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
 | Heated steering wheel                               | Binary sensor  | Running/not running status                                                                                                     |
 | In use state                                        | Binary sensor  | Moving/stopped status                                                                                                          |
 | Keys                                                | Sensor         | Number of phone keys across all drivers                                                                                        |
-| Known location                                      | Sensor         | Home, work or elsewhere                                                                                                        |
 | Liftgate                                            | Binary sensor  | Open/close status, R1S and R2 only                                                                                             |
 | Liftgate lock                                       | Binary sensor  | Locked/unlocked status, R1S and R2 only                                                                                        |
 | Liftgate next action                                | Sensor         | R1S and R2 only                                                                                                                |
@@ -199,6 +198,7 @@ Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
 | Range threshold                                     | Sensor         |                                                                                                                                |
 | Rear hitch status                                   | Sensor         | Nothing, an accessory or a trailer on the hitch                                                                                |
 | Remote charging available                           | Sensor         |                                                                                                                                |
+| Saved location                                      | Sensor         | Home or work, as saved in the Rivian app, or elsewhere                                                                         |
 | Service mode                                        | Sensor         |                                                                                                                                |
 | Software                                            | Update         |                                                                                                                                |
 | Software OTA - Download progress                    | Sensor         |                                                                                                                                |
