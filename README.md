@@ -86,7 +86,7 @@ Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
 | --------------------------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | 12V battery health                                  | Sensor         |                                                                                                                                |
 | Active driver                                       | Sensor         | The name of the active driver.                                                                                                 |
-| Altitude                                            | Sensor         |                                                                                                                                |
+| Altitude                                            | Sensor         | Its `accuracy` attribute is the estimated error, when known                                                                    |
 | Amperage                                            | Sensor         | Wallbox current                                                                                                                |
 | Amperage maximum                                    | Sensor         | Wallbox maximum current                                                                                                        |
 | Battery capacity                                    | Sensor         |                                                                                                                                |
@@ -94,7 +94,7 @@ Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
 | Battery state of charge limit                       | Sensor         |                                                                                                                                |
 | Battery thermal runaway propagation                 | Sensor         |                                                                                                                                |
 | Battery thermal status                              | Sensor         |                                                                                                                                |
-| Bearing                                             | Sensor         |                                                                                                                                |
+| Bearing                                             | Sensor         | Its `accuracy` attribute is the estimated error, when known                                                                    |
 | Bluetooth module failure status door front left\*   | Sensor         |                                                                                                                                |
 | Bluetooth module failure status door front right\*  | Sensor         |                                                                                                                                |
 | Bluetooth module failure status fascia front\*      | Sensor         |                                                                                                                                |
@@ -208,7 +208,7 @@ Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
 | Software OTA - Install type                         | Sensor         | R1T and R1S only                                                                                                               |
 | Software OTA - Last install result                  | Sensor         |                                                                                                                                |
 | Software OTA - Status                               | Sensor         |                                                                                                                                |
-| Speed                                               | Sensor         |                                                                                                                                |
+| Speed                                               | Sensor         | Its `accuracy` attribute is the estimated error, when known                                                                    |
 | Tailgate                                            | Binary sensor  | Open/close status, R1T only                                                                                                    |
 | Tailgate lock                                       | Binary sensor  | Locked/unlocked status, R1T and R1S only                                                                                       |
 | Tailgate next action                                | Sensor         | R1T only                                                                                                                       |
@@ -227,7 +227,7 @@ Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
 | Tonneau                                             | Binary sensor  | Open/close status, R1T with a powered tonneau only                                                                             |
 | Tonneau lock                                        | Binary sensor  | Locked/unlocked status, R1T with a powered tonneau only                                                                        |
 | Trailer status                                      | Sensor         |                                                                                                                                |
-| _Vehicle name_                                      | Device tracker | Vehicle location, named after the vehicle itself                                                                               |
+| _Vehicle name_                                      | Device tracker | Vehicle location, named after the vehicle itself, with the GPS accuracy when known                                             |
 | Vehicle updates                                     | Binary sensor  | OK/problem status: a problem when nothing has arrived from Rivian for 10 minutes                                               |
 | Vented seat front left                              | Binary sensor  | Running/not running status                                                                                                     |
 | Vented seat front right                             | Binary sensor  | Running/not running status                                                                                                     |

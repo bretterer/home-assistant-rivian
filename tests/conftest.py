@@ -952,7 +952,28 @@ def _setup_mock_environment() -> None:
                     return (value * 1.8) + 32.0
                 return (value - 32.0) / 1.8
 
+        class _FactorConverter:
+            """Converts by factors to a base unit, keyed by the mocked unit names."""
+
+            factors: dict[str, float] = {}
+
+            @classmethod
+            def convert(cls, value: float, from_unit: str, to_unit: str) -> float:
+                return value * cls.factors[str(from_unit)] / cls.factors[str(to_unit)]
+
+        class DistanceConverter(_FactorConverter):
+            factors = {"meters": 1.0, "feet": 0.3048, "kilometers": 1000.0}
+
+        class SpeedConverter(_FactorConverter):
+            factors = {
+                "meters_per_second": 1.0,
+                "kilometers_per_hour": 1 / 3.6,
+                "miles_per_hour": 0.44704,
+            }
+
         unit_conversion_mod.TemperatureConverter = TemperatureConverter  # type: ignore[attr-defined]
+        unit_conversion_mod.DistanceConverter = DistanceConverter  # type: ignore[attr-defined]
+        unit_conversion_mod.SpeedConverter = SpeedConverter  # type: ignore[attr-defined]
         sys.modules["homeassistant.util.unit_conversion"] = unit_conversion_mod
         util_mod.unit_conversion = unit_conversion_mod  # type: ignore[attr-defined]
 

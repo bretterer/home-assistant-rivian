@@ -1656,6 +1656,29 @@ class VehicleCoordinator(RivianDataUpdateCoordinator[dict[str, Any]]):
             return entity.get("value")
         return None
 
+    def gnss_error(self, component: str) -> float | None:
+        """Return Parallax's error estimate for a value from the fix shown.
+
+        `component` is a gnssError key: positionHorizontal (the location),
+        positionVertical (the altitude), speed or bearing. gnssError describes
+        Parallax's fix, while the location, speed and bearing come from the
+        newest fix from any source (Parallax, navigation or GraphQL), so the
+        estimate only applies while the value shown came from that same fix.
+        """
+        error = self.get("gnssError") if self.data else None
+        if not isinstance(error, dict) or not (fix_time := error.get("timeStamp")):
+            return None
+        if component == "positionHorizontal":
+            shown = (self._current_data().get("gnssLocation") or {}).get("timeStamp")
+        elif component in ("speed", "bearing"):
+            shown = self._motion_fix_time
+        else:
+            # The altitude only comes from Parallax's fix
+            shown = fix_time
+        if shown != fix_time:
+            return None
+        return error.get(component)
+
     def _phone_key(self) -> dict[str, str]:
         """Return the paired phone's key, as `send_parallax_command` takes it."""
         vehicle = self.config_entry.runtime_data.vehicles[self.vehicle_id]
