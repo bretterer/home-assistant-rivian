@@ -139,6 +139,7 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
             native_unit_of_measurement=UnitOfLength.METERS,
             state_class=SensorStateClass.MEASUREMENT,
             suggested_display_precision=0,
+            gnss_error="positionVertical",
         ),
         RivianSensorEntityDescription(
             key="battery_thermal_status",
@@ -228,6 +229,7 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
             translation_key="bearing",
             native_unit_of_measurement=DEGREE,
             suggested_display_precision=0,
+            gnss_error="bearing",
         ),
         RivianSensorEntityDescription(
             key="brake_fluid_low",
@@ -568,6 +570,7 @@ SENSORS: Final[dict[tuple[str, ...], tuple[RivianSensorEntityDescription, ...]]]
             native_unit_of_measurement=UnitOfSpeed.METERS_PER_SECOND,
             state_class=SensorStateClass.MEASUREMENT,
             suggested_display_precision=0,
+            gnss_error="speed",
         ),
         RivianSensorEntityDescription(
             key="time_to_end_of_charge",

@@ -75,6 +75,14 @@ class RivianDeviceEntity(RivianVehicleEntity, TrackerEntity):
         return self._tracker_data.get("longitude")
 
     @property
+    def location_accuracy(self) -> float:
+        """Return the fix's estimated error in meters, or 0 when unknown.
+
+        Home Assistant uses it to decide which zone the vehicle is in.
+        """
+        return self.coordinator.gnss_error("positionHorizontal") or 0
+
+    @property
     def source_type(self) -> SourceType:
         """Return the source type, eg gps or router, of the device."""
         return SourceType.GPS

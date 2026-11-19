@@ -30,6 +30,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
+from homeassistant.util.unit_conversion import DistanceConverter, SpeedConverter
 
 from .const import DOMAIN, REMOVED_SENSOR_KEYS, SENSORS, WEEK_DAYS_ORDERED
 from .coordinator import DriverKeyCoordinator, RivianConfigEntry, VehicleCoordinator
@@ -53,6 +54,28 @@ ALL_WEEK_DAYS: Final[frozenset[str]] = frozenset(WEEK_DAYS_ORDERED)
 WEEKDAYS_ONLY: Final[frozenset[str]] = frozenset(WEEK_DAYS_ORDERED[:5])
 
 RIVIAN_TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%S.%f%z"
+
+
+# Converts an accuracy to the unit a sensor is shown in, which Home Assistant
+# does for its state but not its attributes
+ACCURACY_CONVERTERS: Final = {
+    SensorDeviceClass.DISTANCE: DistanceConverter,
+    SensorDeviceClass.SPEED: SpeedConverter,
+}
+
+
+def _accuracy(
+    description: RivianSensorEntityDescription, error: float, unit: str | None
+) -> float:
+    """Return an error estimate in the unit the sensor is shown in."""
+    native = description.native_unit_of_measurement
+    if (
+        (converter := ACCURACY_CONVERTERS.get(description.device_class))
+        and unit
+        and unit != native
+    ):
+        error = converter.convert(error, native, unit)
+    return round(error, 1)
 
 
 def _parse_timestamp(val: datetime | str | None) -> datetime | None:
@@ -465,6 +488,18 @@ class RivianSensorEntity(RivianVehicleEntity, RestoreSensor):
 
     entity_description: RivianSensorEntityDescription
     _last_value: Any = None
+    # Changes with every fix, so it's left out of the recorder
+    _unrecorded_attributes = frozenset({"accuracy"})
+
+    @property
+    def extra_state_attributes(self) -> Mapping[str, Any] | None:
+        """Return the estimated error of the value, when known."""
+        description = self.entity_description
+        if not description.gnss_error or (
+            (error := self.coordinator.gnss_error(description.gnss_error)) is None
+        ):
+            return None
+        return {"accuracy": _accuracy(description, error, self.unit_of_measurement)}
 
     async def async_added_to_hass(self) -> None:
         """Restore the last value of a sensor that keeps it while unreported."""

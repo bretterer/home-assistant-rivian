@@ -101,6 +101,8 @@ class RivianSensorEntityDescription(SensorEntityDescription):
     restore: bool = False
     # Only create for vehicles reporting this supported feature, or all of these
     supported_feature: str | frozenset[str] | None = None
+    # The gnssError component that's this sensor's accuracy attribute
+    gnss_error: str | None = None
 
 
 @dataclass(kw_only=True)
