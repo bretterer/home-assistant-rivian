@@ -161,7 +161,8 @@ SEND_LOCATION_SCHEMA: Final = vol.Schema(
 
 STOP_SCHEMA: Final = vol.Schema(
     {
-        vol.Required(ATTR_NAME): cv.string,
+        # "Stop 1" and so on when left out or empty, as Rivian keeps no name then
+        vol.Optional(ATTR_NAME): cv.string,
         vol.Optional(ATTR_LOCATION): LOCATION_SCHEMA,
     }
 )
@@ -408,8 +409,11 @@ def async_setup_services(hass: HomeAssistant) -> None:
         origin = _position(coordinator)
         user_id = _user_id(coordinator)
         stops = [
-            (stop[ATTR_NAME], *_coordinates(hass, stop.get(ATTR_LOCATION)))
-            for stop in call.data[ATTR_STOPS]
+            (
+                stop.get(ATTR_NAME) or f"Stop {number}",
+                *_coordinates(hass, stop.get(ATTR_LOCATION)),
+            )
+            for number, stop in enumerate(call.data[ATTR_STOPS], 1)
         ]
         try:
             # the vehicle ignores a new trip while navigating another one

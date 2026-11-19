@@ -613,6 +613,27 @@ async def test_send_trip_stop_defaults_to_home(
     ]
 
 
+async def test_send_trip_stop_names_default(
+    hass: SimpleNamespace, vehicle: MagicMock
+) -> None:
+    """A stop without a name, or with an empty one, is named by its number."""
+    send = _handlers(hass)[services.SERVICE_SEND_TRIP]
+    location = STOPS[0]["location"]
+
+    await send(
+        _trip_call(
+            stops=[{"location": location}, *STOPS, {"name": "", "location": location}]
+        )
+    )
+    assert [
+        name for name, *_ in vehicle.api.send_trip_to_vehicle.await_args.args[2]
+    ] == [
+        "Stop 1",
+        "Stadium",
+        "Stop 3",
+    ]
+
+
 async def test_send_trip_without_position(
     monkeypatch: pytest.MonkeyPatch, hass: SimpleNamespace, vehicle: MagicMock
 ) -> None:

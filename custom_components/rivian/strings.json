@@ -48,7 +48,7 @@
       "fields": {
         "name": {
           "name": "Name",
-          "description": "The name the vehicle shows for the stop."
+          "description": "The name the vehicle shows for the stop. Defaults to \"Stop 1\", \"Stop 2\" and so on."
         },
         "location": {
           "name": "Location",
@@ -1330,7 +1330,7 @@
         },
         "stops": {
           "name": "Stops",
-          "description": "The stops in order, each with a name and a location (Home Assistant's home location if left out)."
+          "description": "The stops in order, each with a name (\"Stop 1\" and so on if left out) and a location (Home Assistant's home location if left out)."
         },
         "arrival_range": {
           "name": "Preferred arrival range",

@@ -213,7 +213,6 @@ send_trip:
           translation_key: stop
           fields:
             name:
-              required: true
               selector:
                 text:
             location:
