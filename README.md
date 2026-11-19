@@ -274,6 +274,8 @@ These controls need a phone key paired over Bluetooth (see [Remote Vehicle Contr
 | Open gear tunnel right     | Button  | Open right gear tunnel, R1T only                                                                                                                         |
 | Pair                       | Button  | Initiate Bluetooth pairing from Home Assistant. When pairing is identified as completed, this entity will no longer be created and can safely be deleted |
 | Pet comfort                | Switch  | Turn pet comfort on/off, vehicles with pet comfort only                                                                                                  |
+| Seat 3rd row left heat     | Select  | Set 3rd row left seat heat level, R1S only                                                                                                               |
+| Seat 3rd row right heat    | Select  | Set 3rd row right seat heat level, R1S only                                                                                                              |
 | Seat front left heat       | Select  | Set front left seat heat level                                                                                                                           |
 | Seat front left vent       | Select  | Set front left seat vent level                                                                                                                           |
 | Seat front right heat      | Select  | Set front right seat heat level                                                                                                                          |
