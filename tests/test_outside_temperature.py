@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime, timedelta
+from types import MethodType
 from typing import Any, Self
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -11,6 +12,7 @@ import pytest
 
 from custom_components.rivian import sensor
 from custom_components.rivian.config_flow import CONF_WEATHER_LOOKUPS
+from custom_components.rivian.coordinator import VehicleCoordinator
 from custom_components.rivian.weather import OpenMeteoWeatherClient
 
 T0 = datetime(2026, 10, 12, 18, 0, tzinfo=UTC)
@@ -36,7 +38,9 @@ class Harness:
         self.data: dict[str, Any] = {}
         self.move(location)
         coordinator = MagicMock()
-        coordinator.get = lambda key: self.data.get(key)
+        # The real lookup: gnssLocation has no "value" key, so get() can't read it
+        coordinator.data = self.data
+        coordinator.get = MethodType(VehicleCoordinator.get, coordinator)
         self.client = MagicMock()
         self.client.async_get_current_temperature = AsyncMock(return_value=41.3)
         self.tasks: list[Any] = []

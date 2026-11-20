@@ -567,7 +567,10 @@ class RivianOutsideTemperatureEntity(RivianVehicleEntity, SensorEntity):
 
     def _location(self) -> tuple[float, float] | None:
         """Return the vehicle's (lat, lon), or None when it isn't known."""
-        location = self._get_value("gnssLocation")
+        # The fix itself, as the device tracker reads it: it has no "value"
+        # key, so _get_value can't return it
+        data = self.coordinator.data
+        location = data.get("gnssLocation") if data else None
         if not isinstance(location, dict):
             return None
         try:
