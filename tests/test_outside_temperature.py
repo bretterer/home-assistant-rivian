@@ -245,7 +245,53 @@ async def test_failed_lookup_keeps_refreshing(make: Any, clock: Clock) -> None:
     harness.client.async_get_current_temperature.side_effect = RuntimeError("boom")
     await _added(harness)
     assert harness.entity.native_value is None
-    assert [delay for delay, _, _ in harness.timers] == [timedelta(minutes=15)]
+    assert [delay for delay, _, _ in harness.timers] == [timedelta(minutes=1)]
+
+
+async def _fire(harness: Harness, clock: Clock) -> None:
+    """Wait out the last scheduled timer and run it."""
+    delay, refresh, _ = harness.timers[-1]
+    clock.now += delay
+    refresh(clock.now)
+    await harness.run_tasks()
+
+
+async def test_failed_lookups_retry_sooner(make: Any, clock: Clock) -> None:
+    """Failed lookups retry after 1, 2 and 5 minutes, then every 15."""
+    harness = make()
+    harness.client.async_get_current_temperature.return_value = None
+    await _added(harness)
+    for _ in range(4):
+        await _fire(harness, clock)
+    assert [delay.total_seconds() / 60 for delay, _, _ in harness.timers] == [
+        1,
+        2,
+        5,
+        15,
+        15,
+    ]
+    # Every retry asked again, despite the 5-minute minimum between lookups
+    assert harness.requests == [START] * 5
+
+
+async def test_success_resets_the_retries(make: Any, clock: Clock) -> None:
+    """After a successful lookup, the next failure retries after 1 minute again."""
+    harness = make()
+    lookup = harness.client.async_get_current_temperature
+    lookup.return_value = None
+    await _added(harness)
+    await _fire(harness, clock)
+    lookup.return_value = 40.0
+    await _fire(harness, clock)
+    lookup.return_value = None
+    await _fire(harness, clock)
+    assert [delay.total_seconds() / 60 for delay, _, _ in harness.timers] == [
+        1,
+        2,
+        15,
+        1,
+    ]
+    assert harness.entity.native_value == 40.0
 
 
 def test_distance() -> None:

@@ -498,6 +498,13 @@ OUTSIDE_TEMPERATURE_SENSOR = SensorEntityDescription(
 )
 # Open-Meteo's current conditions change every 15 minutes
 OUTSIDE_TEMPERATURE_REFRESH = timedelta(minutes=15)
+# A failed lookup is tried again after these, then every OUTSIDE_TEMPERATURE_REFRESH,
+# so a lookup that fails at startup doesn't leave the sensor empty for 15 minutes
+OUTSIDE_TEMPERATURE_RETRY: Final = (
+    timedelta(minutes=1),
+    timedelta(minutes=2),
+    timedelta(minutes=5),
+)
 # Moving further than this from the last lookup looks the temperature up again
 OUTSIDE_TEMPERATURE_MOVE_M: Final = 1000.0
 # ...but never more often than this, so a drive sends a few requests at most
@@ -542,6 +549,7 @@ class RivianOutsideTemperatureEntity(RivianVehicleEntity, SensorEntity):
         self._lookup_time: datetime | None = None
         self._lookup_location: tuple[float, float] | None = None
         self._looking_up = False
+        self._failed_lookups = 0
         self._unsub_refresh: Any = None
         self._lookup_task: asyncio.Task[None] | None = None
 
@@ -622,12 +630,16 @@ class RivianOutsideTemperatureEntity(RivianVehicleEntity, SensorEntity):
         if self._looking_up or (location := self._location()) is None:
             return
         now = dt_util.utcnow()
-        if self._lookup_time is not None and self._lookup_location is not None:
+        # The timer spaces its own lookups; these limits are for moving
+        if (
+            not refresh
+            and self._lookup_time is not None
+            and self._lookup_location is not None
+        ):
             if now - self._lookup_time < OUTSIDE_TEMPERATURE_MIN_GAP:
                 return
             if (
-                not refresh
-                and _distance_m(self._lookup_location, location)
+                _distance_m(self._lookup_location, location)
                 <= OUTSIDE_TEMPERATURE_MOVE_M
             ):
                 return
@@ -650,14 +662,22 @@ class RivianOutsideTemperatureEntity(RivianVehicleEntity, SensorEntity):
             # Also on removal, which cancels the lookup and ends here
             self._looking_up = False
             self._lookup_task = None
-        # Counted from the lookup's end, so the client's 15-minute cache of
-        # this spot has expired by then
-        self._unsub_refresh = async_call_later(
-            self.hass, OUTSIDE_TEMPERATURE_REFRESH, self._async_refresh
-        )
-        if value is not None:
+        if value is None:
+            # A failed lookup isn't cached, so a retry asks Open-Meteo again
+            delay = (
+                OUTSIDE_TEMPERATURE_RETRY[self._failed_lookups]
+                if self._failed_lookups < len(OUTSIDE_TEMPERATURE_RETRY)
+                else OUTSIDE_TEMPERATURE_REFRESH
+            )
+            self._failed_lookups += 1
+        else:
+            # Counted from the lookup's end, so the client's 15-minute cache
+            # of this spot has expired by then
+            delay = OUTSIDE_TEMPERATURE_REFRESH
+            self._failed_lookups = 0
             self._value = value
             self._value_time = dt_util.utcnow()
+        self._unsub_refresh = async_call_later(self.hass, delay, self._async_refresh)
         self.async_write_ha_state()
 
 

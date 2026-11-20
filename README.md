@@ -356,7 +356,7 @@ These actions need only the signed-in account, not a paired phone key.
 
 ### Outside temperature
 
-The vehicle doesn't report an outside temperature, so with the **Outside temperature** option on (**Settings** > **Devices & services** > Rivian (Unofficial) > **Configure**; off by default) each vehicle gets an *Outside temperature* sensor with the current temperature at its location from the public [Open-Meteo](https://open-meteo.com/) API. Only the location, rounded to about 1 km, is sent. It's looked up when the location is first known, every 15 minutes after that, and when the vehicle has moved more than about a kilometre, at most once every 5 minutes. The sensor is unavailable until the first lookup and when the lookups have failed for an hour. With the option off nothing is sent and the sensor isn't created.
+The vehicle doesn't report an outside temperature, so with the **Outside temperature** option on (**Settings** > **Devices & services** > Rivian (Unofficial) > **Configure**; off by default) each vehicle gets an *Outside temperature* sensor with the current temperature at its location from the public [Open-Meteo](https://open-meteo.com/) API. Only the location, rounded to about 1 km, is sent. It's looked up when the location is first known, every 15 minutes after that (a failed lookup is retried after 1, 2 and 5 minutes), and when the vehicle has moved more than about a kilometre, at most once every 5 minutes. The sensor is unavailable until the first lookup and when the lookups have failed for an hour. With the option off nothing is sent and the sensor isn't created.
 
 ## Trip Route Card
 
