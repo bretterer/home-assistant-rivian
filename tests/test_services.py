@@ -80,7 +80,9 @@ def _register(hass: SimpleNamespace) -> tuple[dict[str, Any], dict[str, Any]]:
     handlers: dict[str, Any] = {}
     schemas: dict[str, Any] = {}
 
-    def register(domain: str, service: str, handler: Any, schema: Any) -> None:
+    def register(
+        domain: str, service: str, handler: Any, schema: Any, **kwargs: Any
+    ) -> None:
         handlers[service] = handler
         schemas[service] = schema
 
@@ -727,3 +729,161 @@ async def test_trip_api_error(
         await handler(_trip_call())
     assert err.value.translation_key == key
     assert err.value.translation_placeholders == {"error": "rate limited"}
+
+
+PLACE = {
+    "id": "place_id",
+    "name": "REI",
+    "location": {
+        "formattedAddress": "5901 Mills Civic Pkwy, West Des Moines, IA",
+        "coordinate": {"latitude": 41.56028, "longitude": -93.78724},
+        "navCoordinate": {"latitude": 41.56001, "longitude": -93.78730},
+    },
+    "driveDetails": {"driveDistance": 239062, "driveDuration": 9960},
+}
+
+
+def _search_call(**data: Any) -> SimpleNamespace:
+    """A search_places call from an automation."""
+    return SimpleNamespace(
+        context=SimpleNamespace(user_id=None),
+        data={
+            services.ATTR_DEVICE_ID: DEVICE_ID,
+            "query": "REI",
+            "max_results": 2,
+            "autocomplete": False,
+        }
+        | data,
+    )
+
+
+@pytest.fixture
+def places(vehicle: MagicMock) -> MagicMock:
+    """A vehicle whose searches find three places and suggest one search."""
+    vehicle.api.search_places = AsyncMock(return_value=[PLACE] * 3)
+    vehicle.api.suggest_places = AsyncMock(return_value=["restaurants"])
+    return vehicle
+
+
+async def test_search_places(hass: SimpleNamespace, places: MagicMock) -> None:
+    """Results come from the vehicle's location, trimmed, at their entrances."""
+    search = _handlers(hass)[services.SERVICE_SEARCH_PLACES]
+
+    response = await search(_search_call())
+    places.api.search_places.assert_awaited_once_with("REI", 40.1, -92.5)
+    assert response == {
+        "predictions": [],
+        "results": [
+            {
+                "place_id": "place_id",
+                "name": "REI",
+                "address": "5901 Mills Civic Pkwy, West Des Moines, IA",
+                "location": {"latitude": 41.56001, "longitude": -93.78730},
+                "drive_distance": 239062,
+                "drive_duration": 9960,
+            }
+        ]
+        * 2,
+    }
+
+
+async def test_search_places_near_location(
+    hass: SimpleNamespace, places: MagicMock
+) -> None:
+    """Given a location, the search is from there, even with no vehicle position."""
+    places.data = {}
+    search = _handlers(hass)[services.SERVICE_SEARCH_PLACES]
+
+    await search(_search_call(location={"latitude": 1.0, "longitude": 2.0}))
+    places.api.search_places.assert_awaited_once_with("REI", 1.0, 2.0)
+
+
+async def test_search_places_suggestions(
+    hass: SimpleNamespace, places: MagicMock
+) -> None:
+    """With autocomplete, suggested search texts come back instead of places."""
+    search = _handlers(hass)[services.SERVICE_SEARCH_PLACES]
+
+    response = await search(_search_call(query="RE", autocomplete=True))
+    assert response == {"predictions": ["restaurants"], "results": []}
+    places.api.suggest_places.assert_awaited_once_with("RE", 40.1, -92.5)
+    places.api.search_places.assert_not_awaited()
+
+
+async def test_search_places_fails(
+    monkeypatch: pytest.MonkeyPatch, hass: SimpleNamespace, places: MagicMock
+) -> None:
+    """No vehicle position, or a failed search, fails the action."""
+    monkeypatch.setattr(services, "HomeAssistantError", _TranslatedError)
+    search = _handlers(hass)[services.SERVICE_SEARCH_PLACES]
+
+    places.data = {}
+    with pytest.raises(_TranslatedError) as err:
+        await search(_search_call())
+    assert err.value.translation_key == "location_unknown"
+
+    places.data = {"gnssLocation": {"latitude": 40.1, "longitude": -92.5}}
+    places.api.search_places.side_effect = services.RivianApiException("bad")
+    with pytest.raises(_TranslatedError) as err:
+        await search(_search_call())
+    assert err.value.translation_key == "search_failed"
+    assert err.value.translation_placeholders == {"error": "bad"}
+
+
+async def test_search_places_checks_permission(
+    hass: SimpleNamespace, places: MagicMock
+) -> None:
+    """A user who can't control the vehicle can't search from it."""
+    hass.auth.async_get_user.return_value = _user()
+    search = _handlers(hass)[services.SERVICE_SEARCH_PLACES]
+    call = _search_call()
+    call.context.user_id = "user"
+
+    with pytest.raises(Unauthorized):
+        await search(call)
+    places.api.search_places.assert_not_awaited()
+
+
+def test_search_places_returns_a_response(hass: SimpleNamespace) -> None:
+    """Search places is registered to return its results."""
+    registered: dict[str, Any] = {}
+    hass.services = SimpleNamespace(
+        async_register=lambda domain, service, handler, schema, **kwargs: (
+            registered.__setitem__(service, kwargs)
+        )
+    )
+    services.async_setup_services(hass)
+    assert registered[services.SERVICE_SEARCH_PLACES] == {
+        "supports_response": services.SupportsResponse.ONLY
+    }
+
+
+async def test_send_location_by_place(
+    monkeypatch: pytest.MonkeyPatch, hass: SimpleNamespace, coordinator: MagicMock
+) -> None:
+    """With a place id, the app's place link is sent so the vehicle shows its name."""
+    share = _sharing(coordinator, ACCEPTED)
+    link = MagicMock(return_value="link")
+    monkeypatch.setattr(services, "place_url", link)
+    send = _handlers(hass)[services.SERVICE_SEND_LOCATION]
+
+    await send(_location_call(place_id="place_id", name="REI", address="1 Main"))
+    link.assert_called_once_with("place_id", "REI", 39.05, -94.48, "1 Main")
+    share.assert_awaited_once_with("vehicle", "link")
+
+
+async def test_send_place_without_location(
+    monkeypatch: pytest.MonkeyPatch, hass: SimpleNamespace, coordinator: MagicMock
+) -> None:
+    """A place isn't sent to Home Assistant's home when its location is left out."""
+    monkeypatch.setattr(services, "ServiceValidationError", _TranslatedError)
+    share = _sharing(coordinator, ACCEPTED)
+    hass.config = SimpleNamespace(latitude=38.9, longitude=-94.6)
+    send = _handlers(hass)[services.SERVICE_SEND_LOCATION]
+    call = _location_call(place_id="place_id", name="REI")
+    del call.data[services.ATTR_LOCATION]
+
+    with pytest.raises(_TranslatedError) as err:
+        await send(call)
+    assert err.value.translation_key == "place_without_location"
+    share.assert_not_awaited()

@@ -208,9 +208,15 @@ def _setup_mock_environment() -> None:
             func._hass_callback = True
             return func
 
+        class SupportsResponse(StrEnum):
+            NONE = "none"
+            OPTIONAL = "optional"
+            ONLY = "only"
+
         core_mod.HomeAssistant = MockHomeAssistant  # type: ignore[attr-defined]
         core_mod.ServiceCall = MockServiceCall  # type: ignore[attr-defined]
         core_mod.callback = callback  # type: ignore[attr-defined]
+        core_mod.SupportsResponse = SupportsResponse  # type: ignore[attr-defined]
         sys.modules["homeassistant.core"] = core_mod
         ha_mod.core = core_mod  # type: ignore[attr-defined]
 
