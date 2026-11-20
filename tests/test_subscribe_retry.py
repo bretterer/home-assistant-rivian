@@ -40,11 +40,19 @@ def vehicle(
     coor.vehicle_id = "vehicle"
     coor.data = data
     coor.last_update_success = True
-    coor._unsub_handler = coor._unsub_parallax = None
+    coor._unsub_handler = coor._unsub_parallax = coor._unsub_location = None
+    coor._location_failed = False
+    coor._unsub_departure_handler = None
+    coor._departure_subscribe_lock = asyncio.Lock()
+    coor._departure_subscription = 0
+    coor._empty_list_hold = None
     coor._initial = asyncio.Event()
     coor._rate_limited_since = None
     coor._subscribe_failures = 0
+    coor._departure_schedules = None
     coor.get_charging_schedule_data = AsyncMock()
+    coor._ensure_precondition_loaded = AsyncMock()
+    coor._subscribe_departure_schedules = AsyncMock()
     return coor
 
 

@@ -3,26 +3,27 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Final
+from typing import Final
 
 from rivian import VehicleCommand
 
 from homeassistant.components.number import NumberDeviceClass, NumberEntity
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfElectricCurrent
+from homeassistant.const import (
+    PERCENTAGE,
+    EntityCategory,
+    UnitOfElectricCurrent,
+    UnitOfTime,
+)
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import (
-    ATTR_COORDINATOR,
-    ATTR_VEHICLE,
     CHARGING_SCHEDULE_AMPERAGE_MAXIMUM,
     CHARGING_SCHEDULE_AMPERAGE_MINIMUM,
     CHARGING_SCHEDULE_AMPERAGE_STEP,
     DEFAULT_CHARGING_SCHEDULE_AMPERAGE,
-    DOMAIN,
 )
-from .coordinator import VehicleCoordinator
+from .coordinator import RivianConfigEntry
 from .data_classes import RivianNumberEntityDescription
 from .entity import RivianVehicleControlEntity, RivianVehicleEntity
 
@@ -43,6 +44,21 @@ NUMBERS: Final[tuple[RivianNumberEntityDescription, ...]] = (
     ),
 )
 
+# Set with an unsigned vehicle operation, so unlike NUMBERS it doesn't need a
+# paired phone
+CLIMATE_HOLD_DURATION_NUMBER = RivianNumberEntityDescription(
+    key="climate_hold_duration",
+    translation_key="climate_hold_duration",
+    entity_category=EntityCategory.CONFIG,
+    device_class=NumberDeviceClass.DURATION,
+    native_min_value=120,
+    native_max_value=480,
+    native_step=15,
+    native_unit_of_measurement=UnitOfTime.MINUTES,
+    field="climateHoldDuration",
+    set_fn=lambda coordinator, value: coordinator.set_climate_hold_duration(int(value)),
+)
+
 CHARGING_SCHEDULE_AMPERAGE_NUMBER = RivianNumberEntityDescription(
     key="charging_schedule_amperage",
     translation_key="charging_schedule_amperage",
@@ -58,12 +74,13 @@ CHARGING_SCHEDULE_AMPERAGE_NUMBER = RivianNumberEntityDescription(
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: RivianConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the number entities."""
-    data: dict[str, Any] = hass.data[DOMAIN][entry.entry_id]
-    vehicles: dict[str, dict[str, Any]] = data[ATTR_VEHICLE]
-    coordinators: dict[str, VehicleCoordinator] = data[ATTR_COORDINATOR][ATTR_VEHICLE]
+    vehicles = entry.runtime_data.vehicles
+    coordinators = entry.runtime_data.vehicle_coordinators
 
     entities = [
         RivianNumberEntity(coordinators[vehicle_id], entry, description, vehicle)
@@ -78,6 +95,12 @@ async def async_setup_entry(
                 coord, entry, CHARGING_SCHEDULE_AMPERAGE_NUMBER, vehicle
             )
         )
+        if "CLM_HOLD" in vehicle.get("supported_features", []):
+            entities.append(
+                RivianClimateHoldDurationEntity(
+                    coord, entry, CLIMATE_HOLD_DURATION_NUMBER, vehicle
+                )
+            )
     async_add_entities(entities)
 
 
@@ -97,6 +120,23 @@ class RivianChargingScheduleAmperageEntity(RivianVehicleEntity, NumberEntity):
         sched = self.coordinator.charging_schedule
         val = sched.get("amperage", DEFAULT_CHARGING_SCHEDULE_AMPERAGE)
         return int(val) if val is not None else None
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Set new value."""
+        await self.entity_description.set_fn(self.coordinator, value)
+
+
+class RivianClimateHoldDurationEntity(RivianVehicleEntity, NumberEntity):
+    """Climate hold duration, which needs no paired phone, gear or zone check."""
+
+    entity_description: RivianNumberEntityDescription
+
+    @property
+    def native_value(self) -> int | None:
+        """Return the duration in minutes."""
+        # Seconds, 0 when no hold is set
+        seconds = self._get_value(self.entity_description.field)
+        return seconds // 60 if seconds else None
 
     async def async_set_native_value(self, value: float) -> None:
         """Set new value."""

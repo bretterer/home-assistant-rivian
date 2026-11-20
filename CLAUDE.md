@@ -66,6 +66,9 @@ Custom dataclasses extending HA entity descriptions with Rivian-specific fields 
 **Sensor Definitions (`const.py`):**
 Dictionaries `SENSORS` and `BINARY_SENSORS` keyed by tuples of vehicle models (e.g. `("R1", "R2")`, `("R1T",)`, matched as substrings of the vehicle's model) containing entity descriptions. Binary sensors can also require a `supported_feature`.
 
+**Outside temperature (`outside_temperature.py`, `weather.py`):**
+The vehicle doesn't report an outside temperature. With the `weather_lookups` option on (`CONF_WEATHER_LOOKUPS` in `const.py`, default off) each vehicle gets a `RivianOutsideTemperatureEntity`: `weather.OpenMeteoWeatherClient` (one per config entry, a 15-minute cache per ~1 km grid cell) fetches Open-Meteo's current temperature at the `gnssLocation` rounded to 2 decimals. Lookups happen on the first known location, 15 minutes after each lookup (`async_call_later`, from the lookup's end so the cache has expired), and when the vehicle moved over 1 km, at most once per 5 minutes. A failed lookup (no value) is retried after 1, 2 and 5 minutes (`OUTSIDE_TEMPERATURE_RETRY`), then every 15; a value over an hour old is unavailable. With the option off the entity isn't created and a stale registry entry is removed.
+
 ### Data Flow
 
 1. Vehicle state comes via WebSocket subscriptions (not polling)
@@ -97,5 +100,5 @@ Each platform (sensor, binary_sensor, button, climate, cover, lock, number, sele
 
 ## Key Dependencies
 
-- `rivian-python-client[ble]==2.3.1` - Core API client (includes BLE support for pairing)
-- `homeassistant>=2026.9.0` - Home Assistant core
+- `rivian-python-client[ble]==2.6.0` - Core API client (includes BLE support for pairing)
+- `homeassistant>=2026.11.0` - Home Assistant core

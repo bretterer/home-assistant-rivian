@@ -17,10 +17,9 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import EntityDescription
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import ATTR_COORDINATOR, ATTR_VEHICLE, DOMAIN
-from .coordinator import VehicleCoordinator
+from .coordinator import RivianConfigEntry, VehicleCoordinator
 from .entity import RivianVehicleEntity
 
 INSTALLING_STATUS = ("install_countdown", "awaiting_install", "installing")
@@ -34,12 +33,13 @@ UPDATE_DESCRIPTION = UpdateEntityDescription(
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: RivianConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the update entities."""
-    data: dict[str, Any] = hass.data[DOMAIN][entry.entry_id]
-    vehicles: dict[str, Any] = data[ATTR_VEHICLE]
-    coordinators: dict[str, VehicleCoordinator] = data[ATTR_COORDINATOR][ATTR_VEHICLE]
+    vehicles = entry.runtime_data.vehicles
+    coordinators = entry.runtime_data.vehicle_coordinators
 
     entities = [
         RivianUpdateEntity(coordinators[vehicle_id], entry, UPDATE_DESCRIPTION, vehicle)

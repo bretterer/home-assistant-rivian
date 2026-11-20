@@ -3,35 +3,26 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
 
 from homeassistant.components.image import ImageEntity
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import (
-    ATTR_COORDINATOR,
-    ATTR_USER,
-    ATTR_VEHICLE,
-    CONF_VEHICLE_IMAGE_STYLE,
-    DOMAIN,
-    IMAGE_STYLE_CEL,
-    IMAGE_STYLE_NONE,
-)
-from .coordinator import VehicleImageCoordinator
+from .const import CONF_VEHICLE_IMAGE_STYLE, DOMAIN, IMAGE_STYLE_CEL, IMAGE_STYLE_NONE
+from .coordinator import RivianConfigEntry, VehicleImageCoordinator
 from .entity import RivianEntity
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: RivianConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up Rivian vehicle images using config entry."""
-    data: dict[str, Any] = hass.data[DOMAIN][entry.entry_id]
-    vehicles: dict[str, Any] = data[ATTR_VEHICLE]
-    client = data[ATTR_COORDINATOR][ATTR_USER].api
+    vehicles = entry.runtime_data.vehicles
+    client = entry.runtime_data.api
     vehicle_image_style = entry.options.get(CONF_VEHICLE_IMAGE_STYLE, IMAGE_STYLE_CEL)
 
     if vehicle_image_style == IMAGE_STYLE_NONE:

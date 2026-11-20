@@ -24,6 +24,7 @@ from homeassistant.helpers.schema_config_entry_flow import (
     SchemaOptionsFlowHandler,
 )
 from homeassistant.helpers.selector import (
+    BooleanSelector,
     DeviceFilterSelectorConfig,
     DeviceSelector,
     DeviceSelectorConfig,
@@ -42,6 +43,8 @@ from .const import (
     CONF_USER_SESSION_TOKEN,
     CONF_VEHICLE_CONTROL,
     CONF_VEHICLE_IMAGE_STYLE,
+    CONF_WEATHER_LOOKUPS,
+    DEFAULT_WEATHER_LOOKUPS,
     DOMAIN,
     IMAGE_STYLE_CEL,
     IMAGE_STYLE_NONE,
@@ -72,6 +75,9 @@ OPTIONS_SCHEMA = vol.Schema(
         vol.Optional(CONF_ZONE): EntitySelector(
             EntitySelectorConfig(domain=ZONE_DOMAIN, multiple=True)
         ),
+        vol.Optional(
+            CONF_WEATHER_LOOKUPS, default=DEFAULT_WEATHER_LOOKUPS
+        ): BooleanSelector(),
     }
 )
 

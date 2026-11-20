@@ -7,10 +7,9 @@ from typing import Any
 from homeassistant.components.device_tracker import SourceType, TrackerEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import ATTR_COORDINATOR, ATTR_VEHICLE, DOMAIN
-from .coordinator import VehicleCoordinator
+from .coordinator import RivianConfigEntry, VehicleCoordinator
 from .data_classes import RivianTrackerEntityDescription
 from .entity import RivianVehicleEntity
 
@@ -19,12 +18,13 @@ LOCATION_DESCRIPTION = RivianTrackerEntityDescription(key="location", name=None)
 
 
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: RivianConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the device tracker entities."""
-    data: dict[str, Any] = hass.data[DOMAIN][entry.entry_id]
-    vehicles: dict[str, Any] = data[ATTR_VEHICLE]
-    coordinators: dict[str, VehicleCoordinator] = data[ATTR_COORDINATOR][ATTR_VEHICLE]
+    vehicles = entry.runtime_data.vehicles
+    coordinators = entry.runtime_data.vehicle_coordinators
 
     entities = [
         RivianDeviceEntity(
@@ -73,6 +73,14 @@ class RivianDeviceEntity(RivianVehicleEntity, TrackerEntity):
         if not self._tracker_data:
             return None
         return self._tracker_data.get("longitude")
+
+    @property
+    def location_accuracy(self) -> float:
+        """Return the fix's estimated error in meters, or 0 when unknown.
+
+        Home Assistant uses it to decide which zone the vehicle is in.
+        """
+        return self.coordinator.gnss_error("positionHorizontal") or 0
 
     @property
     def source_type(self) -> SourceType:
