@@ -32,7 +32,14 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 from homeassistant.util.unit_conversion import DistanceConverter, SpeedConverter
 
-from .const import DOMAIN, REMOVED_SENSOR_KEYS, SENSORS, WEEK_DAYS_ORDERED
+from .const import (
+    CONF_WEATHER_LOOKUPS,
+    DEFAULT_WEATHER_LOOKUPS,
+    DOMAIN,
+    REMOVED_SENSOR_KEYS,
+    SENSORS,
+    WEEK_DAYS_ORDERED,
+)
 from .coordinator import DriverKeyCoordinator, RivianConfigEntry, VehicleCoordinator
 from .data_classes import (
     RivianNavigationSensorEntityDescription,
@@ -47,6 +54,11 @@ from .entity import (
     RivianWallboxEntity,
 )
 from .helpers import async_remove_stale_entities
+from .outside_temperature import (
+    OUTSIDE_TEMPERATURE_SENSOR,
+    RivianOutsideTemperatureEntity,
+)
+from .weather import OpenMeteoWeatherClient
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -160,6 +172,30 @@ async def async_setup_entry(
         entities.append(
             RivianNoUpdatesSinceEntity(coord, entry, NO_UPDATES_SINCE_SENSOR, vehicle)
         )
+
+    # Outside temperature, only with the option on: it sends each vehicle's
+    # location (rounded to about 1 km) to Open-Meteo
+    if entry.options.get(CONF_WEATHER_LOOKUPS, DEFAULT_WEATHER_LOOKUPS):
+        weather_client = OpenMeteoWeatherClient(hass=hass)
+        entities.extend(
+            RivianOutsideTemperatureEntity(
+                vehicle_coordinators[vehicle_id],
+                entry,
+                OUTSIDE_TEMPERATURE_SENSOR,
+                vehicle,
+                weather_client,
+            )
+            for vehicle_id, vehicle in vehicles.items()
+        )
+    async_remove_stale_entities(
+        hass,
+        SENSOR_DOMAIN,
+        (
+            f"{vehicle['vin']}-{OUTSIDE_TEMPERATURE_SENSOR.key}"
+            for vehicle in vehicles.values()
+        ),
+        (entity.unique_id for entity in entities),
+    )
 
     async_remove_stale_entities(
         hass,
