@@ -10,8 +10,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from custom_components.rivian import sensor
-from custom_components.rivian.config_flow import CONF_WEATHER_LOOKUPS
+from custom_components.rivian import outside_temperature, sensor
+from custom_components.rivian.const import CONF_WEATHER_LOOKUPS
 from custom_components.rivian.coordinator import VehicleCoordinator
 from custom_components.rivian.weather import OpenMeteoWeatherClient
 
@@ -45,10 +45,10 @@ class Harness:
         self.client.async_get_current_temperature = AsyncMock(return_value=41.3)
         self.tasks: list[Any] = []
         self.timers: list[tuple[timedelta, Any, MagicMock]] = []
-        self.entity = sensor.RivianOutsideTemperatureEntity(
+        self.entity = outside_temperature.RivianOutsideTemperatureEntity(
             coordinator,
             MagicMock(),
-            sensor.OUTSIDE_TEMPERATURE_SENSOR,
+            outside_temperature.OUTSIDE_TEMPERATURE_SENSOR,
             VEHICLE,
             self.client,
         )
@@ -84,7 +84,7 @@ class Harness:
 @pytest.fixture
 def clock() -> Any:
     clock = Clock()
-    with patch.object(sensor.dt_util, "utcnow", lambda: clock.now):
+    with patch.object(outside_temperature.dt_util, "utcnow", lambda: clock.now):
         yield clock
 
 
@@ -107,7 +107,7 @@ def make(clock: Clock) -> Any:
     def _call_later(hass: Any, delay: timedelta, action: Any) -> MagicMock:
         return harnesses[-1].call_later(hass, delay, action)
 
-    with patch.object(sensor, "async_call_later", _call_later):
+    with patch.object(outside_temperature, "async_call_later", _call_later):
         yield _make
 
 
@@ -134,7 +134,7 @@ async def test_no_location_no_request(make: Any, clock: Clock) -> None:
 
 
 async def test_short_move_is_not_looked_up(make: Any, clock: Clock) -> None:
-    """Moving under a kilometre sends nothing."""
+    """Moving under a kilometer sends nothing."""
     harness = await _added(make())
     clock.advance(10)
     harness.move((START[0] + 0.005, START[1]))  # about 560 m
@@ -144,7 +144,7 @@ async def test_short_move_is_not_looked_up(make: Any, clock: Clock) -> None:
 
 
 async def test_long_move_waits_for_the_minimum_gap(make: Any, clock: Clock) -> None:
-    """Moving over a kilometre looks up again, but not within 5 minutes."""
+    """Moving over a kilometer looks up again, but not within 5 minutes."""
     harness = await _added(make())
     far = (START[0] + 0.02, START[1])  # about 2.2 km
     clock.advance(4)
@@ -295,9 +295,13 @@ async def test_success_resets_the_retries(make: Any, clock: Clock) -> None:
 
 
 def test_distance() -> None:
-    """The distance is in metres."""
-    assert sensor._distance_m(START, START) == 0
-    assert 1100 < sensor._distance_m(START, (START[0] + 0.01, START[1])) < 1125
+    """The distance is in meters."""
+    assert outside_temperature._distance_m(START, START) == 0
+    assert (
+        1100
+        < outside_temperature._distance_m(START, (START[0] + 0.01, START[1]))
+        < 1125
+    )
 
 
 class _Response:
@@ -359,7 +363,11 @@ async def test_setup_follows_the_option(enabled: bool) -> None:
             MagicMock(), _entry({CONF_WEATHER_LOOKUPS: enabled}), added.extend
         )
 
-    outside = [e for e in added if isinstance(e, sensor.RivianOutsideTemperatureEntity)]
+    outside = [
+        e
+        for e in added
+        if isinstance(e, outside_temperature.RivianOutsideTemperatureEntity)
+    ]
     assert len(outside) == (1 if enabled else 0)
     assert client_cls.called == enabled
     unique_id = "VIN1-outside_temperature"

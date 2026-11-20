@@ -43,6 +43,8 @@ from .const import (
     CONF_USER_SESSION_TOKEN,
     CONF_VEHICLE_CONTROL,
     CONF_VEHICLE_IMAGE_STYLE,
+    CONF_WEATHER_LOOKUPS,
+    DEFAULT_WEATHER_LOOKUPS,
     DOMAIN,
     IMAGE_STYLE_CEL,
     IMAGE_STYLE_NONE,
@@ -53,12 +55,6 @@ from .helpers import get_rivian_api_from_entry, has_verified_2fa
 
 _LOGGER = logging.getLogger(__name__)
 
-
-# Whether each vehicle gets an Outside temperature sensor from the public
-# Open-Meteo API. sensor.py imports the option names below from here.
-CONF_WEATHER_LOOKUPS = "weather_lookups"
-# Off by default: it sends vehicle locations to a third party
-DEFAULT_WEATHER_LOOKUPS = False
 
 STEP_OTP_DATA_SCHEMA = vol.Schema({vol.Required(CONF_OTP): str})
 R1S = DeviceFilterSelectorConfig(integration=DOMAIN, manufacturer="Rivian", model="R1S")

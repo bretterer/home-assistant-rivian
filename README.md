@@ -187,7 +187,7 @@ Entities are available for all models (R1T, R1S and R2) unless noted otherwise.
 | Next stop ETA                                       | Sensor         | Estimated arrival at the next stop                                                                                             |
 | No updates since                                    | Sensor         | When the vehicle last reported data; empty unless that was over 10 minutes ago                                                 |
 | Odometer                                            | Sensor         |                                                                                                                                |
-| Outside temperature                                 | Sensor         | Open-Meteo's current temperature at the vehicle's location; only with the *Outside temperature* option on (see below)          |
+| Outside temperature                                 | Sensor         | Open-Meteo's current temperature at the vehicle's location; only with the *Outside temperature sensor* option on (see below)   |
 | Parked energy last 24 hours                         | Sensor         | Energy used while parked in the last 24 hours                                                                                  |
 | Parked energy last 8 hours\*                        | Sensor         | Energy used while parked in the last 8 hours                                                                                   |
 | Parked energy latest session                        | Sensor         | Energy used while parked in the current or last park session                                                                   |
@@ -356,7 +356,7 @@ These actions need only the signed-in account, not a paired phone key.
 
 ### Outside temperature
 
-The vehicle doesn't report an outside temperature, so with the **Outside temperature** option on (**Settings** > **Devices & services** > Rivian (Unofficial) > **Configure**; off by default) each vehicle gets an *Outside temperature* sensor with the current temperature at its location from the public [Open-Meteo](https://open-meteo.com/) API. Only the location, rounded to about 1 km, is sent. It's looked up when the location is first known, every 15 minutes after that (a failed lookup is retried after 1, 2 and 5 minutes), and when the vehicle has moved more than about a kilometre, at most once every 5 minutes. The sensor is unavailable until the first lookup and when the lookups have failed for an hour. With the option off nothing is sent and the sensor isn't created.
+The vehicle doesn't report an outside temperature, so with the **Outside temperature sensor (from Open-Meteo)** option on (**Settings** > **Devices & services** > Rivian (Unofficial) > **Configure**; off by default) each vehicle gets an *Outside temperature* sensor with the current temperature at its location from the public [Open-Meteo](https://open-meteo.com/) API. Only the location, rounded to about 1 km, is sent. It's looked up when the location is first known, every 15 minutes after that (a failed lookup is retried after 1, 2 and 5 minutes), and when the vehicle has moved more than about a kilometer, at most once every 5 minutes. The sensor is unavailable until the first lookup and when the lookups have failed for an hour. With the option off nothing is sent and the sensor isn't created.
 
 ## Trip Route Card
 

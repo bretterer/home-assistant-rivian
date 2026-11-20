@@ -28,7 +28,7 @@
           "vehicle_image_style": "Vehicle image style",
           "vehicle_control": "Enable vehicle control (experimental and at your own risk)",
           "zone": "Limit vehicle control to the following zones",
-          "weather_lookups": "Outside temperature"
+          "weather_lookups": "Outside temperature sensor (from Open-Meteo)"
         },
         "data_description": {
           "weather_lookups": "When on, each vehicle gets an Outside temperature sensor from the public Open-Meteo API. Only the vehicle's location, rounded to about 1 km, is sent. When off, nothing is sent."

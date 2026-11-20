@@ -43,6 +43,11 @@ CONF_REFRESH_TOKEN = "refresh_token"
 CONF_USER_SESSION_TOKEN = "user_session_token"
 CONF_VEHICLE_CONTROL = "vehicle_control"
 CONF_VEHICLE_IMAGE_STYLE = "vehicle_image_style"
+# Whether each vehicle gets an Outside temperature sensor from the public
+# Open-Meteo API
+CONF_WEATHER_LOOKUPS = "weather_lookups"
+# Off by default: it sends vehicle locations to a third party
+DEFAULT_WEATHER_LOOKUPS = False
 
 IMAGE_STYLE_CEL = "cel"
 IMAGE_STYLE_PHOTO = "photo"

@@ -57,10 +57,6 @@ class OpenMeteoWeatherClient:
             raise RuntimeError("OpenMeteoWeatherClient needs hass or a session")
         return async_get_clientsession(self.hass)
 
-    def clear_cache(self) -> None:
-        """Clear the live weather cache."""
-        self._live_cache.clear()
-
     async def async_get_current_temperature(
         self, latitude: float, longitude: float
     ) -> float | None:
@@ -92,8 +88,6 @@ class OpenMeteoWeatherClient:
         }
 
         session = self._get_session()
-        created_session = session is not self._custom_session and self.hass is None
-
         try:
             timeout = aiohttp.ClientTimeout(total=REQUEST_TIMEOUT_SECONDS)
             async with session.get(
@@ -132,6 +126,3 @@ class OpenMeteoWeatherClient:
                 err,
             )
             return None
-        finally:
-            if created_session:
-                await session.close()
