@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable
 from copy import deepcopy
 import logging
+import re
 from typing import Any
 
 from rivian import Rivian
@@ -84,6 +85,22 @@ def get_rivian_api_from_entry(hass: HomeAssistant, entry: ConfigEntry) -> Rivian
 def redact(data: Any) -> dict:
     """Redact sensitive data."""
     return async_redact_data(data, TO_REDACT)
+
+
+# A VIN (17 letters and digits) inside a log argument: a bare VIN or an id
+# built from one, such as a drive id ("<vin>_<epoch>") or a meta key.
+_VIN_IN_TEXT = re.compile(
+    r"(?<![A-Za-z0-9])[A-Za-z0-9]{11}([A-Za-z0-9]{6})(?![A-Za-z0-9])"
+)
+
+
+def redact_vin(value: object) -> str:
+    """Return ``value`` as text with every VIN cut to its last 6 characters.
+
+    For log messages: users paste logs into issues, and the rest of the
+    integration never logs a full VIN.
+    """
+    return _VIN_IN_TEXT.sub(lambda m: "…" + m.group(1), str(value))
 
 
 @callback

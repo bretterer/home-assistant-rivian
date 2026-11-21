@@ -123,8 +123,15 @@ def _setup_mock_environment() -> None:
         class MockServiceCall:
             """Mock Home Assistant ServiceCall."""
 
-            def __init__(self, data: dict[str, Any] | None = None) -> None:
+            def __init__(
+                self,
+                data: dict[str, Any] | None = None,
+                domain: str = "",
+                service: str = "",
+            ) -> None:
                 self.data = data or {}
+                self.domain = domain
+                self.service = service
 
         class MockServiceRegistry:
             """Mock Home Assistant ServiceRegistry."""
@@ -152,7 +159,9 @@ def _setup_mock_environment() -> None:
             ) -> None:
                 handler = self.services.get((domain, service))
                 if handler:
-                    call = MockServiceCall(data=service_data)
+                    call = MockServiceCall(
+                        data=service_data, domain=domain, service=service
+                    )
                     if inspect.iscoroutinefunction(handler):
                         await handler(call)
                     else:
@@ -177,7 +186,11 @@ def _setup_mock_environment() -> None:
                 self.config.components = []
                 self.services = MockServiceRegistry()
                 self.bus = MagicMock()
+                # No zones configured by default; __init__.py's zone sync
+                # (read_zone_states) reads hass.states.async_all("zone") at
+                # setup and on every zone.* state change.
                 self.states = MagicMock()
+                self.states.async_all = MagicMock(return_value=[])
                 # Sentinel that never matches a real threading.get_ident() value,
                 # so AnalyticsDatabase's executor-thread guard never fires when
                 # tests call its (normally executor-bound) methods directly from
@@ -255,6 +268,7 @@ def _setup_mock_environment() -> None:
         const_mod.UnitOfElectricCurrent = DynamicEnum  # type: ignore[attr-defined]
         const_mod.UnitOfElectricPotential = DynamicEnum  # type: ignore[attr-defined]
         const_mod.UnitOfEnergy = DynamicEnum  # type: ignore[attr-defined]
+        const_mod.UnitOfEnergyDistance = DynamicEnum  # type: ignore[attr-defined]
         const_mod.UnitOfFrequency = DynamicEnum  # type: ignore[attr-defined]
         const_mod.UnitOfLength = DynamicEnum  # type: ignore[attr-defined]
         const_mod.UnitOfPower = DynamicEnum  # type: ignore[attr-defined]
@@ -926,6 +940,9 @@ def _setup_mock_environment() -> None:
         dt_mod.parse_datetime = _parse_datetime  # type: ignore[attr-defined]
         dt_mod.utc_from_timestamp = _utc_from_timestamp  # type: ignore[attr-defined]
         dt_mod.utcnow = _utcnow  # type: ignore[attr-defined]
+        # Backs websocket_api.py's calendar/day handlers, which resolve HA's
+        # configured zone on the event loop before handing it to the executor.
+        dt_mod.get_default_time_zone = lambda: UTC  # type: ignore[attr-defined]
         sys.modules["homeassistant.util.dt"] = dt_mod
         util_mod.dt = dt_mod  # type: ignore[attr-defined]
 
@@ -953,22 +970,48 @@ def _setup_mock_environment() -> None:
                 return (value - 32.0) / 1.8
 
         class _FactorConverter:
-            """Converts by factors to a base unit, keyed by the mocked unit names."""
+            """Linear unit converter stub: factors to a base unit.
 
-            factors: dict[str, float] = {}
+            Keyed by both the real unit strings (history_backfill.py) and the
+            mocked UnitOf* names (sensor.py's display conversion). Only the
+            real strings are VALID_UNITS; anything else is rejected.
+            """
+
+            _FACTORS: dict[str, float] = {}
+            VALID_UNITS: set[str] = set()
 
             @classmethod
             def convert(cls, value: float, from_unit: str, to_unit: str) -> float:
-                return value * cls.factors[str(from_unit)] / cls.factors[str(to_unit)]
-
-        class DistanceConverter(_FactorConverter):
-            factors = {"meters": 1.0, "feet": 0.3048, "kilometers": 1000.0}
+                from_unit, to_unit = str(from_unit), str(to_unit)
+                if from_unit not in cls._FACTORS or to_unit not in cls._FACTORS:
+                    raise ValueError(f"{from_unit} to {to_unit} isn't supported")
+                return value * cls._FACTORS[from_unit] / cls._FACTORS[to_unit]
 
         class SpeedConverter(_FactorConverter):
-            factors = {
+            """Subset of Home Assistant's SpeedConverter (base unit m/s)."""
+
+            VALID_UNITS = {"m/s", "km/h", "mph"}
+            _FACTORS = {
+                "m/s": 1.0,
+                "km/h": 1 / 3.6,
+                "mph": 0.44704,
                 "meters_per_second": 1.0,
                 "kilometers_per_hour": 1 / 3.6,
                 "miles_per_hour": 0.44704,
+            }
+
+        class DistanceConverter(_FactorConverter):
+            """Subset of Home Assistant's DistanceConverter (base unit m)."""
+
+            VALID_UNITS = {"m", "km", "mi", "ft"}
+            _FACTORS = {
+                "m": 1.0,
+                "km": 1000.0,
+                "mi": 1609.344,
+                "ft": 0.3048,
+                "meters": 1.0,
+                "kilometers": 1000.0,
+                "feet": 0.3048,
             }
 
         unit_conversion_mod.TemperatureConverter = TemperatureConverter  # type: ignore[attr-defined]
@@ -1091,3 +1134,38 @@ def mock_config_entry() -> MagicMock:
     entry.add_update_listener = MagicMock()
     entry.async_on_unload = MagicMock()
     return entry
+
+
+@pytest.fixture
+def analytics_db_path(tmp_path: Any) -> str:
+    """Provide a per-test SQLite analytics database file path under tmp_path.
+
+    A real file path (not ``:memory:``) is required for tests that construct
+    multiple DriveStore/AnalyticsDatabase instances against the same
+    underlying database (persistence tests) or that need to inspect the file
+    on disk (migration/idempotency tests).
+    """
+    return str(tmp_path / "rivian_analytics_test.db")
+
+
+def make_analytics_db(hass: Any, db_path: str) -> Any:
+    """Construct and synchronously set up an AnalyticsDatabase for tests.
+
+    ``setup()`` is executor-bound in production, but is safe to call directly
+    here because the mock hass's ``loop_thread_id`` sentinel (-1) never
+    matches the test thread's real id, so the executor-thread guard does not
+    fire.
+    """
+    from custom_components.rivian.analytics_db import AnalyticsDatabase
+
+    db = AnalyticsDatabase(hass, db_path=db_path)
+    db.setup()
+    return db
+
+
+@pytest.fixture
+def analytics_db(mock_hass: Any, analytics_db_path: str) -> Any:
+    """Provide a ready (schema-initialized) AnalyticsDatabase for tests."""
+    db = make_analytics_db(mock_hass, analytics_db_path)
+    yield db
+    db.close()
