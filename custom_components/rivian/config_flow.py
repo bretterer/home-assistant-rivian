@@ -30,25 +30,46 @@ from homeassistant.helpers.selector import (
     DeviceSelectorConfig,
     EntitySelector,
     EntitySelectorConfig,
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
     SelectSelector,
     SelectSelectorConfig,
     SelectSelectorMode,
 )
 
 from .const import (
+    ANALYTICS_RETENTION_DAYS_MAX,
+    ANALYTICS_RETENTION_DAYS_MIN,
     CONF_ACCESS_TOKEN,
+    CONF_ANALYTICS_ALL_USERS,
+    CONF_ANALYTICS_RETENTION_DAYS,
+    CONF_DRIVE_ANALYTICS,
     CONF_MFA_VERIFIED,
     CONF_OTP,
     CONF_REFRESH_TOKEN,
+    CONF_TRACK_CAPTURE,
+    CONF_TRACK_FULL_DETAIL_DAYS,
+    CONF_TRACK_RETENTION_DAYS,
     CONF_USER_SESSION_TOKEN,
     CONF_VEHICLE_CONTROL,
     CONF_VEHICLE_IMAGE_STYLE,
     CONF_WEATHER_LOOKUPS,
+    DEFAULT_ANALYTICS_ALL_USERS,
+    DEFAULT_ANALYTICS_RETENTION_DAYS,
+    DEFAULT_DRIVE_ANALYTICS,
+    DEFAULT_TRACK_CAPTURE,
+    DEFAULT_TRACK_FULL_DETAIL_DAYS,
+    DEFAULT_TRACK_RETENTION_DAYS,
     DEFAULT_WEATHER_LOOKUPS,
     DOMAIN,
     IMAGE_STYLE_CEL,
     IMAGE_STYLE_NONE,
     IMAGE_STYLE_PHOTO,
+    TRACK_FULL_DETAIL_DAYS_MAX,
+    TRACK_FULL_DETAIL_DAYS_MIN,
+    TRACK_RETENTION_DAYS_MAX,
+    TRACK_RETENTION_DAYS_MIN,
 )
 from .coordinator import UserCoordinator
 from .helpers import get_rivian_api_from_entry, has_verified_2fa
@@ -76,8 +97,54 @@ OPTIONS_SCHEMA = vol.Schema(
             EntitySelectorConfig(domain=ZONE_DOMAIN, multiple=True)
         ),
         vol.Optional(
+            CONF_DRIVE_ANALYTICS, default=DEFAULT_DRIVE_ANALYTICS
+        ): BooleanSelector(),
+        vol.Optional(
             CONF_WEATHER_LOOKUPS, default=DEFAULT_WEATHER_LOOKUPS
         ): BooleanSelector(),
+    }
+)
+
+
+# Shown on a second page only while drive analytics is on (_analytics_next_step)
+ANALYTICS_OPTIONS_SCHEMA = vol.Schema(
+    {
+        vol.Optional(
+            CONF_ANALYTICS_ALL_USERS, default=DEFAULT_ANALYTICS_ALL_USERS
+        ): BooleanSelector(),
+        vol.Optional(
+            CONF_ANALYTICS_RETENTION_DAYS, default=DEFAULT_ANALYTICS_RETENTION_DAYS
+        ): NumberSelector(
+            NumberSelectorConfig(
+                min=ANALYTICS_RETENTION_DAYS_MIN,
+                max=ANALYTICS_RETENTION_DAYS_MAX,
+                step=1,
+                mode=NumberSelectorMode.BOX,
+            )
+        ),
+        vol.Optional(
+            CONF_TRACK_CAPTURE, default=DEFAULT_TRACK_CAPTURE
+        ): BooleanSelector(),
+        vol.Optional(
+            CONF_TRACK_RETENTION_DAYS, default=DEFAULT_TRACK_RETENTION_DAYS
+        ): NumberSelector(
+            NumberSelectorConfig(
+                min=TRACK_RETENTION_DAYS_MIN,
+                max=TRACK_RETENTION_DAYS_MAX,
+                step=1,
+                mode=NumberSelectorMode.BOX,
+            )
+        ),
+        vol.Optional(
+            CONF_TRACK_FULL_DETAIL_DAYS, default=DEFAULT_TRACK_FULL_DETAIL_DAYS
+        ): NumberSelector(
+            NumberSelectorConfig(
+                min=TRACK_FULL_DETAIL_DAYS_MIN,
+                max=TRACK_FULL_DETAIL_DAYS_MAX,
+                step=1,
+                mode=NumberSelectorMode.BOX,
+            )
+        ),
     }
 )
 
@@ -175,10 +242,20 @@ async def validate_vehicle_control(
     return user_input
 
 
+async def _analytics_next_step(options: dict[str, Any]) -> str | None:
+    """Show the drive analytics settings only while drive analytics is on."""
+    if options.get(CONF_DRIVE_ANALYTICS, DEFAULT_DRIVE_ANALYTICS):
+        return "analytics"
+    return None
+
+
 OPTIONS_FLOW = {
     "init": SchemaFlowFormStep(
-        OPTIONS_SCHEMA, validate_user_input=validate_vehicle_control
-    )
+        OPTIONS_SCHEMA,
+        validate_user_input=validate_vehicle_control,
+        next_step=_analytics_next_step,
+    ),
+    "analytics": SchemaFlowFormStep(ANALYTICS_OPTIONS_SCHEMA),
 }
 
 
