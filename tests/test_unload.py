@@ -20,13 +20,17 @@ async def test_vehicles_stop_before_the_client_closes() -> None:
     )
     api = SimpleNamespace(close=AsyncMock(side_effect=lambda: order.append("api")))
     hass = SimpleNamespace(
+        data={},
         config_entries=SimpleNamespace(
-            async_unload_platforms=AsyncMock(return_value=True)
-        )
+            async_unload_platforms=AsyncMock(return_value=True),
+            async_loaded_entries=lambda domain: [],
+        ),
     )
     entry = SimpleNamespace(
         entry_id="entry",
-        runtime_data=SimpleNamespace(api=api, vehicle_coordinators={"V": vehicle}),
+        runtime_data=SimpleNamespace(
+            api=api, vehicle_coordinators={"V": vehicle}, drive_trackers={}
+        ),
     )
 
     assert await rivian.async_unload_entry(hass, entry)
@@ -183,7 +187,9 @@ async def test_unload_stops_if_platforms_dont_unload() -> None:
     )
     entry = SimpleNamespace(
         entry_id="entry",
-        runtime_data=SimpleNamespace(api=api, vehicle_coordinators={"V": vehicle}),
+        runtime_data=SimpleNamespace(
+            api=api, vehicle_coordinators={"V": vehicle}, drive_trackers={}
+        ),
     )
 
     assert not await rivian.async_unload_entry(hass, entry)
@@ -203,14 +209,18 @@ async def test_one_vehicle_failing_to_stop_still_closes_the_client() -> None:
     )
     api = SimpleNamespace(close=AsyncMock(side_effect=lambda: order.append("api")))
     hass = SimpleNamespace(
+        data={},
         config_entries=SimpleNamespace(
-            async_unload_platforms=AsyncMock(return_value=True)
-        )
+            async_unload_platforms=AsyncMock(return_value=True),
+            async_loaded_entries=lambda domain: [],
+        ),
     )
     entry = SimpleNamespace(
         entry_id="entry",
         runtime_data=SimpleNamespace(
-            api=api, vehicle_coordinators={"V1": failing, "V2": other}
+            api=api,
+            vehicle_coordinators={"V1": failing, "V2": other},
+            drive_trackers={},
         ),
     )
 
