@@ -25,10 +25,10 @@ jobs:
           pip install pytest
 
       - name: Lint with ruff
-        run: ruff check custom_components/ tests/
+        run: ruff check custom_components/ tests/ scripts/
 
       - name: Format check with ruff
-        run: ruff format --check custom_components/ tests/
+        run: ruff format --check custom_components/ tests/ scripts/
 
       - name: Run tests
         run: pytest tests/

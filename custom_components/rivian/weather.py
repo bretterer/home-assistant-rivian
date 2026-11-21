@@ -1,10 +1,11 @@
-"""Open-Meteo weather client."""
+"""Open-Meteo REST and Historical Archive Weather Client."""
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 import logging
 import time
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Any, Final
 
 import aiohttp
 
@@ -18,6 +19,7 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 OPEN_METEO_FORECAST_URL: Final[str] = "https://api.open-meteo.com/v1/forecast"
+OPEN_METEO_ARCHIVE_URL: Final[str] = "https://archive-api.open-meteo.com/v1/archive"
 REQUEST_TIMEOUT_SECONDS: Final[float] = 10.0
 USER_AGENT: Final[str] = (
     f"home-assistant-rivian/{VERSION} "
@@ -28,6 +30,172 @@ LIVE_CACHE_TTL_SECONDS: Final[float] = 900.0  # 15 minutes
 # Coordinates sent to Open-Meteo are rounded to 2 decimals (about 1 km),
 # plenty for weather and the same grid the caches use.
 REQUEST_COORDINATE_DECIMALS: Final[int] = 2
+# How far past the first/last hourly point a time may be and still take that
+# point's temperature.
+INTERPOLATION_EDGE_TOLERANCE_S: Final[float] = 3600.0
+# The forecast API's ``past_days`` reaches back at most this far.
+RECENT_PAST_DAYS_MAX: Final[int] = 92
+
+
+def _parse_iso_datetime(dt_val: str | datetime) -> datetime | None:
+    """Parse string or datetime to timezone-aware UTC datetime."""
+    if isinstance(dt_val, datetime):
+        if dt_val.tzinfo is None:
+            return dt_val.replace(tzinfo=UTC)
+        return dt_val.astimezone(UTC)
+    if not isinstance(dt_val, str) or not dt_val:
+        return None
+    try:
+        normalized = dt_val.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(normalized)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=UTC)
+        return dt.astimezone(UTC)
+    except (ValueError, TypeError):
+        return None
+
+
+def calculate_distance_weighted_temperature(
+    weather_samples: list[dict[str, Any]],
+    total_distance_miles: float = 0.0,
+) -> float | None:
+    """Calculate distance-weighted integrated temperature across route weather waypoints."""
+    if not weather_samples:
+        return None
+
+    valid_samples: list[dict[str, Any]] = []
+    for s in weather_samples:
+        if isinstance(s, dict) and s.get("temp_f") is not None:
+            try:
+                temp = float(s["temp_f"])
+                dist = float(s.get("distance_at_sample", 0.0))
+                valid_samples.append({"temp_f": temp, "distance_at_sample": dist})
+            except (ValueError, TypeError):
+                continue
+
+    if not valid_samples:
+        return None
+
+    if len(valid_samples) == 1:
+        return round(valid_samples[0]["temp_f"], 1)
+
+    # Sort samples by distance at sample
+    valid_samples.sort(key=lambda s: s["distance_at_sample"])
+
+    weighted_sum = 0.0
+    total_weight = 0.0
+
+    # Account for head interval (from start 0.0 to first sample)
+    first_dist = valid_samples[0]["distance_at_sample"]
+    if first_dist > 0.0:
+        weighted_sum += valid_samples[0]["temp_f"] * first_dist
+        total_weight += first_dist
+
+    # Intermediate intervals between waypoints
+    for i in range(1, len(valid_samples)):
+        d_prev = valid_samples[i - 1]["distance_at_sample"]
+        d_curr = valid_samples[i]["distance_at_sample"]
+        delta_d = max(0.0, d_curr - d_prev)
+        avg_temp = (valid_samples[i - 1]["temp_f"] + valid_samples[i]["temp_f"]) / 2.0
+        weighted_sum += avg_temp * delta_d
+        total_weight += delta_d
+
+    # Account for tail interval (from last sample to total drive distance)
+    last_dist = valid_samples[-1]["distance_at_sample"]
+    if total_distance_miles > last_dist:
+        tail_delta = total_distance_miles - last_dist
+        weighted_sum += valid_samples[-1]["temp_f"] * tail_delta
+        total_weight += tail_delta
+
+    if total_weight > 0.0:
+        return round(weighted_sum / total_weight, 1)
+
+    # Fallback to simple average if total distance delta is zero
+    simple_avg = sum(s["temp_f"] for s in valid_samples) / len(valid_samples)
+    return round(simple_avg, 1)
+
+
+def get_interpolated_temperature(
+    hourly_temps: dict[str, float],
+    target_time: datetime | str,
+) -> float | None:
+    """Interpolate temperature from hourly temperature mapping for a specific timestamp."""
+    if not hourly_temps:
+        return None
+
+    target_dt = _parse_iso_datetime(target_time)
+    if target_dt is None:
+        return None
+
+    parsed_entries: list[tuple[datetime, float]] = []
+    for ts_str, temp in hourly_temps.items():
+        dt = _parse_iso_datetime(ts_str)
+        if dt is not None and isinstance(temp, (int, float)):
+            parsed_entries.append((dt, float(temp)))
+
+    if not parsed_entries:
+        return None
+
+    parsed_entries.sort(key=lambda item: item[0])
+
+    # Check boundaries. A time well outside the data gets no temperature
+    # rather than the nearest hour's: the archive runs days behind, so a recent
+    # drive would otherwise be given a temperature from days earlier.
+    tolerance = timedelta(seconds=INTERPOLATION_EDGE_TOLERANCE_S)
+    if target_dt <= parsed_entries[0][0]:
+        if parsed_entries[0][0] - target_dt > tolerance:
+            return None
+        return round(parsed_entries[0][1], 1)
+    if target_dt >= parsed_entries[-1][0]:
+        if target_dt - parsed_entries[-1][0] > tolerance:
+            return None
+        return round(parsed_entries[-1][1], 1)
+
+    # Find bounding bracket
+    for i in range(len(parsed_entries) - 1):
+        t0, temp0 = parsed_entries[i]
+        t1, temp1 = parsed_entries[i + 1]
+        if t0 <= target_dt <= t1:
+            total_sec = (t1 - t0).total_seconds()
+            if total_sec <= 0:
+                return round(temp0, 1)
+            alpha = (target_dt - t0).total_seconds() / total_sec
+            interpolated = temp0 + alpha * (temp1 - temp0)
+            return round(interpolated, 2)
+
+    return round(parsed_entries[-1][1], 2)
+
+
+def calculate_window_average_temperature(
+    hourly_temps: dict[str, float],
+    start_time: datetime | str,
+    end_time: datetime | str,
+) -> float | None:
+    """Calculate mean ambient temperature over a time interval from hourly temperatures."""
+    start_dt = _parse_iso_datetime(start_time)
+    end_dt = _parse_iso_datetime(end_time)
+    if start_dt is None or end_dt is None or not hourly_temps:
+        return None
+    if start_dt > end_dt:
+        start_dt, end_dt = end_dt, start_dt
+
+    samples: list[float] = []
+    t_start = get_interpolated_temperature(hourly_temps, start_dt)
+    if t_start is not None:
+        samples.append(t_start)
+
+    for ts_str, temp in hourly_temps.items():
+        dt = _parse_iso_datetime(ts_str)
+        if dt is not None and start_dt < dt < end_dt and isinstance(temp, (int, float)):
+            samples.append(float(temp))
+
+    t_end = get_interpolated_temperature(hourly_temps, end_dt)
+    if t_end is not None:
+        samples.append(t_end)
+
+    if not samples:
+        return None
+    return round(sum(samples) / len(samples), 1)
 
 
 class OpenMeteoWeatherClient:
@@ -48,6 +216,9 @@ class OpenMeteoWeatherClient:
         self.enabled = enabled
         self._custom_session = session
         self._live_cache: dict[tuple[float, float], tuple[float, float]] = {}
+        self._historical_cache: dict[
+            tuple[float, float, str, str], dict[str, float]
+        ] = {}
 
     def _get_session(self) -> aiohttp.ClientSession:
         """Return the given session, else Home Assistant's shared one."""
@@ -126,3 +297,213 @@ class OpenMeteoWeatherClient:
                 err,
             )
             return None
+
+    async def async_get_historical_temperatures(
+        self,
+        latitude: float,
+        longitude: float,
+        start_date: str,
+        end_date: str,
+    ) -> dict[str, float] | None:
+        """Fetch historical hourly temperatures from Open-Meteo Archive API with caching."""
+        if not self.enabled:
+            return None
+        grid_lat = round(latitude, 2)
+        grid_lon = round(longitude, 2)
+        cache_key = (grid_lat, grid_lon, start_date, end_date)
+
+        if cache_key in self._historical_cache:
+            _LOGGER.debug(
+                "Returning cached historical temperatures for grid (%s, %s, %s, %s)",
+                grid_lat,
+                grid_lon,
+                start_date,
+                end_date,
+            )
+            return dict(self._historical_cache[cache_key])
+
+        params = {
+            "latitude": round(latitude, REQUEST_COORDINATE_DECIMALS),
+            "longitude": round(longitude, REQUEST_COORDINATE_DECIMALS),
+            "start_date": start_date,
+            "end_date": end_date,
+            "hourly": "temperature_2m",
+            "temperature_unit": "fahrenheit",
+            "timezone": "UTC",
+        }
+
+        session = self._get_session()
+        try:
+            timeout = aiohttp.ClientTimeout(total=REQUEST_TIMEOUT_SECONDS)
+            async with session.get(
+                OPEN_METEO_ARCHIVE_URL,
+                params=params,
+                timeout=timeout,
+                headers=_HEADERS,
+            ) as response:
+                if response.status != 200:
+                    _LOGGER.warning(
+                        "Open-Meteo archive API returned status %s for (%s, %s)",
+                        response.status,
+                        latitude,
+                        longitude,
+                    )
+                    return None
+                data = await response.json()
+                hourly_data = data.get("hourly", {})
+                times = hourly_data.get("time", [])
+                temps = hourly_data.get("temperature_2m", [])
+
+                if not times or not temps or len(times) != len(temps):
+                    return None
+
+                result: dict[str, float] = {}
+                for t, temp in zip(times, temps, strict=True):
+                    if temp is not None:
+                        result[str(t)] = round(float(temp), 1)
+
+                self._historical_cache[cache_key] = result
+                return dict(result)
+        except (
+            TimeoutError,
+            aiohttp.ClientError,
+            KeyError,
+            TypeError,
+            ValueError,
+        ) as err:
+            _LOGGER.debug(
+                "Failed to fetch historical temperatures for (%s, %s): %s",
+                latitude,
+                longitude,
+                err,
+            )
+            return None
+
+    async def async_get_recent_hourly_temperatures(
+        self,
+        latitude: float,
+        longitude: float,
+        past_days: int,
+    ) -> dict[str, float] | None:
+        """Fetch hourly temperatures for the last ``past_days`` from the forecast API.
+
+        The archive lags a few days behind; the forecast API's recent past
+        covers that gap. Returns ``None`` when disabled or on any failure.
+        """
+        if not self.enabled:
+            return None
+        params = {
+            "latitude": round(latitude, REQUEST_COORDINATE_DECIMALS),
+            "longitude": round(longitude, REQUEST_COORDINATE_DECIMALS),
+            "past_days": max(1, min(int(past_days), RECENT_PAST_DAYS_MAX)),
+            "forecast_days": 1,
+            "hourly": "temperature_2m",
+            "temperature_unit": "fahrenheit",
+            "timezone": "UTC",
+        }
+        session = self._get_session()
+        try:
+            timeout = aiohttp.ClientTimeout(total=REQUEST_TIMEOUT_SECONDS)
+            async with session.get(
+                OPEN_METEO_FORECAST_URL,
+                params=params,
+                timeout=timeout,
+                headers=_HEADERS,
+            ) as response:
+                if response.status != 200:
+                    _LOGGER.warning(
+                        "Open-Meteo forecast API returned status %s for (%s, %s)",
+                        response.status,
+                        latitude,
+                        longitude,
+                    )
+                    return None
+                data = await response.json()
+                hourly_data = data.get("hourly", {})
+                times = hourly_data.get("time", [])
+                temps = hourly_data.get("temperature_2m", [])
+                if not times or not temps or len(times) != len(temps):
+                    return None
+                return {
+                    str(t): round(float(temp), 1)
+                    for t, temp in zip(times, temps, strict=True)
+                    if temp is not None
+                }
+        except (
+            TimeoutError,
+            aiohttp.ClientError,
+            KeyError,
+            AttributeError,
+            TypeError,
+            ValueError,
+        ) as err:
+            _LOGGER.debug(
+                "Failed to fetch recent temperatures for (%s, %s): %s",
+                latitude,
+                longitude,
+                err,
+            )
+            return None
+
+    async def async_get_historical_temperature_for_timestamp(
+        self,
+        latitude: float,
+        longitude: float,
+        target_time: datetime | str,
+    ) -> float | None:
+        """Fetch and interpolate historical temperature for a specific timestamp."""
+        target_dt = _parse_iso_datetime(target_time)
+        if target_dt is None:
+            return None
+
+        date_str = target_dt.strftime("%Y-%m-%d")
+        hourly = await self.async_get_historical_temperatures(
+            latitude=latitude,
+            longitude=longitude,
+            start_date=date_str,
+            end_date=date_str,
+        )
+        if not hourly:
+            return None
+
+        return get_interpolated_temperature(hourly, target_dt)
+
+
+async def async_get_current_temperature(
+    hass: HomeAssistant,
+    latitude: float,
+    longitude: float,
+    session: aiohttp.ClientSession | None = None,
+) -> float | None:
+    """Helper to fetch current live ambient temperature from Open-Meteo."""
+    client = OpenMeteoWeatherClient(hass=hass, session=session)
+    return await client.async_get_current_temperature(latitude, longitude)
+
+
+async def async_get_historical_temperatures(
+    hass: HomeAssistant,
+    latitude: float,
+    longitude: float,
+    start_date: str,
+    end_date: str,
+    session: aiohttp.ClientSession | None = None,
+) -> dict[str, float] | None:
+    """Helper to fetch historical hourly temperatures from Open-Meteo Archive API."""
+    client = OpenMeteoWeatherClient(hass=hass, session=session)
+    return await client.async_get_historical_temperatures(
+        latitude, longitude, start_date, end_date
+    )
+
+
+async def async_get_historical_temperature_for_timestamp(
+    hass: HomeAssistant,
+    latitude: float,
+    longitude: float,
+    target_time: datetime | str,
+    session: aiohttp.ClientSession | None = None,
+) -> float | None:
+    """Helper to fetch and interpolate historical temperature for a specific timestamp."""
+    client = OpenMeteoWeatherClient(hass=hass, session=session)
+    return await client.async_get_historical_temperature_for_timestamp(
+        latitude, longitude, target_time
+    )
