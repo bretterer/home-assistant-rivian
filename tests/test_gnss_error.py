@@ -117,7 +117,7 @@ def test_newer_navigation_fix(coor: coordinator.VehicleCoordinator) -> None:
 def test_newer_graphql_position(coor: coordinator.VehicleCoordinator) -> None:
     """A newer GraphQL position has no error, but speed and bearing keep theirs."""
     gnss_fix(coor, T0)
-    coor._process_graphql_location(
+    coor._process_graphql_position(
         {
             "type": "next",
             "payload": {
@@ -137,6 +137,59 @@ def test_newer_graphql_position(coor: coordinator.VehicleCoordinator) -> None:
 
     assert coor.gnss_error("positionHorizontal") is None
     assert coor.gnss_error("speed") == ERROR["speed"]
+
+
+def graphql_fast(
+    coor: coordinator.VehicleCoordinator, at: datetime, **values: float
+) -> None:
+    """Deliver GraphQL fast fields (gnssAltitude=..., ...) reported at `at`."""
+    stamp = at.isoformat().replace("+00:00", "Z")
+    coor._process_graphql_position(
+        {
+            "type": "next",
+            "payload": {
+                "data": {
+                    "vehicleState": {
+                        key: {"value": value, "timeStamp": stamp}
+                        for key, value in values.items()
+                    }
+                }
+            },
+        }
+    )
+
+
+def test_newer_graphql_altitude(coor: coordinator.VehicleCoordinator) -> None:
+    """A newer GraphQL altitude has no error, but the location keeps its own."""
+    gnss_fix(coor, T0)
+    graphql_fast(coor, T0 + timedelta(seconds=5), gnssAltitude=1700.0, gnssSpeed=13.0)
+
+    assert coor.get("gnssAltitude") == 1700.0
+    assert coor.gnss_error("positionVertical") is None
+    assert coor.gnss_error("speed") is None
+    assert coor.gnss_error("positionHorizontal") == ERROR["positionHorizontal"]
+
+
+def test_parallax_altitude_after_graphql(
+    coor: coordinator.VehicleCoordinator,
+) -> None:
+    """Once GraphQL's altitude is no longer recent, Parallax's fix has its error."""
+    gnss_fix(coor, T0)
+    graphql_fast(coor, T0 + timedelta(seconds=5), gnssAltitude=1700.0)
+    later = T0 + const.GRAPHQL_FAST_FIELD_FRESHNESS + timedelta(minutes=1)
+    with patch.object(coordinator.dt_util, "utcnow", return_value=later):
+        gnss_fix(coor, later)
+
+    assert coor.get("gnssAltitude") == 1400.0
+    assert coor.gnss_error("positionVertical") == ERROR["positionVertical"]
+
+
+def test_unchanged_parallax_altitude(coor: coordinator.VehicleCoordinator) -> None:
+    """A newer Parallax fix with the same altitude still has its error."""
+    gnss_fix(coor, T0)
+    gnss_fix(coor, T0 + timedelta(minutes=1))
+
+    assert coor.gnss_error("positionVertical") == ERROR["positionVertical"]
 
 
 @pytest.mark.parametrize(
