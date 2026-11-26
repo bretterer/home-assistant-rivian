@@ -1371,7 +1371,7 @@
     },
     "send_location": {
       "name": "Send location",
-      "description": "Sends a location to the vehicle's navigation. It starts navigating there, or adds it as a stop if it's already navigating.",
+      "description": "Sends a location, or a destination to look up, to the vehicle's navigation. It starts navigating there, or adds it as a stop if it's already navigating.",
       "fields": {
         "device_id": {
           "name": "Vehicle",
@@ -1379,7 +1379,11 @@
         },
         "location": {
           "name": "Location",
-          "description": "The location to navigate to. Defaults to Home Assistant's home location."
+          "description": "The location to navigate to. Without it or a destination, Home Assistant's home location is sent."
+        },
+        "destination": {
+          "name": "Destination",
+          "description": "A place or an address for Rivian to look up, instead of a location. A business name with its address, or a full street address, is found most reliably."
         }
       }
     },

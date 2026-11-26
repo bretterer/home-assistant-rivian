@@ -52,6 +52,7 @@ from .helpers import deep_merge, schedule_cabin_temperature
 
 ATTR_DAYS: Final = "days"
 ATTR_DEPARTURE_TIME: Final = "departure_time"
+ATTR_DESTINATION: Final = "destination"
 ATTR_ENABLED: Final = "enabled"
 ATTR_FRONT_DEFROST: Final = "front_defrost"
 ATTR_LEAD_TIME: Final = "lead_time"
@@ -153,9 +154,13 @@ LOCATION_SCHEMA: Final = vol.Schema(
 SEND_LOCATION_SCHEMA: Final = vol.Schema(
     {
         vol.Required(ATTR_DEVICE_ID): cv.string,
-        # Home Assistant's home location when left out, as the location selector
-        # shows it on the map when empty
-        vol.Optional(ATTR_LOCATION): LOCATION_SCHEMA,
+        # Home Assistant's home location when both are left out, as the location
+        # selector shows it on the map when empty
+        vol.Exclusive(ATTR_LOCATION, "place"): LOCATION_SCHEMA,
+        # text Rivian looks up, instead of coordinates
+        vol.Exclusive(ATTR_DESTINATION, "place"): vol.All(
+            cv.string, str.strip, vol.Length(min=1)
+        ),
     }
 )
 
@@ -380,11 +385,12 @@ def async_setup_services(hass: HomeAssistant) -> None:
     async def send_location(call: ServiceCall) -> None:
         """Send a location to the vehicle's navigation."""
         coordinator = await _async_get_controlled_vehicle(hass, call)
-        # plain "lat,lng", as a Google Maps link to coordinates sent the vehicle to
-        # an earlier destination instead. Fixed decimals, as the default float
-        # format turns tiny values into 1e-05
-        latitude, longitude = _coordinates(hass, call.data.get(ATTR_LOCATION))
-        location = f"{latitude:.6f},{longitude:.6f}"
+        if (location := call.data.get(ATTR_DESTINATION)) is None:
+            # plain "lat,lng", as a Google Maps link to coordinates sent the vehicle
+            # to an earlier destination instead. Fixed decimals, as the default
+            # float format turns tiny values into 1e-05
+            latitude, longitude = _coordinates(hass, call.data.get(ATTR_LOCATION))
+            location = f"{latitude:.6f},{longitude:.6f}"
         try:
             response = await coordinator.api.send_location_to_vehicle(
                 coordinator.vehicle_id, location
