@@ -350,7 +350,7 @@ These actions need only the signed-in account, not a paired phone key.
 
 | Action                 | Description                                                                                          |
 | ---------------------- | ---------------------------------------------------------------------------------------------------- |
-| `rivian.send_location` | Send a `location` (`latitude`, `longitude`, by default Home Assistant's home) to a vehicle's navigation, which starts navigating there, or adds it as a stop if it's already navigating |
+| `rivian.send_location` | Send a `location` (`latitude`, `longitude`, by default Home Assistant's home) to a vehicle's navigation, which starts navigating there, or adds it as a stop if it's already navigating. Or send a `destination` instead: text Rivian looks up, like `REI Denver` or a street address |
 | `rivian.send_trip`     | Send `stops` (each a `name`, by default "Stop 1" and so on, and a `location`, by default Home Assistant's home) to a vehicle's navigation, which plans the route and charging stops, ending any active trip first (optional `arrival_range`) |
 | `rivian.end_trip`      | End the trip a vehicle is navigating |
 

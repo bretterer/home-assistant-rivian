@@ -542,6 +542,44 @@ async def test_send_location_defaults_to_home(
     share.assert_awaited_once_with("vehicle", "38.900000,-94.600000")
 
 
+async def test_send_location_destination(
+    hass: SimpleNamespace, coordinator: MagicMock
+) -> None:
+    """A destination is sent as it is, for Rivian to look up."""
+    share = _sharing(coordinator, ACCEPTED)
+    send = _handlers(hass)[services.SERVICE_SEND_LOCATION]
+    call = _location_call(destination="REI Denver")
+    del call.data[services.ATTR_LOCATION]
+
+    await send(call)
+    share.assert_awaited_once_with("vehicle", "REI Denver")
+
+
+def test_send_location_destination_is_trimmed(hass: SimpleNamespace) -> None:
+    schema = _register(hass)[1][services.SERVICE_SEND_LOCATION]
+    data = schema({"device_id": "d", "destination": " 123 Main St, Boulder "})
+    assert data["destination"] == "123 Main St, Boulder"
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        {"destination": "   "},
+        {
+            "destination": "REI Denver",
+            "location": {"latitude": 39.05, "longitude": -94.48},
+        },
+    ],
+    ids=["blank-destination", "destination-and-location"],
+)
+def test_send_location_schema_rejects(
+    hass: SimpleNamespace, data: dict[str, Any]
+) -> None:
+    schema = _register(hass)[1][services.SERVICE_SEND_LOCATION]
+    with pytest.raises(vol.Invalid):
+        schema({"device_id": "d"} | data)
+
+
 async def test_send_location_checks_permission(
     hass: SimpleNamespace, coordinator: MagicMock
 ) -> None:

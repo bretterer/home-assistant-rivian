@@ -200,6 +200,10 @@ send_location:
       selector:
         location:
           radius: false
+    destination:
+      example: "REI, 1416 Platte St, Denver, CO"
+      selector:
+        text:
 
 send_trip:
   fields:
